@@ -36,6 +36,11 @@ import { __nonReactive } from "./collections/tags";
 import { fetchUserFromApi } from "./ape/user";
 import { SnapshotInitError } from "./utils/snapshot-init-error";
 import { updateTagsInFilterStorage } from "./states/result-filters";
+import {
+  DESKTOP_OFFLINE,
+  loadLocalSnapshotFields,
+  saveLocalSnapshotFields,
+} from "./utils/local-persistence";
 
 let dbSnapshot: Snapshot | undefined;
 const firstDayOfTheWeek = getFirstDayOfTheWeek();
@@ -299,6 +304,25 @@ export async function updateLbMemory<M extends Mode>(
   }
 }
 
+/**
+ * desktop offline build: give signed-out users a snapshot so local results,
+ * personal bests and typing stats work, restored from localStorage.
+ */
+export function initLocalSnapshot(): void {
+  if (dbSnapshot !== undefined) return;
+  if (isAuthenticated()) return;
+  const snap = getDefaultSnapshot();
+  const stored = loadLocalSnapshotFields();
+  if (stored !== undefined) {
+    snap.personalBests = stored.personalBests ?? snap.personalBests;
+    snap.typingStats = stored.typingStats;
+    snap.xp = stored.xp;
+    snap.streak = stored.streak;
+    snap.maxStreak = stored.maxStreak;
+  }
+  setSnapshot(snap, { dispatchEvent: false });
+}
+
 export type SaveLocalResultData = {
   xp?: number;
   xpBreakdown?: XpBreakdown;
@@ -365,6 +389,10 @@ export function saveLocalResult(data: SaveLocalResultData): void {
   setSnapshot(snapshot, {
     dispatchEvent: false,
   });
+  if (!isAuthenticated() && DESKTOP_OFFLINE) {
+    //desktop offline build: persist snapshot so pbs/stats survive restarts
+    saveLocalSnapshotFields(snapshot);
+  }
   if (data.xp !== undefined) {
     setXpBarData({
       addedXp: data.xp,

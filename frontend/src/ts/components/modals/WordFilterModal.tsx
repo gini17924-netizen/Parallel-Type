@@ -11,7 +11,7 @@ import {
   Setter,
 } from "solid-js";
 
-import { LanguageList } from "../../constants/languages";
+import { AvailableLanguageList } from "../../constants/languages";
 import { LayoutsList } from "../../constants/layouts";
 import { createDebouncedSignal } from "../../hooks/createDebouncedSignal";
 import { hideLoaderBar, showLoaderBar } from "../../states/loader-bar";
@@ -96,7 +96,7 @@ const presets: Record<string, FilterPreset> = {
   },
 };
 
-const languageOptions = LanguageList.map((lang) => ({
+const languageOptions = AvailableLanguageList.map((lang) => ({
   value: lang,
   text: lang.replace(/_/gi, " "),
 }));

@@ -4,6 +4,7 @@ import { LocalStorageWithSchema } from "./local-storage-with-schema";
 import { tryCatch } from "@monkeytype/util/trycatch";
 import { isDevEnvironment } from "./env";
 import { createErrorMessage } from "./error";
+import { DESKTOP_OFFLINE } from "./local-persistence";
 
 const memoryLS = new LocalStorageWithSchema({
   key: "lastSeenVersion",
@@ -22,7 +23,8 @@ export async function fetchLatestVersion(): Promise<{
   text: string;
   isNew: boolean;
 } | null> {
-  if (isDevEnvironment()) return null;
+  //desktop offline build: updates come with new app releases, not the website
+  if (DESKTOP_OFFLINE || isDevEnvironment()) return null;
 
   const { data: currentVersion, error } = await tryCatch(
     getLatestReleaseFromGitHub(),

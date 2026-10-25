@@ -110,6 +110,10 @@ import {
 } from "./funbox/list";
 import { getFunbox } from "@monkeytype/funbox";
 import { SnapshotResult } from "../constants/default-snapshot";
+import {
+  DESKTOP_OFFLINE,
+  makeLocalResultId,
+} from "../utils/local-persistence";
 import { WordGenError } from "../utils/word-gen-error";
 import { tryCatch } from "@monkeytype/util/trycatch";
 import * as Sentry from "../sentry";
@@ -1111,6 +1115,40 @@ export async function finish(difficultyFailed = false): Promise<void> {
     if (!dontSave) {
       // if its valid save it for later
       setLastSignedOutResult(completedEvent);
+      if (DESKTOP_OFFLINE) {
+        //desktop offline build: keep the result, pbs and stats locally
+        const snapshotResult = structuredClone(
+          completedEvent,
+        ) as unknown as SnapshotResult<Mode>;
+        snapshotResult._id = makeLocalResultId();
+        const funboxMetadata = getFunbox(snapshotResult.funbox);
+        const canGetPb =
+          snapshotResult.mode !== "quote" &&
+          funboxMetadata.every((f) => f.canGetPb);
+        const localPb = canGetPb
+          ? DB.getLocalPB(
+              snapshotResult.mode,
+              snapshotResult.mode2,
+              snapshotResult.punctuation,
+              snapshotResult.numbers,
+              snapshotResult.language,
+              snapshotResult.difficulty,
+              snapshotResult.lazyMode,
+              funboxMetadata,
+            )
+          : undefined;
+        const isPb =
+          canGetPb &&
+          (localPb === undefined || snapshotResult.wpm > localPb.wpm);
+        if (isPb) {
+          snapshotResult.isPb = true;
+          if (localPb !== undefined) {
+            showConfetti();
+          }
+          setCrownType("normal");
+        }
+        DB.saveLocalResult({ result: snapshotResult, isPb });
+      }
     }
     dontSave = true;
   }

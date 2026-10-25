@@ -124,6 +124,8 @@ function getPlugins({
     versionFile({ clientVersion }),
     ViteMinifyPlugin(),
     VitePWA({
+      //desktop offline build: no service worker or manifest needed
+      disable: true,
       // injectRegister: "networkfirst",
       injectRegister: null,
       registerType: "autoUpdate",
@@ -208,7 +210,9 @@ function getBuildOptions({
     assetsInlineLimit: 0, //dont inline small files as data
     rolldownOptions: {
       input: {
-        monkeytype: path.resolve(__dirname, "src/index.html"),
+        //desktop offline build: renamed from "monkeytype" to "index" so the
+        //tauri webview can serve the app at "/" (the router expects that)
+        index: path.resolve(__dirname, "src/index.html"),
         email: path.resolve(__dirname, "src/email-handler.html"),
         privacy: path.resolve(__dirname, "src/privacy-policy.html"),
         security: path.resolve(__dirname, "src/security-policy.html"),

@@ -54,6 +54,7 @@ import {
   runLoadingStep,
 } from "./loading-bar";
 import { applyUrlActions } from "../url-actions/apply";
+import { DESKTOP_OFFLINE } from "../utils/local-persistence";
 
 // NOTE: whenever adding a route add the pathname to the `firebase.json` rewrite rule
 
@@ -158,7 +159,10 @@ async function runRouteLoadingStep(
 
 function signedInOnly(auth: RouterAuth): void {
   if (!auth.isAvailable()) redirect({ to: "/", throw: true });
-  if (!auth.isSignedIn()) redirect({ to: "/login", throw: true });
+  //desktop offline build: account page works with local data, no login needed
+  if (!auth.isSignedIn() && !DESKTOP_OFFLINE) {
+    redirect({ to: "/login", throw: true });
+  }
 }
 
 function signedOutOnly(auth: RouterAuth): void {

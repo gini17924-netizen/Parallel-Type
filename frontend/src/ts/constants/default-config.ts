@@ -80,7 +80,8 @@ const obj: Config = {
   highlightMode: "letter",
   typedEffect: "keep",
   typingSpeedUnit: "wpm",
-  ads: "result",
+  //desktop offline build: no ads
+  ads: "off",
   hideExtraLetters: false,
   strictSpace: false,
   minAcc: "off",
@@ -93,7 +94,8 @@ const obj: Config = {
   customBackgroundSize: "cover",
   customBackgroundFilter: [0, 1, 1, 1],
   customLayoutfluid: ["qwerty", "dvorak", "colemak"],
-  customPolyglot: ["english", "spanish", "french", "german"],
+  //desktop offline build: only bundled languages
+  customPolyglot: ["english", "persian"],
   monkeyPowerLevel: "off",
   minBurst: "off",
   minBurstCustomSpeed: 100,

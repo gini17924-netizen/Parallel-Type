@@ -25,6 +25,7 @@ import * as Focus from "./test/focus";
 import { fetchLatestVersion } from "./utils/version";
 import * as Sentry from "./sentry";
 import * as Cookies from "./cookies";
+import { DESKTOP_OFFLINE } from "./utils/local-persistence";
 import "./elements/psa";
 import { applyEngineSettings } from "./anim";
 import { qs, qsa, qsr } from "./utils/dom";
@@ -75,7 +76,8 @@ void fetchLatestVersion().then((data) => {
 
 Focus.set(true, true);
 const accepted = Cookies.getAcceptedCookies();
-if (accepted === null) {
+if (accepted === null && !DESKTOP_OFFLINE) {
+  //desktop offline build: no cookies banner (no analytics/ads anyway)
   showModal("Cookies");
 }
 void init(onAuthStateChanged).then(() => {

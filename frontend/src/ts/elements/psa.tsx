@@ -11,6 +11,7 @@ import { addBanner } from "../states/banners";
 import { addPsa } from "../states/psas";
 import { secondsToString } from "../utils/date-and-time";
 import { isDevEnvironment } from "../utils/env";
+import { DESKTOP_OFFLINE } from "../utils/local-persistence";
 import { LocalStorageWithSchema } from "../utils/local-storage-with-schema";
 
 const confirmedPSAs = new LocalStorageWithSchema({
@@ -34,6 +35,9 @@ function setMemory(id: string): void {
 }
 
 async function getLatest(): Promise<PSA[] | null> {
+  //desktop offline build: no backend to check for psas or downtime
+  if (DESKTOP_OFFLINE) return null;
+
   const response = await Ape.psas.get();
 
   if (response.status === 500) {

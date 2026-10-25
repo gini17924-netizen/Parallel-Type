@@ -1,5 +1,5 @@
 import { ResultFilters } from "@monkeytype/schemas/users";
-import { LanguageList } from "./languages";
+import { AvailableLanguageList } from "./languages";
 import { getFunboxNames } from "@monkeytype/funbox";
 
 const object: ResultFilters = {
@@ -59,7 +59,9 @@ const object: ResultFilters = {
   tags: {
     none: true,
   },
-  language: Object.fromEntries(LanguageList.map((lang) => [lang, true])),
+  language: Object.fromEntries(
+    AvailableLanguageList.map((lang) => [lang, true]),
+  ),
   funbox: {
     none: true,
     ...Object.fromEntries(getFunboxNames().map((funbox) => [funbox, true])),

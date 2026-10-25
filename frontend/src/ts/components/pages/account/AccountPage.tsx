@@ -8,6 +8,7 @@ import {
 } from "../../../collections/results";
 import { SnapshotResult } from "../../../constants/default-snapshot";
 import { isAuthenticated } from "../../../states/core";
+import { DESKTOP_OFFLINE } from "../../../utils/local-persistence";
 import { hideLoaderBar, showLoaderBar } from "../../../states/loader-bar";
 import { filters, setFilters } from "../../../states/result-filters";
 import { qs } from "../../../utils/dom";
@@ -34,7 +35,7 @@ export function AccountPage(): JSXElement {
   });
 
   const queryState = createMemo(() => {
-    if (!isAuthenticated()) return undefined;
+    if (!isAuthenticated() && !DESKTOP_OFFLINE) return undefined;
 
     return createResultsQueryState(filters);
   });

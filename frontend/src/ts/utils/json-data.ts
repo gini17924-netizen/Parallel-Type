@@ -2,6 +2,7 @@ import { Language, LanguageObject } from "@monkeytype/schemas/languages";
 import { LayoutObject } from "@monkeytype/schemas/layouts";
 import { languageHashes } from "virtual:language-hashes";
 import { isDevEnvironment } from "./env";
+import { DESKTOP_OFFLINE } from "./local-persistence";
 import { toHex } from "./strings";
 
 //pin implementation
@@ -19,7 +20,12 @@ async function fetchJson<T>(url: string): Promise<T> {
     if (!url) throw new Error("No URL");
     const res = await fetch(url);
     if (res.ok) {
-      if (!res.headers.get("content-type")?.startsWith("application/json")) {
+      //desktop offline build: the tauri asset handler may not serve a strict
+      //application/json content type - res.json() still validates the body
+      if (
+        !DESKTOP_OFFLINE &&
+        !res.headers.get("content-type")?.startsWith("application/json")
+      ) {
         throw new Error("Content is not JSON");
       }
       return (await res.json()) as T;

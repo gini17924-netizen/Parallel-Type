@@ -42,6 +42,11 @@ import {
   waitForDownload,
 } from "./utils/blocking-download";
 import { applyIdWorkaround } from "./utils/misc";
+import {
+  DESKTOP_OFFLINE,
+  appendLocalResult,
+  loadLocalResults,
+} from "../utils/local-persistence";
 import { getConfig } from "../config/store";
 import { getMode2 } from "../utils/misc";
 import { getCurrentQuote } from "../states/test";
@@ -95,7 +100,7 @@ export function useResultStatsLiveQuery(
   options?: { lastTen?: true } | { groupByDay?: true },
 ) {
   return useLiveQuery((q) => {
-    if (!isAuthenticated()) return undefined;
+    if (!isAuthenticated() && !DESKTOP_OFFLINE) return undefined;
     const state = queryState();
     if (state === undefined) return undefined;
 
@@ -171,7 +176,7 @@ export function useResultsLiveQuery(options: {
   limit: Accessor<number>;
 }) {
   return useLiveQuery((q) => {
-    if (!isAuthenticated()) return undefined;
+    if (!isAuthenticated() && !DESKTOP_OFFLINE) return undefined;
     const state = options.queryState();
     const sorting = options.sorting();
     const limit = options.limit();
@@ -227,8 +232,23 @@ const resultsCollection = createCollection(
     staleTime: Infinity,
     gcTime: Infinity, //remove when __nonReactive is removed
     queryKey: queryKeys.root(),
-    enabled: isAuthenticated,
+    enabled: () => isAuthenticated() || DESKTOP_OFFLINE,
     queryFn: async () => {
+      if (!isAuthenticated()) {
+        //desktop offline build: serve locally stored results
+        const localResults = loadLocalResults()
+          .map((result) => normalizeResult(result))
+          .map(applyIdWorkaround);
+
+        if (getLastResult() === undefined && localResults.length > 0) {
+          const lastResult = localResults.reduce((acc, cur) =>
+            acc === undefined || acc.timestamp < cur.timestamp ? cur : acc,
+          );
+          setLastResult(lastResult);
+        }
+        return localResults;
+      }
+
       const tagIds = await getTagsOnce();
       const knownTagIds = new Set([...tagIds.map((it) => it._id)]);
       //const options = parseLoadSubsetOptions(ctx.meta?.loadSubsetOptions);
@@ -407,6 +427,11 @@ export async function updateTags(
 export async function insertLocalResult(
   params: ActionType["insertLocalResult"],
 ): Promise<void> {
+  if (!isAuthenticated() && DESKTOP_OFFLINE) {
+    //desktop offline build: results have no backend to sync to,
+    //persist them so they survive a restart
+    appendLocalResult(params.result);
+  }
   if (!resultsCollection.isReady()) {
     //not loaded yet, don't need to insert
     return;
@@ -614,7 +639,7 @@ export function useUserAverage10LiveQuery(options: {
 
   return useLiveQuery((q) => {
     //disable query
-    if (!isAuthenticated()) return undefined;
+    if (!isAuthenticated() && !DESKTOP_OFFLINE) return undefined;
     if (!options.isEnabled()) return undefined;
 
     return q
@@ -635,7 +660,7 @@ export async function getUserAverage10Once(
   options: CurrentSettingsFilter,
 ): Promise<{ wpm: number; acc: number }> {
   //exit early if there is no user. Don't init the result collection
-  if (!isAuthenticated()) return { wpm: 0, acc: 0 };
+  if (!isAuthenticated() && !DESKTOP_OFFLINE) return { wpm: 0, acc: 0 };
   const tagIds = (await getActiveTagsOnce()).map((it) => it._id);
 
   const result = await queryOnce((q) =>
@@ -657,7 +682,7 @@ export async function getUserDailyBestOnce(
   options: CurrentSettingsFilter,
 ): Promise<{ wpm: number; acc: number }> {
   //exit early if there is no user. Don't init the result collection
-  if (!isAuthenticated()) return { wpm: 0, acc: 0 };
+  if (!isAuthenticated() && !DESKTOP_OFFLINE) return { wpm: 0, acc: 0 };
   const tagIds = (await getActiveTagsOnce()).map((it) => it._id);
 
   const result = await queryOnce(() =>
