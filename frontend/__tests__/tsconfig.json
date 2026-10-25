@@ -1,0 +1,21 @@
+{
+  "extends": "@monkeytype/typescript-config/base.json",
+  "compilerOptions": {
+    "moduleResolution": "Bundler",
+    "module": "ESNext",
+    "noEmit": true,
+    "jsx": "preserve",
+    "jsxImportSource": "solid-js",
+    "types": ["node"]
+  },
+  // router/app-router.ts registers the app router type (typed navigate, links)
+  "files": ["vitest.d.ts", "../src/ts/router/app-router.ts"],
+  "include": [
+    "./__harness__/**/*.ts",
+    "./__harness__/**/*.tsx",
+    "./**/*.spec.ts",
+    "./**/*.spec.tsx",
+    "./**/*.jsdom-spec.ts",
+    "./setup-tests.ts"
+  ]
+}

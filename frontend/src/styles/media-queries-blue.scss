@@ -1,0 +1,7 @@
+@use "./media.scss" as *;
+
+@include media-query(blue) {
+  .content-grid {
+    --content-max-width: 640px;
+  }
+}
