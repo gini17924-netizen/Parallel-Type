@@ -5,7 +5,10 @@ import { configLoadPromise } from "./config/lifecycle";
 import { authPromise } from "./firebase";
 import { onDOMReady, qs } from "./utils/dom";
 import { isAuthenticated, setAppReady } from "./states/core";
-import { DESKTOP_OFFLINE } from "./utils/local-persistence";
+import {
+  DESKTOP_OFFLINE,
+  ensureResultsMigrated,
+} from "./utils/local-persistence";
 import * as DB from "./db";
 
 onDOMReady(async () => {
@@ -16,6 +19,13 @@ onDOMReady(async () => {
   //(personal bests, typing stats) restored from localStorage
   if (!isAuthenticated()) {
     DB.initLocalSnapshot();
+  }
+
+  //desktop offline build: move any 0.1.x results from localStorage to
+  //IndexedDB early (the results collection awaits this too, but booting it
+  //here keeps the storage consistent from the start)
+  if (DESKTOP_OFFLINE) {
+    void ensureResultsMigrated();
   }
 
   //this line goes back to pretty much the beginning of the project and im pretty sure its here

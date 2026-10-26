@@ -236,7 +236,7 @@ const resultsCollection = createCollection(
     queryFn: async () => {
       if (!isAuthenticated()) {
         //desktop offline build: serve locally stored results
-        const localResults = loadLocalResults()
+        const localResults = (await loadLocalResults())
           .map((result) => normalizeResult(result))
           .map(applyIdWorkaround);
 
@@ -430,7 +430,7 @@ export async function insertLocalResult(
   if (!isAuthenticated() && DESKTOP_OFFLINE) {
     //desktop offline build: results have no backend to sync to,
     //persist them so they survive a restart
-    appendLocalResult(params.result);
+    await appendLocalResult(params.result);
   }
   if (!resultsCollection.isReady()) {
     //not loaded yet, don't need to insert

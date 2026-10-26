@@ -4,6 +4,7 @@ import {
   showNoticeNotification,
   showSuccessNotification,
 } from "../states/notifications";
+import { DESKTOP_OFFLINE } from "./local-persistence";
 import { ElementWithUtils } from "./dom";
 
 let firefoxClipboardNotificationShown = false;
@@ -186,9 +187,26 @@ export async function copyImageToClipboard(blob: Blob): Promise<void> {
 
     // General fallback notification and action
     showNoticeNotification(
-      "Could not copy screenshot to clipboard. Opening in new tab instead (make sure popups are allowed)",
+      "Could not copy screenshot to clipboard. Downloading it instead",
       { durationMs: 5000 },
     );
+    if (DESKTOP_OFFLINE) {
+      //desktop offline build: window.open cannot open new tabs in the tauri
+      //webview - download the screenshot instead
+      try {
+        const blobUrl = URL.createObjectURL(blob);
+        const link = document.createElement("a");
+        link.href = blobUrl;
+        link.download = `monkeytype-result-${new Date().toISOString().slice(0, 19).replace(/[:T]/g, "-")}.png`;
+        link.click();
+        setTimeout(() => URL.revokeObjectURL(blobUrl), 10_000);
+        showSuccessNotification("Screenshot saved to your downloads folder");
+      } catch (downloadError) {
+        showErrorNotification("Failed to download screenshot");
+        console.error("Error downloading screenshot blob:", downloadError);
+      }
+      return;
+    }
     try {
       // Fallback: Open blob in a new tab
       const blobUrl = URL.createObjectURL(blob);

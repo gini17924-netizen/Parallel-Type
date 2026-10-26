@@ -1,7 +1,19 @@
-import { describe, it, expect, beforeEach } from "vitest";
-import * as LocalPersistence from "../../src/ts/utils/local-persistence";
+import "fake-indexeddb/auto";
+import { describe, it, expect, beforeEach, vi } from "vitest";
+
 import { SnapshotResult } from "../../src/ts/constants/default-snapshot";
 import { Mode } from "@monkeytype/schemas/shared";
+
+//the persistence module memoizes its database connection, so every test gets
+//a fresh module instance. the fake-indexeddb global store persists across
+//resets (like a real browser profile), so tests use disjoint id/timestamp
+//ranges and tolerate leftovers.
+let LocalPersistence!: typeof import("../../src/ts/utils/local-persistence");
+
+async function freshModule(): Promise<void> {
+  vi.resetModules();
+  LocalPersistence = await import("../../src/ts/utils/local-persistence");
+}
 
 function makeResult(overrides: Partial<SnapshotResult<Mode>> = {}): SnapshotResult<Mode> {
   return {
@@ -21,9 +33,10 @@ function makeResult(overrides: Partial<SnapshotResult<Mode>> = {}): SnapshotResu
   } as unknown as SnapshotResult<Mode>;
 }
 
-describe("LocalPersistence (desktop offline)", () => {
-  beforeEach(() => {
+describe("LocalPersistence (desktop offline, IndexedDB)", () => {
+  beforeEach(async () => {
     window.localStorage.clear();
+    await freshModule();
   });
 
   describe("makeLocalResultId", () => {
@@ -34,91 +47,145 @@ describe("LocalPersistence (desktop offline)", () => {
     });
 
     it("returns unique ids", () => {
-      const ids = new Set(Array.from({ length: 50 }, () => LocalPersistence.makeLocalResultId()));
+      const ids = new Set(
+        Array.from({ length: 50 }, () => LocalPersistence.makeLocalResultId()),
+      );
       expect(ids.size).toBe(50);
     });
   });
 
   describe("loadLocalResults", () => {
-    it("returns an empty array when nothing is stored", () => {
-      expect(LocalPersistence.loadLocalResults()).toEqual([]);
+    it("returns an empty array when the store is empty", async () => {
+      expect(await LocalPersistence.loadLocalResults()).toEqual([]);
     });
 
-    it("returns stored results", () => {
-      const result = makeResult();
-      window.localStorage.setItem("mtDesktopLocalResults", JSON.stringify([result]));
-      const loaded = LocalPersistence.loadLocalResults();
+    it("returns stored results", async () => {
+      await LocalPersistence.appendLocalResult(makeResult({ _id: "r1" }));
+      const loaded = await LocalPersistence.loadLocalResults();
       expect(loaded).toHaveLength(1);
-      expect(loaded[0]._id).toBe("test_id_1");
+      expect(loaded[0]._id).toBe("r1");
     });
 
-    it("returns an empty array on corrupt json", () => {
-      window.localStorage.setItem("mtDesktopLocalResults", "{not json");
-      expect(LocalPersistence.loadLocalResults()).toEqual([]);
-    });
-
-    it("returns an empty array when the stored value is not an array", () => {
-      window.localStorage.setItem("mtDesktopLocalResults", JSON.stringify({ a: 1 }));
-      expect(LocalPersistence.loadLocalResults()).toEqual([]);
-    });
-
-    it("filters out entries without a string _id or numeric timestamp", () => {
-      const valid = makeResult();
-      const broken = [
-        { foo: "bar" },
-        { _id: 5, timestamp: 1 },
-        { _id: "x" },
-        null,
-      ];
-      window.localStorage.setItem(
-        "mtDesktopLocalResults",
-        JSON.stringify([valid, ...broken]),
+    it("returns results sorted oldest first", async () => {
+      await LocalPersistence.appendLocalResult(
+        makeResult({ _id: "new", timestamp: 2000000000000 }),
       );
-      const loaded = LocalPersistence.loadLocalResults();
-      expect(loaded).toHaveLength(1);
-      expect(loaded[0]._id).toBe("test_id_1");
+      await LocalPersistence.appendLocalResult(
+        makeResult({ _id: "old", timestamp: 1800000000000 }),
+      );
+      const loaded = await LocalPersistence.loadLocalResults();
+      const ids = loaded.map((r) => r._id);
+      expect(ids.indexOf("old")).toBeLessThan(ids.indexOf("new"));
     });
   });
 
   describe("appendLocalResult", () => {
-    it("appends a result and strips heavy fields", () => {
+    it("strips heavy fields before storing", async () => {
       const result = makeResult({
+        _id: "heavy",
         chartData: [[1, 2]] as unknown as SnapshotResult<Mode>["chartData"],
         keySpacing: "toolong" as unknown as SnapshotResult<Mode>["keySpacing"],
         keyDuration: "toolong" as unknown as SnapshotResult<Mode>["keyDuration"],
       });
-      LocalPersistence.appendLocalResult(result);
-      const stored = JSON.parse(
-        window.localStorage.getItem("mtDesktopLocalResults") ?? "[]",
-      );
-      expect(stored).toHaveLength(1);
-      expect(stored[0]._id).toBe("test_id_1");
-      expect(stored[0]).not.toHaveProperty("chartData");
-      expect(stored[0]).not.toHaveProperty("keySpacing");
-      expect(stored[0]).not.toHaveProperty("keyDuration");
+      await LocalPersistence.appendLocalResult(result);
+      const loaded = await LocalPersistence.loadLocalResults();
+      const stored = loaded.find((r) => r._id === "heavy") as unknown as Record<
+        string,
+        unknown
+      >;
+      expect(stored).toBeDefined();
+      expect(stored).not.toHaveProperty("chartData");
+      expect(stored).not.toHaveProperty("keySpacing");
+      expect(stored).not.toHaveProperty("keyDuration");
     });
 
-    it("sorts by timestamp and keeps only the newest 1000 results", () => {
+    it("keeps the newest 1000 results and drops the oldest", async () => {
+      //the cap is global; rows left over from earlier tests shift the
+      //drop boundary, so compute it from the live count
+      const preCount = (await LocalPersistence.loadLocalResults()).length;
       for (let i = 0; i < 1005; i++) {
-        LocalPersistence.appendLocalResult(
-          makeResult({ _id: `id_${i}`, timestamp: i }),
+        await LocalPersistence.appendLocalResult(
+          makeResult({ _id: `cap_${i}`, timestamp: 1600000000000 + i }),
         );
       }
-      const loaded = LocalPersistence.loadLocalResults();
+      const overflow = preCount + 1005 - 1000;
+      const loaded = await LocalPersistence.loadLocalResults();
+      const ids = new Set(loaded.map((r) => r._id));
       expect(loaded).toHaveLength(1000);
-      expect(loaded[0]._id).toBe("id_5"); //oldest dropped
-      expect(loaded[999]._id).toBe("id_1004"); //newest kept
+      expect(ids.has("cap_0")).toBe(false); //oldest dropped
+      expect(ids.has(`cap_${overflow - 1}`)).toBe(false); //last dropped
+      expect(ids.has(`cap_${overflow}`)).toBe(true); //first survivor
+      expect(ids.has("cap_1004")).toBe(true); //newest kept
     });
 
-    it("does not lose previous results on later appends", () => {
-      LocalPersistence.appendLocalResult(makeResult({ _id: "a", timestamp: 1 }));
-      LocalPersistence.appendLocalResult(makeResult({ _id: "b", timestamp: 2 }));
-      const loaded = LocalPersistence.loadLocalResults();
-      expect(loaded.map((r) => r._id)).toEqual(["a", "b"]);
+    it("upserts: re-appending the same _id does not duplicate", async () => {
+      await LocalPersistence.appendLocalResult(
+        makeResult({ _id: "dup", wpm: 50, timestamp: 1900000000000 }),
+      );
+      await LocalPersistence.appendLocalResult(
+        makeResult({ _id: "dup", wpm: 70, timestamp: 1900000000001 }),
+      );
+      const loaded = await LocalPersistence.loadLocalResults();
+      const dups = loaded.filter((r) => r._id === "dup");
+      expect(dups).toHaveLength(1);
+      expect(dups[0].wpm).toBe(70);
     });
   });
 
-  describe("snapshot fields", () => {
+  describe("legacy localStorage migration", () => {
+    it("migrates 0.1.x results into IndexedDB and removes the legacy key", async () => {
+      const legacy = [
+        makeResult({ _id: "legacy_a", timestamp: 1750000000000 }),
+        makeResult({ _id: "legacy_b", timestamp: 1750000000001 }),
+        { broken: true },
+      ];
+      window.localStorage.setItem(
+        "mtDesktopLocalResults",
+        JSON.stringify(legacy),
+      );
+      await freshModule(); //simulate a fresh 0.2.0 boot with 0.1.x data
+      const loaded = await LocalPersistence.loadLocalResults();
+      const ids = loaded.map((r) => r._id);
+      expect(ids).toContain("legacy_a");
+      expect(ids).toContain("legacy_b");
+      expect(window.localStorage.getItem("mtDesktopLocalResults")).toBeNull();
+    });
+
+    it("ignores a corrupt legacy payload", async () => {
+      window.localStorage.setItem("mtDesktopLocalResults", "{not json");
+      await freshModule();
+      await expect(LocalPersistence.loadLocalResults()).resolves.toBeDefined();
+      expect(window.localStorage.getItem("mtDesktopLocalResults")).toBeNull();
+    });
+  });
+
+  describe("results database resilience", () => {
+    it("repairs a database that exists at a higher version without the store", async () => {
+      //simulate a database left behind by an older/broken build: version 2
+      //with no results store. opening must repair instead of throwing
+      //VersionError (a fixed-version open would)
+      await new Promise<void>((resolve, reject) => {
+        const req = indexedDB.open("mtDesktopResults", 2);
+        req.onupgradeneeded = () => {
+          //intentionally create no stores
+        };
+        req.onsuccess = () => {
+          req.result.close();
+          resolve();
+        };
+        req.onerror = () => reject(req.error);
+      });
+      await freshModule();
+
+      await LocalPersistence.appendLocalResult(
+        makeResult({ _id: "repair_probe", timestamp: 1850000000000 }),
+      );
+      const loaded = await LocalPersistence.loadLocalResults();
+      expect(loaded.map((r) => r._id)).toContain("repair_probe");
+    });
+  });
+
+  describe("snapshot fields (localStorage)", () => {
     it("returns undefined when nothing is stored", () => {
       expect(LocalPersistence.loadLocalSnapshotFields()).toBeUndefined();
     });

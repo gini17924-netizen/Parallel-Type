@@ -104,11 +104,10 @@ const defaultSnap = {
   streak: 0,
   maxStreak: 0,
   streakHourOffset: undefined,
+  //desktop offline build: a fresh local profile has no leaderboard data;
+  //fake entries rendered "0th / Top NaN%" on the account page
   allTimeLbs: {
-    time: {
-      15: { english: { count: 0, rank: 0 } },
-      60: { english: { count: 0, rank: 0 } },
-    },
+    time: {},
   },
 } as Snapshot;
 

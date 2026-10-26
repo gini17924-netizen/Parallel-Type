@@ -2,12 +2,16 @@ import { createSignal, JSXElement, Show } from "solid-js";
 
 import { sendVerificationEmail } from "../../../auth";
 import { isUserVerified } from "../../../states/core";
+import { DESKTOP_OFFLINE } from "../../../utils/local-persistence";
 import { cn } from "../../../utils/cn";
 import { Button } from "../../common/Button";
 import { Fa } from "../../common/Fa";
 
 export function VerifyNotice(props: { class?: string }): JSXElement {
   const [isProcessing, setProcessing] = createSignal(false);
+
+  //desktop offline build: no account, nothing to verify
+  if (DESKTOP_OFFLINE) return <div class={cn(props.class ?? "")} />;
 
   const resendVerificationEmail = () => {
     setProcessing(true);
