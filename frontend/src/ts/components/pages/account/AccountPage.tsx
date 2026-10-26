@@ -8,7 +8,15 @@ import {
 } from "../../../collections/results";
 import { SnapshotResult } from "../../../constants/default-snapshot";
 import { isAuthenticated } from "../../../states/core";
-import { DESKTOP_OFFLINE } from "../../../utils/local-persistence";
+import {
+  DESKTOP_OFFLINE,
+  exportBackup,
+  importBackup,
+} from "../../../utils/local-persistence";
+import {
+  showErrorNotification,
+  showSuccessNotification,
+} from "../../../states/notifications";
 import { hideLoaderBar, showLoaderBar } from "../../../states/loader-bar";
 import { filters, setFilters } from "../../../states/result-filters";
 import { qs } from "../../../utils/dom";
@@ -44,6 +52,10 @@ export function AccountPage(): JSXElement {
     null,
   );
   const [isExporting, setIsExporting] = createSignal(false);
+  const [isBackingUp, setIsBackingUp] = createSignal(false);
+  const [isRestoring, setIsRestoring] = createSignal(false);
+  const [restoreConfirming, setRestoreConfirming] = createSignal(false);
+  let restoreInput: HTMLInputElement | undefined;
 
   const resultsQuery = useResultsLiveQuery({
     queryState,
@@ -90,7 +102,52 @@ export function AccountPage(): JSXElement {
           />
           <TestStats queryState={queryState} />
 
-          <div class="grid grid-cols-3">
+          <div class="grid grid-cols-3 gap-2">
+            <Button
+              text="Backup data"
+              fa={{ icon: "fa-database" }}
+              class="col-start-1 w-full"
+              disabled={isBackingUp()}
+              onClick={() => {
+                setIsBackingUp(true);
+                void exportBackup()
+                  .then((backup) => {
+                    const blob = new Blob([JSON.stringify(backup, null, 2)], {
+                      type: "application/json",
+                    });
+                    const url = URL.createObjectURL(blob);
+                    const link = document.createElement("a");
+                    link.href = url;
+                    link.download = `monkeytype-backup-${new Date()
+                      .toISOString()
+                      .slice(0, 10)}.json`;
+                    link.click();
+                    setTimeout(() => URL.revokeObjectURL(url), 10_000);
+                    showSuccessNotification("Backup downloaded");
+                  })
+                  .catch((error) => {
+                    console.error("Failed to export backup", error);
+                    showErrorNotification("Failed to create backup", {
+                      error,
+                    });
+                  })
+                  .finally(() => setIsBackingUp(false));
+              }}
+            />
+            <Button
+              text={restoreConfirming() ? "click again to confirm" : "Restore backup"}
+              fa={{ icon: "fa-file-import" }}
+              class="col-start-2 w-full"
+              disabled={isRestoring()}
+              onClick={() => {
+                if (restoreConfirming()) {
+                  restoreInput?.click();
+                } else {
+                  setRestoreConfirming(true);
+                  setTimeout(() => setRestoreConfirming(false), 4000);
+                }
+              }}
+            />
             <Button
               text="Export CSV"
               fa={{ icon: "fa-file-csv" }}
@@ -108,6 +165,34 @@ export function AccountPage(): JSXElement {
                   .finally(() => {
                     hideLoaderBar();
                     setIsExporting(false);
+                  });
+              }}
+            />
+            <input
+              ref={restoreInput}
+              type="file"
+              accept="application/json,.json"
+              class="hidden"
+              onChange={(event) => {
+                const file = event.currentTarget.files?.[0];
+                event.currentTarget.value = "";
+                if (file === undefined) return;
+                setIsRestoring(true);
+                void file
+                  .text()
+                  .then((text) => importBackup(JSON.parse(text) as never))
+                  .then((imported) => {
+                    showSuccessNotification(
+                      `Restored ${imported} results, reloading`,
+                    );
+                    setTimeout(() => window.location.reload(), 1000);
+                  })
+                  .catch((error) => {
+                    console.error("Failed to restore backup", error);
+                    showErrorNotification("Failed to restore backup", {
+                      error,
+                    });
+                    setIsRestoring(false);
                   });
               }}
             />

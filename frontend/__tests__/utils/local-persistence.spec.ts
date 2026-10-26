@@ -232,4 +232,123 @@ describe("LocalPersistence (desktop offline, IndexedDB)", () => {
       expect(LocalPersistence.loadLocalSnapshotFields()).toBeUndefined();
     });
   });
+
+  describe("backup / restore", () => {
+    it("exports results and snapshot fields", async () => {
+      //timestamps newer than every other test, so these two are the
+      //newest rows of the shared store
+      await LocalPersistence.appendLocalResult(
+        makeResult({ _id: "bk_1", timestamp: 2100000000001 }),
+      );
+      await LocalPersistence.appendLocalResult(
+        makeResult({ _id: "bk_2", timestamp: 2100000000002 }),
+      );
+      LocalPersistence.saveLocalSnapshotFields({
+        personalBests: {
+          time: {},
+          words: { 10: [{ wpm: 100, acc: 95, timestamp: 1 }] },
+          quote: {},
+          zen: {},
+          custom: {},
+        },
+        typingStats: { timeTyping: 12, startedTests: 2, completedTests: 2 },
+        xp: 7,
+        streak: 1,
+        maxStreak: 3,
+      } as never);
+
+      const backup = await LocalPersistence.exportBackup();
+      expect(backup.schemaVersion).toBe(1);
+      //rows from earlier tests may still exist; these two are the newest
+      expect(backup.results.slice(-2).map((r) => r._id)).toEqual([
+        "bk_1",
+        "bk_2",
+      ]);
+      expect(backup.snapshot?.xp).toBe(7);
+      expect(backup.exportedAt).toBeTruthy();
+    });
+
+    it("restores a backup, replacing existing data", async () => {
+      await LocalPersistence.appendLocalResult(
+        makeResult({ _id: "existing", timestamp: 1900000000000 }),
+      );
+      const backup = {
+        schemaVersion: 1,
+        exportedAt: "2026-10-27T00:00:00.000Z",
+        results: [
+          makeResult({ _id: "b_1", timestamp: 1700000000001 }),
+          makeResult({ _id: "b_2", timestamp: 1700000000002 }),
+        ],
+        snapshot: {
+          personalBests: {
+            time: {},
+            words: { 25: [{ wpm: 80, acc: 90, timestamp: 2 }] },
+            quote: {},
+            zen: {},
+            custom: {},
+          },
+          typingStats: { timeTyping: 30, startedTests: 5, completedTests: 4 },
+          xp: 100,
+          streak: 2,
+          maxStreak: 9,
+        },
+      };
+      const imported = await LocalPersistence.importBackup(backup as never);
+      expect(imported).toBe(2);
+
+      const loaded = await LocalPersistence.loadLocalResults();
+      expect(loaded.map((r) => r._id)).toEqual(["b_1", "b_2"]); //replaced, not merged
+      const snap = LocalPersistence.loadLocalSnapshotFields();
+      expect(snap?.xp).toBe(100);
+      expect(snap?.personalBests.words[25][0].wpm).toBe(80);
+      expect(snap?.typingStats).toEqual({
+        timeTyping: 30,
+        startedTests: 5,
+        completedTests: 4,
+      });
+    });
+
+    it("caps restored results at 1000", async () => {
+      const results = Array.from({ length: 1005 }, (_, i) =>
+        makeResult({ _id: `imp_${i}`, timestamp: 1600000000000 + i }),
+      );
+      const imported = await LocalPersistence.importBackup({
+        schemaVersion: 1,
+        exportedAt: "2026-10-27T00:00:00.000Z",
+        results,
+      } as never);
+      expect(imported).toBe(1000);
+      const loaded = await LocalPersistence.loadLocalResults();
+      expect(loaded).toHaveLength(1000);
+      expect(loaded[0]._id).toBe("imp_5"); //oldest dropped
+    });
+
+    it("strips heavy fields on restore", async () => {
+      const imported = await LocalPersistence.importBackup({
+        schemaVersion: 1,
+        exportedAt: "2026-10-27T00:00:00.000Z",
+        results: [
+          makeResult({
+            _id: "heavy_restore",
+            chartData: [[1]] as unknown as SnapshotResult<Mode>["chartData"],
+            keySpacing: "toolong" as unknown as SnapshotResult<Mode>["keySpacing"],
+          }),
+        ],
+      } as never);
+      expect(imported).toBe(1);
+      const loaded = await LocalPersistence.loadLocalResults();
+      const stored = loaded[0] as unknown as Record<string, unknown>;
+      expect(stored).not.toHaveProperty("chartData");
+      expect(stored).not.toHaveProperty("keySpacing");
+    });
+
+    it("throws on an invalid backup", async () => {
+      await expect(
+        LocalPersistence.importBackup({ hello: 1 } as never),
+      ).rejects.toThrow("Invalid backup file");
+      await expect(
+        LocalPersistence.importBackup({ schemaVersion: 99, results: [] } as never),
+      ).rejects.toThrow("Invalid backup file");
+    });
+  });
 });

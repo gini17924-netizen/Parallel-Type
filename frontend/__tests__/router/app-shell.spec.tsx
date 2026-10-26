@@ -37,6 +37,14 @@ import {
 
 const serverConfigurationKey = getServerConfigurationQueryOptions().queryKey;
 
+//desktop fork: the auth guards early-return under DESKTOP_OFFLINE (the
+//production build has no firebase). these tests exercise the upstream guard
+//behaviour, so the flag is mocked off for this file only.
+vi.mock("../../src/ts/utils/local-persistence", async (importOriginal) => ({
+  ...(await importOriginal<Record<string, unknown>>()),
+  DESKTOP_OFFLINE: false,
+}));
+
 function retryButton(app: App): HTMLButtonElement {
   const button = [
     ...(app.pageElement()?.querySelectorAll("button") ?? []),

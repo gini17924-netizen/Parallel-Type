@@ -249,3 +249,80 @@ export function saveLocalSnapshotFields(snapshot: Snapshot): void {
     console.error("Failed to persist local snapshot", error);
   }
 }
+
+// ---------------------------------------------------------------------------
+// backup / restore (full local data as one JSON file)
+// ---------------------------------------------------------------------------
+
+const BACKUP_SCHEMA_VERSION = 1;
+
+export type LocalBackup = {
+  schemaVersion: number;
+  exportedAt: string;
+  results: SnapshotResult<Mode>[];
+  snapshot: PersistedSnapshotFields | undefined;
+};
+
+/** Exports all local data (results + snapshot fields) as a backup object. */
+export async function exportBackup(): Promise<LocalBackup> {
+  return {
+    schemaVersion: BACKUP_SCHEMA_VERSION,
+    exportedAt: new Date().toISOString(),
+    results: await loadLocalResults(),
+    snapshot: loadLocalSnapshotFields(),
+  };
+}
+
+/**
+ * Replaces all local data with the given backup. Results are capped at
+ * MAX_RESULTS like normal appends. Throws on an invalid backup file.
+ */
+export async function importBackup(backup: LocalBackup): Promise<number> {
+  if (
+    backup === null ||
+    typeof backup !== "object" ||
+    backup.schemaVersion !== BACKUP_SCHEMA_VERSION ||
+    !Array.isArray(backup.results)
+  ) {
+    throw new Error("Invalid backup file: unknown schema");
+  }
+
+  const validResults = backup.results
+    .filter(
+      (it) =>
+        it !== null &&
+        typeof it === "object" &&
+        typeof it._id === "string" &&
+        typeof it.timestamp === "number",
+    )
+    .sort((a, b) => b.timestamp - a.timestamp) //newest first
+    .slice(0, MAX_RESULTS)
+    .map(stripHeavyFields);
+
+  await ensureResultsMigrated();
+  const db = await openResultsDb();
+  const tx = db.transaction(RESULTS_STORE, "readwrite");
+  const store = tx.objectStore(RESULTS_STORE);
+  store.clear();
+  for (const item of validResults) store.put(item);
+  await new Promise<void>((resolve, reject) => {
+    tx.oncomplete = () => resolve();
+    tx.onerror = () => reject(tx.error ?? new Error("failed to import results"));
+    tx.onabort = () => reject(tx.error ?? new Error("import aborted"));
+  });
+
+  if (backup.snapshot !== undefined && backup.snapshot !== null) {
+    saveLocalSnapshotFields({
+      personalBests: backup.snapshot.personalBests,
+      typingStats: backup.snapshot.typingStats ?? {
+        timeTyping: 0,
+        startedTests: 0,
+        completedTests: 0,
+      },
+      xp: backup.snapshot.xp ?? 0,
+      streak: backup.snapshot.streak ?? 0,
+      maxStreak: backup.snapshot.maxStreak ?? 0,
+    } as PersistedSnapshotFields);
+  }
+  return validResults.length;
+}
