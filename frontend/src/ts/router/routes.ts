@@ -158,14 +158,15 @@ async function runRouteLoadingStep(
 }
 
 function signedInOnly(auth: RouterAuth): void {
+  //desktop offline build: firebase auth is intentionally uninitialized
+  //(empty config), so isAvailable() is always false. Account data is local.
+  if (DESKTOP_OFFLINE) return;
   if (!auth.isAvailable()) redirect({ to: "/", throw: true });
-  //desktop offline build: account page works with local data, no login needed
-  if (!auth.isSignedIn() && !DESKTOP_OFFLINE) {
-    redirect({ to: "/login", throw: true });
-  }
+  if (!auth.isSignedIn()) redirect({ to: "/login", throw: true });
 }
 
 function signedOutOnly(auth: RouterAuth): void {
+  if (DESKTOP_OFFLINE) return;
   if (!auth.isAvailable()) redirect({ to: "/", throw: true });
   if (auth.isSignedIn()) redirect({ to: "/account", throw: true });
 }
