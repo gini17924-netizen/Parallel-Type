@@ -1,0 +1,11 @@
+[Desktop Entry]
+Type=Application
+Name=Monkeytype
+GenericName=Typing Test
+Comment=The most customizable typing test - offline desktop build
+Exec=monkeytype-desktop
+Icon=monkeytype-desktop
+Terminal=false
+Categories=Utility;Education;
+Keywords=typing;wpm;monkeytype;
+StartupWMClass=Monkeytype
