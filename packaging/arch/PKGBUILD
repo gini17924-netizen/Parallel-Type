@@ -1,11 +1,12 @@
 # Maintainer: shahab <local>
 # ParallelType Desktop - offline Tauri build of monkeytype (desktop fork 0.5.0)
 #
-# STATUS: validated inside WSL2 Arch (makepkg -f, GUI run via WSLg).
+# STATUS: validated inside WSL2 Arch (makepkg -f, binary run verified).
+# GUI visual check via WSLg pending a screen-unlock (session was locked).
 # Distribution still pending the GPL review (B7).
 
 pkgname=paralleltype-desktop
-pkgver=0.5.0
+pkgver=0.5.1
 pkgrel=1
 pkgdesc="A minimalistic, customizable typing test - offline desktop build (Tauri)"
 arch=(x86_64)
