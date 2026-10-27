@@ -34,12 +34,12 @@ options=(!strip)
 # the frontend build bakes the offline configuration; the binary identifies
 # as com.monkeytype.desktop and shares no state with the website
 prepare() {
-  cd "$srcdir/monkeytype-master"
+  cd "$srcdir"
   pnpm install
 }
 
 build() {
-  cd "$srcdir/monkeytype-master/frontend"
+  cd "$srcdir/frontend"
   env \
     RECAPTCHA_SITE_KEY=offline-build \
     BACKEND_URL=http://127.0.0.1:9 \
@@ -51,7 +51,7 @@ build() {
 }
 
 package() {
-  cd "$srcdir/monkeytype-master/frontend/src-tauri"
+  cd "$srcdir/frontend/src-tauri"
 
   install -Dm755 target/release/paralleltype \
     "$pkgdir/usr/bin/monkeytype-desktop"
