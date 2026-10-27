@@ -17,7 +17,7 @@ depends=(
   'hicolor-icon-theme'
 )
 makedepends=(
-  'nodejs>=24'
+  'nodejs-lts-jod'
   'pnpm'
   'rust'
   'clang'
