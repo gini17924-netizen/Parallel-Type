@@ -69,13 +69,13 @@ fn toggle_main_window(app: &tauri::AppHandle) {
 
 fn build_tray(app: &tauri::AppHandle) -> tauri::Result<()> {
     let toggle =
-        MenuItem::with_id(app, "toggle", "Show/Hide Monkeytype", true, None::<&str>)?;
+        MenuItem::with_id(app, "toggle", "Show/Hide ParallelType", true, None::<&str>)?;
     let quit = MenuItem::with_id(app, "quit", "Quit", true, None::<&str>)?;
     let menu = Menu::with_items(app, &[&toggle, &quit])?;
 
     TrayIconBuilder::with_id("main-tray")
         .icon(app.default_window_icon().unwrap().clone())
-        .tooltip("Monkeytype")
+        .tooltip("ParallelType")
         .menu(&menu)
         .show_menu_on_left_click(false)
         .on_menu_event(|app, event| match event.id.as_ref() {
@@ -133,7 +133,7 @@ fn main() {
         .setup(|app| {
             let window: WebviewWindow =
                 tauri::WebviewWindowBuilder::new(app, "main", WebviewUrl::App("/".into()))
-                    .title("Monkeytype")
+                    .title("ParallelType")
                     .inner_size(1280.0, 800.0)
                     .min_inner_size(700.0, 500.0)
                     .initialization_script(LINK_INTERCEPT_SCRIPT)

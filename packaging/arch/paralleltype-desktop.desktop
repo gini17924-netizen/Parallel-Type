@@ -1,10 +1,10 @@
 [Desktop Entry]
 Type=Application
-Name=Monkeytype
+Name=ParallelType
 GenericName=Typing Test
-Comment=The most customizable typing test - offline desktop build
-Exec=monkeytype-desktop
-Icon=monkeytype-desktop
+Comment=A minimalistic, customizable typing test - offline desktop build
+Exec=paralleltype-desktop
+Icon=paralleltype-desktop
 Terminal=false
 Categories=Utility;Education;
 Keywords=typing;wpm;monkeytype;
