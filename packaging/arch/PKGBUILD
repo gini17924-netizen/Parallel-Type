@@ -17,7 +17,7 @@ depends=(
   'hicolor-icon-theme'
 )
 makedepends=(
-  'nodejs-lts-jod'
+  'nodejs'
   'pnpm'
   'rust'
   'clang'
@@ -35,7 +35,7 @@ options=(!strip)
 # as com.monkeytype.desktop and shares no state with the website
 prepare() {
   cd "$srcdir"
-  pnpm install
+  pnpm install --config.engine-strict=false
 }
 
 build() {
