@@ -27,8 +27,10 @@ makedepends=(
   'webkit2gtk-4.1'
   'openssl'
 )
-source=("$pkgname-$pkgver.tar.gz") # snapshot of the repo root
-sha256sums=('SKIP')               # fill with makepkg -g when packaging a release tarball
+source=("$pkgname-$pkgver.tar.gz"
+        "paralleltype-desktop.desktop") # snapshot of the repo root + desktop entry
+sha256sums=('SKIP'
+            'SKIP')               # fill with makepkg -g when packaging a release tarball
 options=(!strip)
 
 # the frontend build bakes the offline configuration; the binary identifies
