@@ -7,6 +7,7 @@ import { getRoutePage } from "../../../states/router";
 import { getFocus } from "../../../states/test";
 import { cn } from "../../../utils/cn";
 import { isDevEnvironment } from "../../../utils/env";
+import ptLogoPaths from "./pt-logo-paths.json";
 
 /**
  * Colour layers of the ParallelType emblem. Each layer is a white shape
@@ -32,7 +33,7 @@ export function Logo(): JSXElement {
   return (
     <Link
       to="/"
-      class="-m-2 flex h-10 w-max gap-3 rounded-[0.8rem] p-2 focus-visible:**:data-[ui-element='logoSubtext']:text-transparent"
+      class="-m-2 flex h-12 w-max gap-3 rounded-[0.8rem] p-2 focus-visible:**:data-[ui-element='logoSubtext']:text-transparent"
       aria-label="ParallelType Home"
       style={{
         "box-sizing": "content-box",
@@ -46,7 +47,7 @@ export function Logo(): JSXElement {
       <span
         aria-hidden="true"
         class={cn(
-          "relative inline-block h-10 aspect-square transition-opacity duration-250",
+          "relative inline-block h-12 aspect-square transition-opacity duration-250",
           { "opacity-50": getFocus() },
         )}
       >
@@ -56,33 +57,18 @@ export function Logo(): JSXElement {
           fill="none"
           xmlns="http://www.w3.org/2000/svg"
         >
-          {/* left + right keyboard bodies (main colour strokes) */}
-          <g stroke="var(--main-color)" stroke-width="20" stroke-linejoin="round">
-            <rect x="70" y="120" width="150" height="230" rx="42" />
-            <rect x="292" y="120" width="150" height="230" rx="42" />
-          </g>
-          {/* keycaps (dim colour fills) */}
+          {/* keycaps (dim colour) */}
           <g fill="var(--sub-color)">
-            <rect x="106" y="152" width="46" height="34" rx="10" />
-            <rect x="106" y="212" width="46" height="34" rx="10" />
-            <rect x="106" y="272" width="46" height="34" rx="10" />
-            <rect x="360" y="152" width="46" height="34" rx="10" />
-            <rect x="360" y="212" width="46" height="34" rx="10" />
-            <rect x="360" y="272" width="46" height="34" rx="10" />
+          {ptLogoPaths.keys.map((d) => (
+            <path d={d} />
+          ))}
           </g>
-          {/* P */}
-          <path
-            d="M 236 392 L 236 136 Q 236 108 264 108 L 300 108 Q 352 108 352 164 L 352 180 Q 352 236 300 236 L 236 236"
-            stroke="var(--main-color)"
-            stroke-width="38"
-            stroke-linejoin="round"
-          />
-          {/* T */}
-          <path
-            d="M 268 246 L 402 246 M 356 246 L 356 392"
-            stroke="var(--main-color)"
-            stroke-width="38"
-          />
+          {/* strokes and letters (main colour) */}
+          <g fill="var(--main-color)">
+          {ptLogoPaths.main.map((d) => (
+            <path d={d} />
+          ))}
+          </g>
         </svg>
       </span>
       <div class="hidden h-6 place-content-center text-[2rem] leading-0 sm:grid">
