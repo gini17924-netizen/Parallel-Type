@@ -75,4 +75,8 @@ package() {
   # desktop entry
   install -Dm644 "$srcdir/paralleltype-desktop.desktop" \
     "$pkgdir/usr/share/applications/paralleltype-desktop.desktop"
+
+  # GPL-3.0 requires the license text to accompany the package
+  install -Dm644 "$srcdir/LICENSE" \
+    "$pkgdir/usr/share/licenses/paralleltype-desktop/LICENSE"
 }
