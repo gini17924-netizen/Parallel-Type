@@ -140,7 +140,16 @@ fn main() {
                     .build()?;
             let _ = window; //window is retained by the app
 
-            build_tray(app.handle())?;
+            //a missing tray backend (libayatana-appindicator on some Linux
+            //setups) must not take the whole app down
+            match std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+                build_tray(app.handle())
+            })) {
+                Ok(Ok(())) => {}
+                Ok(Err(e)) => eprintln!("tray init failed: {e}"),
+                Err(p) => eprintln!("tray init panicked: {p:?}"),
+            }
+
             register_global_shortcut(app.handle());
             focus_main_window(app.handle());
             Ok(())
