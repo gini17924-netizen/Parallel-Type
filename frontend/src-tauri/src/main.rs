@@ -7,6 +7,7 @@ use tauri::{
     Manager, WebviewUrl, WebviewWindow,
 };
 use tauri_plugin_global_shortcut::{GlobalShortcutExt, ShortcutState};
+use tauri_plugin_updater::UpdaterExt;
 
 /// Opens http(s)/mailto links in the system browser instead of navigating the
 /// webview. Injected before any page script runs.
@@ -65,6 +66,35 @@ fn toggle_main_window(app: &tauri::AppHandle) {
             let _ = window.set_focus();
         }
     }
+}
+
+/// Checks the update endpoint once at startup. Non-fatal: any failure
+/// (offline, unreachable host, bad json) is logged and ignored.
+fn check_for_updates(app: &tauri::AppHandle) {
+    let app = app.clone();
+    tauri::async_runtime::spawn(async move {
+        match app.updater().expect("updater plugin").check().await {
+            Ok(Some(update)) => {
+                println!(
+                    "update available: {} -> {}",
+                    update.current_version, update.version
+                );
+                //internal build policy: download and run the installer
+                //passively; a failure must not take the app down
+                if let Err(e) = update
+                    .download_and_install(|_chunk, _total| {}, || {})
+                    .await
+                {
+                    eprintln!("update install failed: {e}");
+                } else {
+                    println!("update installed - restarting");
+                    app.restart();
+                }
+            }
+            Ok(_) => println!("no update available"),
+            Err(e) => eprintln!("update check failed: {e}"),
+        }
+    });
 }
 
 fn build_tray(app: &tauri::AppHandle) -> tauri::Result<()> {
@@ -129,6 +159,7 @@ fn register_global_shortcut(app: &tauri::AppHandle) {
 fn main() {
     tauri::Builder::default()
         .plugin(tauri_plugin_opener::init())
+        .plugin(tauri_plugin_updater::Builder::new().build())
         .plugin(tauri_plugin_global_shortcut::Builder::new().build())
         .setup(|app| {
             let window: WebviewWindow =
@@ -152,6 +183,7 @@ fn main() {
 
             register_global_shortcut(app.handle());
             focus_main_window(app.handle());
+            check_for_updates(app.handle());
             Ok(())
         })
         .on_window_event(|window, event| {

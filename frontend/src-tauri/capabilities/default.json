@@ -1,6 +1,12 @@
 {
   "identifier": "default",
   "description": "Default capabilities for the Monkeytype desktop app",
-  "windows": ["main"],
-  "permissions": ["core:default", "opener:default"]
+  "windows": [
+    "main"
+  ],
+  "permissions": [
+    "core:default",
+    "opener:default",
+    "updater:default"
+  ]
 }

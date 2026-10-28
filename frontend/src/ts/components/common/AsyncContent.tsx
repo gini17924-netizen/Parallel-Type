@@ -1,4 +1,5 @@
 import { typedKeys } from "@monkeytype/util/objects";
+import { DESKTOP_OFFLINE } from "../utils/local-persistence";
 import { UseQueryResult } from "@tanstack/solid-query";
 import {
   Accessor,
@@ -131,9 +132,13 @@ function AsyncContentInner<T extends Record<string, unknown>>(
     );
     console.error("AsyncMultiContent failed", message, err);
 
-    showErrorNotification(props.errorMessage ?? "An error occurred", {
-      error: err,
-    });
+    //desktop offline build: failed public fetches are expected (no network,
+    //no backend) — show the inline error state only, without global toasts
+    if (!DESKTOP_OFFLINE) {
+      showErrorNotification(props.errorMessage ?? "An error occurred", {
+        error: err,
+      });
+    }
 
     return message;
   };
