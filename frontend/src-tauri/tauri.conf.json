@@ -25,9 +25,9 @@
     ],
     "windows": {
       "nsis": {
-        "installMode": "currentUser",
-        "license": "../../LICENSE"
+        "installMode": "currentUser"
       }
-    }
+    },
+    "licenseFile": "../../LICENSE"
   }
 }
