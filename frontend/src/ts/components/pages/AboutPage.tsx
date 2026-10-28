@@ -170,6 +170,14 @@ export function AboutPage(): JSXElement {
       <section>
         <H2 fa={{ icon: "fa-info-circle" }} text="about" />
         <p>
+          <strong>ParallelType</strong> is an offline desktop build of
+          Monkeytype for Windows and Linux. It runs entirely on your machine:
+          no account, no cloud — results, personal bests and stats are stored
+          locally (and can be backed up to a file). ParallelType is a
+          derivative work of Monkeytype and exists thanks to the original
+          project.
+        </p>
+        <p>
           Monkeytype is a minimalistic and customizable typing test. It features
           many test modes, an account system to save your typing speed history,
           and user-configurable features such as themes, sounds, a smooth caret,
