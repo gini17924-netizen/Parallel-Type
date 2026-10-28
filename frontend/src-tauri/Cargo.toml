@@ -17,4 +17,4 @@ serde_json = "1"
 [profile.release]
 strip = true
 lto = "thin"
-codegen-units = 1
+# codegen-units = 1 raised link peak memory enough to OOM inside WSL2
