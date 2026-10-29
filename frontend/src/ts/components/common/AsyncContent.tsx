@@ -1,5 +1,5 @@
 import { typedKeys } from "@monkeytype/util/objects";
-import { DESKTOP_OFFLINE } from "../utils/local-persistence";
+import { DESKTOP_OFFLINE } from "../../utils/local-persistence";
 import { UseQueryResult } from "@tanstack/solid-query";
 import {
   Accessor,

@@ -5,6 +5,8 @@ import {
   showSuccessNotification,
 } from "../../states/notifications";
 import * as TestWords from "../../test/test-words";
+import { setConfig } from "../../config/setters";
+import { getLastResult } from "../../states/snapshot";
 import { Config } from "../../config/store";
 import * as PractiseWords from "../../test/practise-words";
 import { Command, CommandsSubgroup } from "../types";
@@ -104,6 +106,27 @@ const commands: Command[] = [
     },
     available: (): boolean => {
       return isTestFinished();
+    },
+  },
+  {
+    id: "raceYourGhost",
+    display: "Race your ghost (pace caret at last result)",
+    icon: "fa-ghost",
+    alias: "ghost race pace caret last result",
+    available: (): boolean => {
+      const last = getLastResult();
+      return last !== undefined && last.wpm > 0;
+    },
+    exec: (): void => {
+      const last = getLastResult();
+      if (last === undefined) return;
+      setConfig("paceCaret", "custom");
+      setConfig("paceCaretCustomSpeed", Math.round(last.wpm), {
+        nosave: false,
+      });
+      showSuccessNotification(
+        `Ghost caret set to ${Math.round(last.wpm)} wpm (your last result)`,
+      );
     },
   },
   {

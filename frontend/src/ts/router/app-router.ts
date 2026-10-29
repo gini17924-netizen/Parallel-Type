@@ -68,7 +68,7 @@ function updatePageTitle(page: PageName): void {
   if (page === "test") {
     updateTitle();
   } else {
-    updateTitle(`${capitalizeFirstLetterOfEachWord(page)} | Monkeytype`);
+    updateTitle(`${capitalizeFirstLetterOfEachWord(page)} | ParallelType`);
   }
 }
 

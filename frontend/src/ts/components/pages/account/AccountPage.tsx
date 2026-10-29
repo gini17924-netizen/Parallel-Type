@@ -1,5 +1,5 @@
 import { Mode } from "@monkeytype/schemas/shared";
-import { createMemo, createSignal, JSXElement, Show } from "solid-js";
+import { createMemo, createSignal, JSXElement, onMount, Show } from "solid-js";
 
 import {
   createResultsQueryState,
@@ -63,6 +63,24 @@ export function AccountPage(): JSXElement {
     limit: () => limit() + 1,
   });
 
+  const [localStreak, setLocalStreak] = createSignal(0);
+  onMount(async () => {
+    const daySet = new Set(
+      (await loadLocalResults()).map(
+        (r) => new Date(r.timestamp).toDateString(),
+      ),
+    );
+    let streak = 0;
+    const cursor = new Date();
+    //a streak counts today (or yesterday, if today has no result yet) backwards
+    if (!daySet.has(cursor.toDateString())) cursor.setDate(cursor.getDate() - 1);
+    while (daySet.has(cursor.toDateString())) {
+      streak++;
+      cursor.setDate(cursor.getDate() - 1);
+    }
+    setLocalStreak(streak);
+  });
+
   return (
     <div class="flex flex-col gap-8">
       <VerifyNotice />
@@ -101,6 +119,13 @@ export function AccountPage(): JSXElement {
             }}
           />
           <TestStats queryState={queryState} />
+
+          <div class="rounded bg-sub-alt p-4">
+            <div class="text-sub">local streak (consecutive days with a result)</div>
+            <div class="text-3xl text-main">
+              {localStreak()} <span class="text-sm text-sub">days</span>
+            </div>
+          </div>
 
           <div class="grid grid-cols-3 gap-2">
             <Button

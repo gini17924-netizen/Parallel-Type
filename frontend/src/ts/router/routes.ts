@@ -16,6 +16,9 @@ import {
 import { isResultsReady, waitForResultsReady } from "../collections/results";
 import { PageSwitcher } from "../components/core/PageSwitcher";
 import { AboutPage } from "../components/pages/AboutPage";
+import { LearnPage } from "../components/pages/learn/LearnPage";
+import { DrillsPage } from "../components/pages/drills/DrillsPage";
+import { GamesPage } from "../components/pages/games/GamesPage";
 import { AccountSettingsPage } from "../components/pages/account-settings/AccountSettingsPage";
 import { AccountPage } from "../components/pages/account/AccountPage";
 import { FriendsPage } from "../components/pages/connections/FriendsPage";
@@ -71,7 +74,10 @@ export type PageName =
   | "404"
   | "accountSettings"
   | "friends"
-  | "leaderboards";
+  | "leaderboards"
+  | "learn"
+  | "drills"
+  | "games";
 
 declare module "@tanstack/solid-router" {
   // oxlint-disable-next-line typescript/consistent-type-definitions -- module augmentation needs an interface
@@ -255,6 +261,27 @@ const leaderboards = createRoute({
   },
 });
 
+const learn = createRoute({
+  getParentRoute: () => userDataRoute,
+  path: "/learn",
+  staticData: { page: "learn" },
+  component: createRouterPage(LearnPage),
+});
+
+const drills = createRoute({
+  getParentRoute: () => userDataRoute,
+  path: "/drills",
+  staticData: { page: "drills" },
+  component: createRouterPage(DrillsPage),
+});
+
+const games = createRoute({
+  getParentRoute: () => userDataRoute,
+  path: "/games",
+  staticData: { page: "games" },
+  component: createRouterPage(GamesPage),
+});
+
 const about = createRoute({
   getParentRoute: () => userDataRoute,
   path: "/about",
@@ -390,6 +417,9 @@ export const routeTree = root.addChildren([
     leaderboards,
     about,
     settings,
+    learn,
+    drills,
+    games,
     login,
     account,
     accountSettings,

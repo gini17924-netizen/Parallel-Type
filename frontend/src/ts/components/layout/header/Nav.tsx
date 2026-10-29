@@ -107,6 +107,42 @@ export function Nav(): JSXElement {
       <Button
         variant="text"
         fa={{
+          icon: "fa-graduation-cap",
+          fixedWidth: true,
+        }}
+        class={buttonClass()}
+        dataset={{
+          "data-nav-item": "learn",
+        }}
+        to="/learn"
+      />
+      <Button
+        variant="text"
+        fa={{
+          icon: "fa-dumbbell",
+          fixedWidth: true,
+        }}
+        class={buttonClass()}
+        dataset={{
+          "data-nav-item": "drills",
+        }}
+        to="/drills"
+      />
+      <Button
+        variant="text"
+        fa={{
+          icon: "fa-gamepad",
+          fixedWidth: true,
+        }}
+        class={buttonClass()}
+        dataset={{
+          "data-nav-item": "games",
+        }}
+        to="/games"
+      />
+      <Button
+        variant="text"
+        fa={{
           icon: "fa-info",
           fixedWidth: true,
         }}

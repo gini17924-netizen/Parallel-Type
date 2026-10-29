@@ -1,0 +1,137 @@
+import { JSXElement, For, createSignal, onMount } from "solid-js";
+
+import { Button } from "../../common/Button";
+import { H2 } from "../../common/Headers";
+import {
+  fetchWordList,
+  generateDrillWords,
+  weakLetterDrillWords,
+  weakLetters,
+} from "../../../utils/learn-stats";
+import { Config } from "../../../config/store";
+import { setConfig } from "../../../config/setters";
+import * as CustomText from "../../../test/custom-text";
+import { setCustomTextIndicator } from "../../../states/core";
+import { navigate } from "../../../router/navigate";
+import { restartTestEvent } from "../../../events/test";
+
+function startDrill(words: string[], name: string): void {
+  setConfig("mode", "custom", { nosave: true });
+  setConfig("punctuation", false, { nosave: true });
+  setConfig("numbers", false, { nosave: true });
+  CustomText.setText(words);
+  CustomText.setLimitMode("word");
+  CustomText.setLimitValue(words.length);
+  CustomText.setMode("plain");
+  CustomText.setPipeDelimiter(false);
+  setCustomTextIndicator({ name, isLong: false });
+  void navigate({ to: "/" });
+  restartTestEvent.dispatch();
+}
+
+type RowDrill = { label: string; letters: string };
+
+const ROW_DRILLS: RowDrill[] = [
+  { label: "number row", letters: "1234567890" },
+  { label: "top row", letters: "qwertyuiop" },
+  { label: "home row", letters: "asdfghjkl" },
+  { label: "bottom row", letters: "zxcvbnm" },
+  { label: "left hand", letters: "qwertasdfgzxcvb" },
+  { label: "right hand", letters: "yuiophjklnm" },
+];
+
+export function DrillsPage(): JSXElement {
+  const language = () => Config.language;
+  const [wordList, setWordList] = createSignal<string[]>([]);
+  const [weak, setWeak] = createSignal<
+    { letter: string; acc: number }[]
+  >([]);
+
+  onMount(async () => {
+    try {
+      setWordList(await fetchWordList(language()));
+    } catch {
+      setWordList([]);
+    }
+    setWeak(weakLetters(8));
+  });
+
+  return (
+    <div class="content-grid grid gap-8">
+      <section>
+        <H2 fa={{ icon: "fa-dumbbell" }} text="drills" />
+        <p class="text-sub">
+          Targeted practice: drill a row, a hand, or your weakest keys. The
+          test runs in custom mode with words filtered to your selection.
+        </p>
+      </section>
+
+      <section class="grid gap-4">
+        <div class="text-sub">row / hand drills</div>
+        <div class="grid grid-cols-2 gap-2 sm:grid-cols-3">
+          <For each={ROW_DRILLS}>
+            {(drill) => (
+              <Button
+                text={drill.label}
+                class="w-full"
+                onClick={() => {
+                  const words = generateDrillWords(
+                    language(),
+                    drill.letters,
+                    wordList(),
+                    30,
+                  );
+                  if (words.length > 0) startDrill(words, drill.label);
+                }}
+              />
+            )}
+          </For>
+        </div>
+      </section>
+
+      <section class="grid gap-4 rounded bg-sub-alt p-4">
+        <div class="text-sub">my problem keys (from your drill history)</div>
+        <Show
+          when={weak().length > 0}
+          fallback={
+            <div class="text-sub">
+              not enough data yet — run a few tests or learn drills first
+            </div>
+          }
+        >
+          <div class="grid grid-cols-8 gap-2 sm:grid-cols-8">
+            <For each={weak()}>
+              {(it) => (
+                <div class="text-center">
+                  <div class="text-2xl">{it.letter}</div>
+                  <div
+                    class={
+                      it.acc >= 0.95
+                        ? "text-main"
+                        : it.acc >= 0.8
+                          ? "text-text"
+                          : "text-error"
+                    }
+                  >
+                    {Math.round(it.acc * 100)}%
+                  </div>
+                </div>
+              )}
+            </For>
+          </div>
+          <Button
+            text="drill my problem keys"
+            fa={{ icon: "fa-crosshairs" }}
+            class="w-full"
+            onClick={() => {
+              const drill = weakLetterDrillWords(wordList(), 8, 30);
+              if (drill.words.length > 0) {
+                startDrill(drill.words, "problem keys");
+              }
+            }}
+          />
+        </Show>
+      </section>
+    </div>
+  );
+}
