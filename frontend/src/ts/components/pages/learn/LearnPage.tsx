@@ -29,6 +29,8 @@ function startDrill(words: string[]): void {
   CustomText.setLimitValue(words.length);
   CustomText.setMode("plain");
   CustomText.setPipeDelimiter(false);
+  //show the on-screen keyboard during learning drills (nosave: reverts on restart)
+  setConfig("keymapMode", "next", { nosave: true });
   setCustomTextIndicator({ name: "learning drill", isLong: false });
   void navigate({ to: "/" });
   restartTestEvent.dispatch();

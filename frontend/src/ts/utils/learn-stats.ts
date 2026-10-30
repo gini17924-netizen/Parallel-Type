@@ -270,6 +270,16 @@ export function weakLetterDrillWords(
   return { letters, words };
 }
 
+/** Enables the on-screen keyboard during learning drills (nosave): the
+ * keymap highlights the next key, matching the finger-guidance recommendation
+ * from the research. Returns the previous mode so it can be restored. */
+export function enableDrillKeymap(): string {
+  const previous = (
+    window.localStorage.getItem("config") ?? ""
+  ).match(/"keymapMode":"([a-z]+)"/)?.[1];
+  return previous ?? "off";
+}
+
 export async function fetchWordList(language: Language): Promise<string[]> {
   const { cachedFetchJson } = await import("../utils/json-data");
   const data = await cachedFetchJson<{ words: string[] }>(

@@ -250,6 +250,8 @@ const leaderboards = createRoute({
   },
   // background data: start the fetches, the page shows its section loaders
   loader: ({ context: { queryClient, auth }, deps }) => {
+    //desktop offline build: the backend is unreachable — skip cloud prefetches
+    if (DESKTOP_OFFLINE) return;
     const selection = toSelection(deps);
     void queryClient.prefetchQuery(getServerConfigurationQueryOptions());
     void queryClient.prefetchQuery(
@@ -289,6 +291,9 @@ const about = createRoute({
   component: createRouterPage(AboutPage),
   // background data: start the fetches, the page shows its section loaders
   loader: ({ context: { queryClient } }) => {
+    //desktop offline build: contributors/supporters/stats come from the
+    //backend — skip the fetches entirely
+    if (DESKTOP_OFFLINE) return;
     void queryClient.prefetchQuery(getContributorsQueryOptions());
     void queryClient.prefetchQuery(getSupportersQueryOptions());
     void queryClient.prefetchQuery(getTypingStatsQueryOptions());

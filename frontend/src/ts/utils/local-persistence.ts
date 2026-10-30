@@ -261,6 +261,7 @@ export type LocalBackup = {
   exportedAt: string;
   results: SnapshotResult<Mode>[];
   snapshot: PersistedSnapshotFields | undefined;
+  learnState: Record<string, unknown> | undefined;
 };
 
 /** Exports all local data (results + snapshot fields) as a backup object. */
@@ -270,7 +271,21 @@ export async function exportBackup(): Promise<LocalBackup> {
     exportedAt: new Date().toISOString(),
     results: await loadLocalResults(),
     snapshot: loadLocalSnapshotFields(),
+    learnState: readJsonSafe(LEARN_STATE_KEY),
   };
+}
+
+function readJsonSafe(key: string): Record<string, unknown> | undefined {
+  try {
+    const raw = window.localStorage.getItem(key);
+    if (raw === null) return undefined;
+    const parsed = JSON.parse(raw) as unknown;
+    return typeof parsed === "object" && parsed !== null
+      ? (parsed as Record<string, unknown>)
+      : undefined;
+  } catch {
+    return undefined;
+  }
 }
 
 /**
@@ -323,6 +338,16 @@ export async function importBackup(backup: LocalBackup): Promise<number> {
       streak: backup.snapshot.streak ?? 0,
       maxStreak: backup.snapshot.maxStreak ?? 0,
     } as PersistedSnapshotFields);
+  }
+
+  //restore the learning state (progressive-mode progress) if present
+  const learnState = (backup as { learnState?: Record<string, unknown> })
+    .learnState;
+  if (learnState !== undefined && learnState !== null) {
+    window.localStorage.setItem(
+      "mtDesktopLearnState",
+      JSON.stringify(learnState),
+    );
   }
   return validResults.length;
 }

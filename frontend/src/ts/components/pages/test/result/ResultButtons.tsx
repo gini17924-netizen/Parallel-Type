@@ -2,9 +2,14 @@ import { createKeyHold } from "@tanstack/solid-hotkeys";
 import { JSXElement, onMount, Show } from "solid-js";
 
 import { getConfig } from "../../../../config/store";
+import { setConfig } from "../../../../config/setters";
+import { getLastResult } from "../../../../states/snapshot";
 import { getIsScreenshotting } from "../../../../states/core";
 import { showModal } from "../../../../states/modals";
-import { showNoticeNotification } from "../../../../states/notifications";
+import {
+  showNoticeNotification,
+  showSuccessNotification,
+} from "../../../../states/notifications";
 import {
   captureAndCopyToClipboard,
   captureAndDownload,
@@ -61,6 +66,25 @@ export function ResultButtons(props: { glarses: boolean }): JSXElement {
               return;
             }
             showModal("PractiseWords");
+          }}
+        />
+        <ResultButton
+          id="raceGhostButton"
+          text="Race your ghost"
+          fa={{ icon: "fa-ghost" }}
+          onClick={() => {
+            const last = getLastResult();
+            if (last === undefined || last.wpm <= 0) {
+              showNoticeNotification(
+                "No previous result to race against yet",
+              );
+              return;
+            }
+            setConfig("paceCaret", "custom");
+            setConfig("paceCaretCustomSpeed", Math.round(last.wpm));
+            showSuccessNotification(
+              `Ghost caret set to ${Math.round(last.wpm)} wpm`,
+            );
           }}
         />
         <Show when={!props.glarses}>
