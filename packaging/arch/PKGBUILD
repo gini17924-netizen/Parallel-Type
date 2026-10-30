@@ -6,7 +6,7 @@
 # Distribution still pending the GPL review (B7).
 
 pkgname=paralleltype-desktop
-pkgver=0.7.0
+pkgver=0.8.0
 pkgrel=1
 pkgdesc="A minimalistic, customizable typing test - offline desktop build (Tauri)"
 arch=(x86_64)
