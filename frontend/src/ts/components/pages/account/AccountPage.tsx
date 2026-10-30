@@ -12,6 +12,7 @@ import {
   DESKTOP_OFFLINE,
   exportBackup,
   importBackup,
+  loadLocalResults,
 } from "../../../utils/local-persistence";
 import {
   showErrorNotification,
