@@ -267,6 +267,7 @@ export function GamesPage(): JSXElement {
             {(word) => (
               <div
                 class="absolute font-mono text-2xl tracking-widest"
+                dir="auto"
                 style={{
                   top: `${word.top}vh`,
                   left: `${word.left}%`,

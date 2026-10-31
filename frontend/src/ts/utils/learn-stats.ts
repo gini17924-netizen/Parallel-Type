@@ -118,6 +118,41 @@ const UNLOCK_MIN_SAMPLES = 20;
 /** number of drill words generated per session */
 export const DRILL_WORD_COUNT = 25;
 
+export type RowDrill = { label: string; letters: string };
+
+/** QWERTY rows/hands for latin languages */
+const QWERTY_ROW_DRILLS: RowDrill[] = [
+  { label: "number row", letters: "1234567890" },
+  { label: "top row", letters: "qwertyuiop" },
+  { label: "home row", letters: "asdfghjkl" },
+  { label: "bottom row", letters: "zxcvbnm" },
+  { label: "left hand", letters: "qwertasdfgzxcvb" },
+  { label: "right hand", letters: "yuiophjklnm" },
+];
+
+/**
+ * Rows/hands of the Persian standard layout (static/layouts/persian_standard.json):
+ * top = ضصثقفغعهخحجچ, home = شیبلاتنمکگ, bottom = ظطزژردپو.
+ * Left hand = the keys under the left fingers (pinky ض ش ظ, ring ص س ط,
+ * middle ث ی ز, index ق ف ب ل ژ ر), right hand = the rest (through گ و چ).
+ */
+const PERSIAN_ROW_DRILLS: RowDrill[] = [
+  { label: "number row", letters: "۱۲۳۴۵۶۷۸۹۰" },
+  { label: "top row", letters: "ضصثقفغعهخحجچ" },
+  { label: "home row", letters: "شیبلاتنمکگ" },
+  { label: "bottom row", letters: "ظطزژردپو" },
+  { label: "left hand", letters: "ضشظصسطثیزقفبلژر" },
+  { label: "right hand", letters: "غعاتذهندمخپحجچوکگ" },
+];
+
+/** row/hand drills for the active language: QWERTY for latin, the Persian
+ * standard layout rows for persian languages */
+export function rowDrillsForLanguage(language: string): RowDrill[] {
+  return language.startsWith("persian")
+    ? PERSIAN_ROW_DRILLS
+    : QWERTY_ROW_DRILLS;
+}
+
 export function getLearnState(): LearnState {
   try {
     const raw = window.localStorage.getItem(LEARN_STATE_KEY);

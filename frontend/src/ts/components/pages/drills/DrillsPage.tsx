@@ -9,6 +9,7 @@ import * as CustomText from "../../../test/custom-text";
 import {
   fetchWordList,
   generateDrillWords,
+  rowDrillsForLanguage,
   rustyLetters,
   unlockedLetters,
   weakLetterDrillWords,
@@ -34,16 +35,8 @@ function startDrill(words: string[], name: string): void {
   restartTestEvent.dispatch();
 }
 
-type RowDrill = { label: string; letters: string };
-
-const ROW_DRILLS: RowDrill[] = [
-  { label: "number row", letters: "1234567890" },
-  { label: "top row", letters: "qwertyuiop" },
-  { label: "home row", letters: "asdfghjkl" },
-  { label: "bottom row", letters: "zxcvbnm" },
-  { label: "left hand", letters: "qwertasdfgzxcvb" },
-  { label: "right hand", letters: "yuiophjklnm" },
-];
+const rowDrills = (): { label: string; letters: string }[] =>
+  rowDrillsForLanguage(Config.language);
 
 export function DrillsPage(): JSXElement {
   const language = () => Config.language;
@@ -74,7 +67,7 @@ export function DrillsPage(): JSXElement {
       <section class="grid gap-4">
         <div class="text-sub">row / hand drills</div>
         <div class="grid grid-cols-2 gap-2 sm:grid-cols-3">
-          <For each={ROW_DRILLS}>
+          <For each={rowDrills()}>
             {(drill) => (
               <Button
                 text={drill.label}

@@ -254,3 +254,31 @@ describe("spaced review (SM-2 lite)", () => {
     expect(list.map((it) => it.letter)).toContain("j");
   });
 });
+
+describe("rowDrillsForLanguage (language-aware rows)", () => {
+  it("returns QWERTY rows for english", () => {
+    const drills = Learn.rowDrillsForLanguage("english");
+    expect(drills).toHaveLength(6);
+    expect(drills[1]?.letters).toBe("qwertyuiop");
+  });
+
+  it("returns Persian standard layout rows for persian", () => {
+    const drills = Learn.rowDrillsForLanguage("persian");
+    expect(drills).toHaveLength(6);
+    const allLetters = drills.map((d) => d.letters).join("");
+    //only Persian digits/letters, no latin, no urdu ڑ
+    for (const ch of allLetters) {
+      expect("۱۲۳۴۵۶۷۸۹۰اآبپتثجچحخدذرزژسشصضطظعغفقکگلمنوهی").toContain(ch);
+    }
+  });
+
+  it("persian hands cover every letter except آ exactly once", () => {
+    const drills = Learn.rowDrillsForLanguage("persian");
+    const hands = drills
+      .filter((d) => d.label.includes("hand"))
+      .map((d) => d.letters)
+      .join("");
+    const alphabet = [...("ا" + "بپتثجچحخدذرزژسشصضطظعغفقکگلمنوهی")].sort();
+    expect([...hands].sort()).toEqual(alphabet);
+  });
+});
