@@ -1,4 +1,5 @@
 import { Language } from "@monkeytype/schemas/languages";
+import { LEARN_STATE_KEY } from "./local-persistence";
 
 /**
  * Learning/progressive-mode engine (Keybr-style, fully offline).
@@ -15,10 +16,8 @@ export type LearnState = {
   keyStats: Record<string, KeyStat>;
 };
 
-const LEARN_STATE_KEY = "mtDesktopLearnState";
-
 /** letter groups in teaching order (QWERTY finger progression) */
-const ENGLISH_GROUPS = [
+export const ENGLISH_GROUPS = [
   "fj",
   "dk",
   "sl",
@@ -31,18 +30,32 @@ const ENGLISH_GROUPS = [
   "z",
 ];
 
-/** Persian groups ordered by letter frequency in common words */
-const PERSIAN_GROUPS = [
-  "الا",
-  "یمن",
-  "وتڑ",
-  "رسی",
-  "حبم",
-  "شک",
-  "دپ",
-  "طف",
-  "ژذغ",
-  "ضصق",
+/**
+ * Persian groups in touch-typing teaching order, mirroring the English
+ * progression (home row outward, one finger column at a time) on the
+ * "persian standard" layout (static/layouts/persian_standard.json):
+ * home row = ش س ی ب ل ا ت ن م ک گ, top = ض ص ث ق ف غ ع ه خ ح ج چ,
+ * bottom = ظ ط ز ژ ر ذ د پ و . /
+ * This front-loads the most frequent Persian letters, which sit on the
+ * home row (ا ل ی م ن ب ت س ش ک گ). All Persian letters are covered
+ * exactly once — the 32-letter alphabet plus آ (the shifted form), no
+ * letters from other scripts.
+ */
+export const PERSIAN_GROUPS = [
+  "بت", // index-finger home keys (f/j equivalents)
+  "ین", // middle-finger home keys (d/k)
+  "سم", // ring-finger home keys (s/l)
+  "شگک", // pinky home keys (a/;) + گ (right pinky home)
+  "لا", // index stretch (g/h) — home row complete
+  "قفرژ", // left index: top (ق ف) + bottom (ژ ر)
+  "غعذ", // right index: top (غ ع) + bottom (ذ)
+  "هدو", // right-hand lower reach: ه (top), د و (bottom)
+  "ثز", // left middle: top (ث) + bottom (ز)
+  "خپ", // right ring: top (خ) + bottom (پ)
+  "صط", // left ring: top (ص) + bottom (ط)
+  "حجچ", // right pinky top (ح ج چ)
+  "ضظ", // left pinky: top (ض) + bottom (ظ)
+  "آ", // shifted key (Shift+ا), taught last
 ];
 
 /** letters that must be mastered (accuracy) in the current group before
@@ -92,23 +105,151 @@ export function unlockedLetters(language: string): string {
   return groups.slice(0, state.unlockedGroups).join("");
 }
 
-/** pseudo-words built from the given letters, keybr-style */
-export function generatePseudoWords(letters: string, count: number): string[] {
+/**
+ * pseudo-words built from the given letters, keybr-style. When reference
+ * words are available, letter transitions follow the language's own bigram
+ * frequencies (restricted to the allowed letters), which produces
+ * pronounceable strings instead of uniform letter soup. Letters in
+ * `emphasizeLetters` (the group currently being learned) are sampled about
+ * three times as often. Falls back to uniform sampling without references.
+ */
+export function generatePseudoWords(
+  letters: string,
+  count: number,
+  referenceWords: string[] = [],
+  emphasizeLetters = "",
+): string[] {
   const words: string[] = [];
   let seed = Date.now() % 2147483647;
   const rand = (): number => {
     seed = (seed * 16807) % 2147483647;
     return (seed - 1) / 2147483646;
   };
+  const allowed = letters.split("");
+  const emphasize = new Set(emphasizeLetters.split(""));
+
+  //weighted pick: base frequency × boost for currently-learned letters
+  const pick = (pool: string[], weight: (letter: string) => number): string => {
+    const total = pool.reduce((sum, letter) => sum + weight(letter), 0);
+    if (total <= 0) {
+      return pool[Math.floor(rand() * pool.length)] ?? "";
+    }
+    let roll = rand() * total;
+    for (const letter of pool) {
+      roll -= weight(letter);
+      if (roll <= 0) return letter;
+    }
+    return pool[pool.length - 1] ?? "";
+  };
+  const boosted = (letter: string, base: number): number =>
+    emphasize.has(letter) ? base * 3 : base;
+
+  //bigram model from reference words restricted to the allowed letters
+  const starts = new Map<string, number>();
+  const transitions = new Map<string, Map<string, number>>();
+  for (const raw of referenceWords) {
+    const word = raw.toLowerCase();
+    if (word.length < 2 || word.length > 12) continue;
+    if (![...word].every((ch) => allowed.includes(ch))) continue;
+    const first = word[0];
+    if (first === undefined) continue;
+    starts.set(first, (starts.get(first) ?? 0) + 1);
+    for (let i = 0; i < word.length - 1; i++) {
+      const from = word[i];
+      const to = word[i + 1];
+      if (from === undefined || to === undefined) continue;
+      let row = transitions.get(from);
+      if (row === undefined) {
+        row = new Map();
+        transitions.set(from, row);
+      }
+      row.set(to, (row.get(to) ?? 0) + 1);
+    }
+  }
+
   for (let i = 0; i < count; i++) {
     const len = 3 + Math.floor(rand() * 4); //3..6
-    let word = "";
-    for (let j = 0; j < len; j++) {
-      word += letters[Math.floor(rand() * letters.length)];
+    let word = pick(allowed, (letter) =>
+      boosted(letter, starts.get(letter) ?? 1),
+    );
+    for (let j = 1; j < len; j++) {
+      const last = word[word.length - 1] ?? "";
+      const row = transitions.get(last);
+      if (row === undefined || row.size === 0) {
+        word += pick(allowed, (letter) => boosted(letter, 1));
+      } else {
+        word += pick([...row.keys()], (letter) =>
+          boosted(letter, row.get(letter) ?? 1),
+        );
+      }
     }
     words.push(word);
   }
   return words;
+}
+
+/** picks `count` words, favouring words that exercise the emphasized
+ * (currently learned) letters roughly two drills out of three */
+function prioritizeWords(
+  words: string[],
+  emphasizeLetters: string,
+  count: number,
+): string[] {
+  if (emphasizeLetters === "" || words.length === 0) {
+    return words.slice(0, count);
+  }
+  const emphasize = new Set(emphasizeLetters.split(""));
+  const withEmphasis: string[] = [];
+  const rest: string[] = [];
+  for (const word of words) {
+    if (word.split("").some((ch) => emphasize.has(ch))) {
+      withEmphasis.push(word);
+    } else {
+      rest.push(word);
+    }
+  }
+  const out: string[] = [];
+  let e = 0;
+  let r = 0;
+  while (out.length < count) {
+    const nextEmphasis = withEmphasis[e];
+    const nextRest = rest[r];
+    if (nextEmphasis === undefined && nextRest === undefined) break;
+    const takeEmphasis =
+      nextEmphasis !== undefined &&
+      (nextRest === undefined || out.length % 3 !== 2);
+    if (takeEmphasis) {
+      out.push(nextEmphasis);
+      e++;
+    } else if (nextRest !== undefined) {
+      out.push(nextRest);
+      r++;
+    }
+  }
+  return out;
+}
+
+export function generateDrillWords(
+  language: string,
+  letters: string,
+  wordList: string[],
+  count = DRILL_WORD_COUNT,
+  emphasizeLetters = "",
+): string[] {
+  //oversample real matches so emphasis-aware selection still fills the drill
+  const real = filterRealWords(wordList, letters, count * 3);
+  const chosen = prioritizeWords(real, emphasizeLetters, count);
+  while (chosen.length < count) {
+    chosen.push(
+      ...generatePseudoWords(
+        letters,
+        count - chosen.length,
+        wordList,
+        emphasizeLetters,
+      ),
+    );
+  }
+  return chosen.slice(0, count);
 }
 
 /** real words from the language list that only contain the given letters */
@@ -120,38 +261,24 @@ export function filterRealWords(
   const allowed = new Set(letters.split(""));
   // a character counts as a "letter" if it is Latin or Arabic-script
   // (anything else — punctuation, ZWNJ, digits — is always allowed)
-  const isLetterChar = (ch: string): boolean =>
-    /[a-zà-ÿ؀-ۿ]/i.test(ch);
+  const isLetterChar = (ch: string): boolean => /[a-zà-ÿ؀-ۿ]/i.test(ch);
   const matches = wordList.filter(
     (word) =>
       word.length >= 2 &&
       word.length <= 8 &&
       word
         .split("")
-        .every(
-          (ch) => allowed.has(ch.toLowerCase()) || !isLetterChar(ch),
-        ),
+        .every((ch) => allowed.has(ch.toLowerCase()) || !isLetterChar(ch)),
   );
   const out: string[] = [];
   let i = Math.floor(Math.random() * Math.max(1, matches.length));
   while (out.length < count && matches.length > 0) {
-    out.push(matches[i % matches.length]);
+    const word = matches[i % matches.length];
+    if (word === undefined) break;
+    out.push(word);
     i += Math.floor(1 + Math.random() * 7);
   }
   return out;
-}
-
-export function generateDrillWords(
-  language: string,
-  letters: string,
-  wordList: string[],
-  count = DRILL_WORD_COUNT,
-): string[] {
-  const real = filterRealWords(wordList, letters, count);
-  while (real.length < count) {
-    real.push(...generatePseudoWords(letters, count - real.length));
-  }
-  return real.slice(0, count);
 }
 
 /** computes per-letter correct/incorrect by diffing expected drill words
@@ -172,7 +299,7 @@ export function computeLetterStats(
 
   const count = Math.min(drillWords.length, typedWords.length);
   for (let w = 0; w < count; w++) {
-    const expected = drillWords[w];
+    const expected = drillWords[w] ?? "";
     const typed = typedWords[w] ?? "";
     const len = Math.max(expected.length, typed.length);
     for (let c = 0; c < len; c++) {
@@ -214,7 +341,7 @@ export function evaluateUnlock(state: LearnState, language: string): number {
   const currentLetters = groups[state.unlockedGroups - 1]?.split("") ?? [];
   const allMastered = currentLetters.every((letter) => {
     const stat = state.keyStats[letter];
-    if (stat === undefined) return stat !== undefined; //not typed at all yet
+    if (stat === undefined) return false; //not typed at all yet
     const total = stat.correct + stat.incorrect;
     return (
       total >= UNLOCK_MIN_SAMPLES &&
@@ -234,9 +361,10 @@ export function weakLetters(n = 8): { letter: string; acc: number }[] {
   return Object.entries(state.keyStats)
     .map(([letter, stat]) => ({
       letter,
-      acc: stat.correct + stat.incorrect > 0
-        ? stat.correct / (stat.correct + stat.incorrect)
-        : 1,
+      acc:
+        stat.correct + stat.incorrect > 0
+          ? stat.correct / (stat.correct + stat.incorrect)
+          : 1,
       total: stat.correct + stat.incorrect,
     }))
     .filter((it) => it.total >= 10)
@@ -264,19 +392,59 @@ export function weakLetterDrillWords(
   const words: string[] = [];
   let i = 0;
   while (words.length < count && matches.length > 0) {
-    words.push(matches[i % matches.length]);
+    const word = matches[i % matches.length];
+    if (word === undefined) break;
+    words.push(word);
     i++;
   }
   return { letters, words };
+}
+
+// ---------------------------------------------------------------------------
+// drill registration (the learning feedback loop)
+// ---------------------------------------------------------------------------
+
+/** words of the drill currently in progress — set when a learn drill starts,
+ * consumed when its test finishes. A test started outside a learn drill
+ * discards the stored words so foreign results never pollute the stats. */
+let activeDrillWords: string[] | undefined;
+
+export function setActiveDrillWords(words: string[]): void {
+  activeDrillWords = [...words];
+}
+
+/** consumes the active drill words (clears them); undefined when no drill
+ * was started or the words were already consumed. */
+export function takeActiveDrillWords(): string[] | undefined {
+  const words = activeDrillWords;
+  activeDrillWords = undefined;
+  return words;
+}
+
+/**
+ * Registers a finished drill: merges the per-letter stats of this attempt
+ * into the persisted learn state and evaluates the unlock threshold.
+ * Returns the updated state (also what is persisted).
+ */
+export function registerDrillResult(
+  drillWords: string[],
+  typedWords: string[],
+  language: string,
+): LearnState {
+  const state = getLearnState();
+  mergeKeyStats(state, computeLetterStats(drillWords, typedWords));
+  state.unlockedGroups = evaluateUnlock(state, language);
+  saveLearnState(state);
+  return state;
 }
 
 /** Enables the on-screen keyboard during learning drills (nosave): the
  * keymap highlights the next key, matching the finger-guidance recommendation
  * from the research. Returns the previous mode so it can be restored. */
 export function enableDrillKeymap(): string {
-  const previous = (
-    window.localStorage.getItem("config") ?? ""
-  ).match(/"keymapMode":"([a-z]+)"/)?.[1];
+  const previous = /"keymapMode":"([a-z]+)"/.exec(
+    window.localStorage.getItem("config") ?? "",
+  )?.[1];
   return previous ?? "off";
 }
 

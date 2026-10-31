@@ -1,19 +1,19 @@
-import { JSXElement, For, createSignal, onMount } from "solid-js";
+import { JSXElement, For, Show, createSignal, onMount } from "solid-js";
 
-import { Button } from "../../common/Button";
-import { H2 } from "../../common/Headers";
+import { setConfig } from "../../../config/setters";
+import { Config } from "../../../config/store";
+import { restartTestEvent } from "../../../events/test";
+import { navigate } from "../../../router/navigate";
+import { setCustomTextIndicator } from "../../../states/core";
+import * as CustomText from "../../../test/custom-text";
 import {
   fetchWordList,
   generateDrillWords,
   weakLetterDrillWords,
   weakLetters,
 } from "../../../utils/learn-stats";
-import { Config } from "../../../config/store";
-import { setConfig } from "../../../config/setters";
-import * as CustomText from "../../../test/custom-text";
-import { setCustomTextIndicator } from "../../../states/core";
-import { navigate } from "../../../router/navigate";
-import { restartTestEvent } from "../../../events/test";
+import { Button } from "../../common/Button";
+import { H2 } from "../../common/Headers";
 
 function startDrill(words: string[], name: string): void {
   setConfig("mode", "custom", { nosave: true });
@@ -22,7 +22,8 @@ function startDrill(words: string[], name: string): void {
   CustomText.setText(words);
   CustomText.setLimitMode("word");
   CustomText.setLimitValue(words.length);
-  CustomText.setMode("plain");
+  //sequential order: type the drill words exactly as generated
+  CustomText.setMode("repeat");
   CustomText.setPipeDelimiter(false);
   //show the on-screen keyboard during learning drills (nosave: reverts on restart)
   setConfig("keymapMode", "next", { nosave: true });
@@ -45,9 +46,7 @@ const ROW_DRILLS: RowDrill[] = [
 export function DrillsPage(): JSXElement {
   const language = () => Config.language;
   const [wordList, setWordList] = createSignal<string[]>([]);
-  const [weak, setWeak] = createSignal<
-    { letter: string; acc: number }[]
-  >([]);
+  const [weak, setWeak] = createSignal<{ letter: string; acc: number }[]>([]);
 
   onMount(async () => {
     try {
@@ -63,8 +62,8 @@ export function DrillsPage(): JSXElement {
       <section>
         <H2 fa={{ icon: "fa-dumbbell" }} text="drills" />
         <p class="text-sub">
-          Targeted practice: drill a row, a hand, or your weakest keys. The
-          test runs in custom mode with words filtered to your selection.
+          Targeted practice: drill a row, a hand, or your weakest keys. The test
+          runs in custom mode with words filtered to your selection.
         </p>
       </section>
 

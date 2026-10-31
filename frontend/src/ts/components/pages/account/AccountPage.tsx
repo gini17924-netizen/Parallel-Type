@@ -8,19 +8,20 @@ import {
 } from "../../../collections/results";
 import { SnapshotResult } from "../../../constants/default-snapshot";
 import { isAuthenticated } from "../../../states/core";
+import { hideLoaderBar, showLoaderBar } from "../../../states/loader-bar";
+import {
+  showErrorNotification,
+  showSuccessNotification,
+} from "../../../states/notifications";
+import { filters, setFilters } from "../../../states/result-filters";
+import * as DesktopAutoBackup from "../../../utils/desktop-auto-backup";
+import { qs } from "../../../utils/dom";
 import {
   DESKTOP_OFFLINE,
   exportBackup,
   importBackup,
   loadLocalResults,
 } from "../../../utils/local-persistence";
-import {
-  showErrorNotification,
-  showSuccessNotification,
-} from "../../../states/notifications";
-import { hideLoaderBar, showLoaderBar } from "../../../states/loader-bar";
-import { filters, setFilters } from "../../../states/result-filters";
-import { qs } from "../../../utils/dom";
 import { downloadResultsCSV } from "../../../utils/misc";
 import { Advertisement } from "../../common/Advertisement";
 import AsyncContent from "../../common/AsyncContent";
@@ -56,6 +57,7 @@ export function AccountPage(): JSXElement {
   const [isBackingUp, setIsBackingUp] = createSignal(false);
   const [isRestoring, setIsRestoring] = createSignal(false);
   const [restoreConfirming, setRestoreConfirming] = createSignal(false);
+  // oxlint-disable-next-line eslint/no-unassigned-vars -- Solid ref binding assigns this in JSX
   let restoreInput: HTMLInputElement | undefined;
 
   const resultsQuery = useResultsLiveQuery({
@@ -67,14 +69,16 @@ export function AccountPage(): JSXElement {
   const [localStreak, setLocalStreak] = createSignal(0);
   onMount(async () => {
     const daySet = new Set(
-      (await loadLocalResults()).map(
-        (r) => new Date(r.timestamp).toDateString(),
+      (await loadLocalResults()).map((r) =>
+        new Date(r.timestamp).toDateString(),
       ),
     );
     let streak = 0;
     const cursor = new Date();
     //a streak counts today (or yesterday, if today has no result yet) backwards
-    if (!daySet.has(cursor.toDateString())) cursor.setDate(cursor.getDate() - 1);
+    if (!daySet.has(cursor.toDateString())) {
+      cursor.setDate(cursor.getDate() - 1);
+    }
     while (daySet.has(cursor.toDateString())) {
       streak++;
       cursor.setDate(cursor.getDate() - 1);
@@ -122,7 +126,9 @@ export function AccountPage(): JSXElement {
           <TestStats queryState={queryState} />
 
           <div class="rounded bg-sub-alt p-4">
-            <div class="text-sub">local streak (consecutive days with a result)</div>
+            <div class="text-sub">
+              local streak (consecutive days with a result)
+            </div>
             <div class="text-3xl text-main">
               {localStreak()} <span class="text-sm text-sub">days</span>
             </div>
@@ -151,7 +157,7 @@ export function AccountPage(): JSXElement {
                     setTimeout(() => URL.revokeObjectURL(url), 10_000);
                     showSuccessNotification("Backup downloaded");
                   })
-                  .catch((error) => {
+                  .catch((error: unknown) => {
                     console.error("Failed to export backup", error);
                     showErrorNotification("Failed to create backup", {
                       error,
@@ -161,7 +167,11 @@ export function AccountPage(): JSXElement {
               }}
             />
             <Button
-              text={restoreConfirming() ? "click again to confirm" : "Restore backup"}
+              text={
+                restoreConfirming()
+                  ? "click again to confirm"
+                  : "Restore backup"
+              }
               fa={{ icon: "fa-file-import" }}
               class="col-start-2 w-full"
               disabled={isRestoring()}
@@ -206,14 +216,20 @@ export function AccountPage(): JSXElement {
                 setIsRestoring(true);
                 void file
                   .text()
-                  .then((text) => importBackup(JSON.parse(text) as never))
-                  .then((imported) => {
+                  .then(async (text) => importBackup(JSON.parse(text) as never))
+                  .then(async (imported) => {
                     showSuccessNotification(
                       `Restored ${imported} results, reloading`,
                     );
-                    setTimeout(() => window.location.reload(), 1000);
+                    //re-anchor the automatic backup before the reload wipes
+                    //the pending timer
+                    void DesktopAutoBackup.writeAutoBackup()
+                      .catch(() => undefined)
+                      .finally(() => {
+                        setTimeout(() => window.location.reload(), 500);
+                      });
                   })
-                  .catch((error) => {
+                  .catch((error: unknown) => {
                     console.error("Failed to restore backup", error);
                     showErrorNotification("Failed to restore backup", {
                       error,

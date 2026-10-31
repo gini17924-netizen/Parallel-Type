@@ -110,10 +110,12 @@ import {
 } from "./funbox/list";
 import { getFunbox } from "@monkeytype/funbox";
 import { SnapshotResult } from "../constants/default-snapshot";
+import { DESKTOP_OFFLINE, makeLocalResultId } from "../utils/local-persistence";
 import {
-  DESKTOP_OFFLINE,
-  makeLocalResultId,
-} from "../utils/local-persistence";
+  registerDrillResult,
+  takeActiveDrillWords,
+} from "../utils/learn-stats";
+import * as DesktopAutoBackup from "../utils/desktop-auto-backup";
 import { WordGenError } from "../utils/word-gen-error";
 import { tryCatch } from "@monkeytype/util/trycatch";
 import * as Sentry from "../sentry";
@@ -1122,8 +1124,12 @@ export async function finish(difficultyFailed = false): Promise<void> {
         ) as unknown as SnapshotResult<Mode>;
         snapshotResult._id = makeLocalResultId();
         const funboxMetadata = getFunbox(snapshotResult.funbox);
+        //mirror the server's PB rules (backend result controller): quotes,
+        //bailed-out results and stop-on-letter runs below 100% never get a PB
         const canGetPb =
           snapshotResult.mode !== "quote" &&
+          !snapshotResult.bailedOut &&
+          !(completedEvent.stopOnLetter && completedEvent.acc < 100) &&
           funboxMetadata.every((f) => f.canGetPb);
         const localPb = canGetPb
           ? DB.getLocalPB(
@@ -1145,9 +1151,28 @@ export async function finish(difficultyFailed = false): Promise<void> {
           if (localPb !== undefined) {
             showConfetti();
           }
-          setCrownType("normal");
+          //the pending crown from updateCrown stays: it already shows the
+          //correct +diff and the offline save is the final confirmation
         }
         DB.saveLocalResult({ result: snapshotResult, isPb });
+        //learning drill: register per-letter stats and evaluate the unlock
+        const drillWords = takeActiveDrillWords();
+        if (
+          drillWords !== undefined &&
+          completedEvent.mode === "custom" &&
+          getCustomTextIndicator()?.name === "learning drill"
+        ) {
+          registerDrillResult(
+            drillWords,
+            getInputHistory(eventLog),
+            Config.language,
+          );
+        }
+        //signed-out sessions never reset this counter upstream; on desktop
+        //every result is saved, so the accumulated seconds would inflate
+        //typingStats.timeTyping forever
+        resetIncompleteTests();
+        DesktopAutoBackup.queueAutoBackup();
       }
     }
     dontSave = true;

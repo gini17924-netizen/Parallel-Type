@@ -10,6 +10,7 @@ import {
   ensureResultsMigrated,
 } from "./utils/local-persistence";
 import * as DB from "./db";
+import * as DesktopAutoBackup from "./utils/desktop-auto-backup";
 
 onDOMReady(async () => {
   await configLoadPromise;
@@ -26,6 +27,12 @@ onDOMReady(async () => {
   //here keeps the storage consistent from the start)
   if (DESKTOP_OFFLINE) {
     void ensureResultsMigrated();
+  }
+
+  //desktop offline build: recover local data from the automatic backup file
+  //when the webview profile was wiped or migrated (KI-02)
+  if (DESKTOP_OFFLINE) {
+    void DesktopAutoBackup.restoreFromAutoBackupIfNeeded();
   }
 
   //this line goes back to pretty much the beginning of the project and im pretty sure its here

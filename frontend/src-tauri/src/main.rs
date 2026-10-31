@@ -156,11 +156,60 @@ fn register_global_shortcut(app: &tauri::AppHandle) {
     eprintln!("no global shortcut registered - tray menu still works");
 }
 
+/// Name of the automatic backup file inside the app data dir. The app data
+/// dir sits outside the WebView2 profile, so the backup survives a wiped or
+/// migrated webview profile (KI-02).
+const BACKUP_FILE: &str = "backup.json";
+
+/// App identifier before the rebrand. Backups stored under it stay readable
+/// so an identifier change or a fresh webview profile never strands data.
+const LEGACY_IDENTIFIER: &str = "com.monkeytype.desktop";
+
+fn backup_file_path(app: &tauri::AppHandle) -> Result<std::path::PathBuf, String> {
+    app.path()
+        .app_data_dir()
+        .map(|dir| dir.join(BACKUP_FILE))
+        .map_err(|e| e.to_string())
+}
+
+fn legacy_backup_file_path(app: &tauri::AppHandle) -> Option<std::path::PathBuf> {
+    let current_dir = app.path().app_data_dir().ok()?;
+    //app_data_dir = <config dir>/<identifier>; look under the previous one
+    let legacy_dir = current_dir.parent()?.join(LEGACY_IDENTIFIER);
+    Some(legacy_dir.join(BACKUP_FILE))
+}
+
+/// Writes the automatic backup file (whole JSON payload from the frontend).
+#[tauri::command]
+fn backup_write(app: tauri::AppHandle, contents: String) -> Result<(), String> {
+    let path = backup_file_path(&app)?;
+    if let Some(dir) = path.parent() {
+        std::fs::create_dir_all(dir).map_err(|e| e.to_string())?;
+    }
+    std::fs::write(path, contents).map_err(|e| e.to_string())
+}
+
+/// Reads the automatic backup file, if one exists. Falls back to the backup
+/// written under the previous identifier; a missing file is not an error.
+#[tauri::command]
+fn backup_read(app: tauri::AppHandle) -> Result<Option<String>, String> {
+    if let Ok(contents) = std::fs::read_to_string(backup_file_path(&app)?) {
+        return Ok(Some(contents));
+    }
+    if let Some(legacy) = legacy_backup_file_path(&app) {
+        if let Ok(contents) = std::fs::read_to_string(legacy) {
+            return Ok(Some(contents));
+        }
+    }
+    Ok(None)
+}
+
 fn main() {
     tauri::Builder::default()
         .plugin(tauri_plugin_opener::init())
         .plugin(tauri_plugin_updater::Builder::new().build())
         .plugin(tauri_plugin_global_shortcut::Builder::new().build())
+        .invoke_handler(tauri::generate_handler![backup_write, backup_read])
         .setup(|app| {
             let window: WebviewWindow =
                 tauri::WebviewWindowBuilder::new(app, "main", WebviewUrl::App("/".into()))

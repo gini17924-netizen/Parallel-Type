@@ -1,24 +1,24 @@
 import { JSXElement, Show, For, createSignal, onMount } from "solid-js";
 
-import { Button } from "../../common/Button";
-import { H2 } from "../../common/Headers";
+import { setConfig } from "../../../config/setters";
+import { Config } from "../../../config/store";
+import { restartTestEvent } from "../../../events/test";
+import { navigate } from "../../../router/navigate";
+import { setCustomTextIndicator } from "../../../states/core";
+import * as CustomText from "../../../test/custom-text";
+import { cn } from "../../../utils/cn";
 import {
   DRILL_WORD_COUNT,
-  evaluateUnlock,
   fetchWordList,
   getLearnState,
   generateDrillWords,
   groupsForLanguage,
   resetLearnState,
+  setActiveDrillWords,
   unlockedLetters,
 } from "../../../utils/learn-stats";
-import { Config } from "../../../config/store";
-import { setConfig } from "../../../config/setters";
-import * as CustomText from "../../../test/custom-text";
-import { setCustomTextIndicator } from "../../../states/core";
-import { navigate } from "../../../router/navigate";
-import { restartTestEvent } from "../../../events/test";
-import { cn } from "../../../utils/cn";
+import { Button } from "../../common/Button";
+import { H2 } from "../../common/Headers";
 
 function startDrill(words: string[]): void {
   setConfig("mode", "custom", { nosave: true });
@@ -27,7 +27,8 @@ function startDrill(words: string[]): void {
   CustomText.setText(words);
   CustomText.setLimitMode("word");
   CustomText.setLimitValue(words.length);
-  CustomText.setMode("plain");
+  //sequential order: type the drill words exactly as generated
+  CustomText.setMode("repeat");
   CustomText.setPipeDelimiter(false);
   //show the on-screen keyboard during learning drills (nosave: reverts on restart)
   setConfig("keymapMode", "next", { nosave: true });
@@ -45,6 +46,8 @@ export function LearnPage(): JSXElement {
   const groups = () => groupsForLanguage(language());
 
   onMount(async () => {
+    //refresh from storage: a drill may have completed since the last mount
+    setState(getLearnState());
     try {
       setWordList(await fetchWordList(language()));
     } catch {
@@ -62,17 +65,14 @@ export function LearnPage(): JSXElement {
       unlocked(),
       wordList(),
       DRILL_WORD_COUNT,
+      //weight the drill toward the group currently being learned
+      currentGroupLetters(),
     );
     if (words.length === 0) return;
     setDrillPending(true);
+    //stats are registered automatically when the drill's test finishes
+    setActiveDrillWords(words);
     startDrill(words);
-  };
-
-  const checkResult = (): void => {
-    const newState = { ...getLearnState() };
-    newState.unlockedGroups = evaluateUnlock(newState, language());
-    setState(newState);
-    setDrillPending(false);
   };
 
   return (
@@ -80,9 +80,9 @@ export function LearnPage(): JSXElement {
       <section>
         <H2 fa={{ icon: "fa-graduation-cap" }} text="progressive learning" />
         <p class="text-sub">
-          Keybr-style progressive mode: start with a few letters, unlock more
-          as you master the current set. Fully offline — your per-key stats
-          stay in this browser profile.
+          Keybr-style progressive mode: start with a few letters, unlock more as
+          you master the current set. Fully offline — your per-key stats stay in
+          this browser profile.
         </p>
       </section>
 
@@ -107,25 +107,19 @@ export function LearnPage(): JSXElement {
           </div>
         </Show>
         <div class="text-sub">
-          mastery threshold: 95% accuracy over 20+ letters of the current
-          group
+          mastery threshold: 95% accuracy over 20+ letters of the current group
         </div>
       </section>
 
-      <section class="grid grid-cols-1 gap-4 sm:grid-cols-3">
+      <section class="grid grid-cols-1 gap-4 sm:grid-cols-2">
         <Button
           text={drillPending() ? "drill in progress…" : "start learn drill"}
           fa={{ icon: "fa-play" }}
           class="w-full"
           disabled={drillPending()}
-          onClick={() => void startLearnDrill()}
-        />
-        <Button
-          text="register result"
-          fa={{ icon: "fa-check" }}
-          class="w-full"
-          disabled={!drillPending()}
-          onClick={checkResult}
+          onClick={() => {
+            startLearnDrill();
+          }}
         />
         <Button
           text="reset progress"
@@ -149,7 +143,11 @@ export function LearnPage(): JSXElement {
               const total = stat.correct + stat.incorrect;
               const acc = Math.round((stat.correct / total) * 100);
               const color =
-                acc >= 95 ? "text-main" : acc >= 80 ? "text-text" : "text-error";
+                acc >= 95
+                  ? "text-main"
+                  : acc >= 80
+                    ? "text-text"
+                    : "text-error";
               return (
                 <div class="text-center">
                   <div class="text-2xl">{letter}</div>

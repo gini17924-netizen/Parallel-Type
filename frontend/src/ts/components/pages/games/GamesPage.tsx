@@ -1,9 +1,16 @@
-import { JSXElement, For, Show, createSignal, onCleanup, onMount } from "solid-js";
+import {
+  JSXElement,
+  For,
+  Show,
+  createSignal,
+  onCleanup,
+  onMount,
+} from "solid-js";
 
-import { H2 } from "../../common/Headers";
-import { Button } from "../../common/Button";
 import { Config } from "../../../config/store";
 import { cachedFetchJson } from "../../../utils/json-data";
+import { Button } from "../../common/Button";
+import { H2 } from "../../common/Headers";
 
 type FallingWord = {
   id: number;
@@ -45,6 +52,7 @@ export function GamesPage(): JSXElement {
   const spawn = (): void => {
     if (wordPool.length === 0) return;
     const text = wordPool[Math.floor(Math.random() * wordPool.length)];
+    if (text === undefined) return;
     setWords((current) => [
       ...current,
       {
@@ -130,10 +138,7 @@ export function GamesPage(): JSXElement {
 
     //the actively typed word is the one the user has already started
     let target = words().find((word) => word.typed > 0);
-    if (target === undefined) {
-      //nothing started: pick the lowest word
-      target = [...words()].sort((a, b) => b.top - a.top)[0];
-    }
+    target ??= [...words()].sort((a, b) => b.top - a.top)[0];
     if (target === undefined) return;
 
     const expected = target.text[target.typed]?.toLowerCase();
@@ -145,9 +150,11 @@ export function GamesPage(): JSXElement {
     setWpm(Math.round(typedTotal / 5 / elapsedMin));
 
     const typed = target.typed + 1;
+    const targetId = target.id;
+    const targetPoints = target.text.length * 10;
     if (typed >= target.text.length) {
-      setWords((current) => current.filter((word) => word.id !== target!.id));
-      setScore((score) => score + target!.text.length * 10);
+      setWords((current) => current.filter((word) => word.id !== targetId));
+      setScore((score) => score + targetPoints);
       if (score() > 0 && (score() / 500) % 1 === 0 && score() % 500 === 0) {
         setLevel((level) => level + 1);
         restartTimers();
@@ -155,7 +162,7 @@ export function GamesPage(): JSXElement {
     } else {
       setWords((current) =>
         current.map((word) =>
-          word.id === target!.id ? { ...word, typed } : word,
+          word.id === targetId ? { ...word, typed } : word,
         ),
       );
     }
@@ -178,7 +185,12 @@ export function GamesPage(): JSXElement {
       </section>
 
       <div class="grid grid-cols-3 gap-4">
-        <Button text="start game" fa={{ icon: "fa-play" }} class="w-full" onClick={() => void start()} />
+        <Button
+          text="start game"
+          fa={{ icon: "fa-play" }}
+          class="w-full"
+          onClick={() => void start()}
+        />
         <div class="text-center">
           <div class="text-sub">score</div>
           <div class="text-3xl text-main">{score()}</div>
@@ -219,7 +231,7 @@ export function GamesPage(): JSXElement {
           </For>
         </Show>
         <Show when={over()}>
-          <div class="absolute inset-0 grid place-items-center bg-black/70">
+          <div class="bg-black/70 absolute inset-0 grid place-items-center">
             <div class="text-center">
               <div class="text-4xl text-error">game over</div>
               <div class="pt-4 text-2xl">score: {score()}</div>
