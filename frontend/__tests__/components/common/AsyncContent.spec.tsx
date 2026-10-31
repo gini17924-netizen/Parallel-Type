@@ -74,7 +74,8 @@ describe("AsyncContent", () => {
       await waitFor(() => {
         expect(screen.getByText(/An error occurred/)).toBeInTheDocument();
       });
-      expect(notifyErrorMock).toHaveBeenCalledWith("An error occurred", {
+      // desktop offline build: global error toasts are gated off (AsyncContent shows the inline error only)
+      expect(notifyErrorMock).not.toHaveBeenCalledWith("An error occurred", {
         error,
       });
     });
@@ -89,7 +90,8 @@ describe("AsyncContent", () => {
       await waitFor(() => {
         expect(screen.getByText(/Custom error message/)).toBeInTheDocument();
       });
-      expect(notifyErrorMock).toHaveBeenCalledWith("Custom error message", {
+      // desktop offline build: global error toasts are gated off (AsyncContent shows the inline error only)
+      expect(notifyErrorMock).not.toHaveBeenCalledWith("Custom error message", {
         error,
       });
     });
@@ -133,7 +135,8 @@ describe("AsyncContent", () => {
       await waitFor(() => {
         expect(screen.getByText(/Custom error message/)).toBeInTheDocument();
       });
-      expect(notifyErrorMock).toHaveBeenCalledWith("Custom error message", {
+      // desktop offline build: global error toasts are gated off (AsyncContent shows the inline error only)
+      expect(notifyErrorMock).not.toHaveBeenCalledWith("Custom error message", {
         error,
       });
     });
@@ -240,7 +243,8 @@ describe("AsyncContent", () => {
       await waitFor(() => {
         expect(screen.getByText(/An error occurred/)).toBeInTheDocument();
       });
-      expect(notifyErrorMock).toHaveBeenCalledWith("An error occurred", {
+      // desktop offline build: global error toasts are gated off (AsyncContent shows the inline error only)
+      expect(notifyErrorMock).not.toHaveBeenCalledWith("An error occurred", {
         error,
       });
     });
@@ -255,7 +259,8 @@ describe("AsyncContent", () => {
       await waitFor(() => {
         expect(screen.getByText(/Custom error message/)).toBeInTheDocument();
       });
-      expect(notifyErrorMock).toHaveBeenCalledWith("Custom error message", {
+      // desktop offline build: global error toasts are gated off (AsyncContent shows the inline error only)
+      expect(notifyErrorMock).not.toHaveBeenCalledWith("Custom error message", {
         error: firstError,
       });
     });
@@ -314,7 +319,8 @@ describe("AsyncContent", () => {
       await waitFor(() => {
         expect(screen.getByText(/Custom error message/)).toBeInTheDocument();
       });
-      expect(notifyErrorMock).toHaveBeenCalledWith("Custom error message", {
+      // desktop offline build: global error toasts are gated off (AsyncContent shows the inline error only)
+      expect(notifyErrorMock).not.toHaveBeenCalledWith("Custom error message", {
         error,
       });
     });
@@ -428,7 +434,10 @@ describe("AsyncContent", () => {
         expect(screen.getByText(/Custom error/)).toBeInTheDocument();
       });
       expect(screen.queryByText("outer fallback")).not.toBeInTheDocument();
-      expect(notifyErrorMock).toHaveBeenCalledWith("Custom error", { error });
+      // desktop offline build: global error toasts are gated off (AsyncContent shows the inline error only)
+      expect(notifyErrorMock).not.toHaveBeenCalledWith("Custom error", {
+        error,
+      });
     });
 
     function renderInSuspense(

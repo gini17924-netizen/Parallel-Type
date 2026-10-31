@@ -68,6 +68,11 @@ fn toggle_main_window(app: &tauri::AppHandle) {
     }
 }
 
+/// Update checking. Disabled until a real update endpoint exists (B28): the
+/// configured endpoint is still the `.example` placeholder (KI-05), so every
+/// boot would fire a doomed request. Flip to true when B28 lands.
+const UPDATES_ENABLED: bool = false;
+
 /// Checks the update endpoint once at startup. Non-fatal: any failure
 /// (offline, unreachable host, bad json) is logged and ignored.
 fn check_for_updates(app: &tauri::AppHandle) {
@@ -232,7 +237,9 @@ fn main() {
 
             register_global_shortcut(app.handle());
             focus_main_window(app.handle());
-            check_for_updates(app.handle());
+            if UPDATES_ENABLED {
+                check_for_updates(app.handle());
+            }
             Ok(())
         })
         .on_window_event(|window, event| {

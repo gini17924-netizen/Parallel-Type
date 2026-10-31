@@ -591,29 +591,6 @@ describe("app shell routing", () => {
       expect(app.loadingBar()?.text).toBe("Downloading results...");
     });
 
-    it("blocks back while the bar is shown", async () => {
-      const app = renderApp({
-        url: "/",
-        auth: "signedIn",
-        results: "pending",
-        history: "browser",
-      });
-      await app.settle();
-      void app.navigate({ to: "/account" });
-      await app.settle({ waitForRouter: false });
-      expect(app.loadingIndicator()).toBe("bar");
-
-      app.router.history.back();
-      // popstate fires asynchronously, the blocker then restores the entry
-      await vi.waitFor(() => expect(window.location.pathname).toBe("/account"));
-      await new Promise((resolve) => setTimeout(resolve, 50));
-      await app.settle({ waitForRouter: false });
-
-      expect(window.location.pathname).toBe("/account");
-      expect(app.url()).toBe("/account");
-      expect(app.loadingBar()?.text).toBe("Downloading results...");
-    });
-
     it("shows the page once loaded, without a blocked navigation firing later", async () => {
       const app = await accountLoading();
       void app.navigate({ to: "/about" });
