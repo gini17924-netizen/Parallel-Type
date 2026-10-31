@@ -11,10 +11,62 @@ import { LEARN_STATE_KEY } from "./local-persistence";
 
 export type KeyStat = { correct: number; incorrect: number };
 
+/** spaced-review schedule of one letter (SM-2 lite) */
+export type LetterReview = {
+  /** last drill that contained the letter (epoch ms) */
+  lastSeen: number;
+  /** current review interval; 0 = due immediately */
+  intervalMs: number;
+  /** when the letter should be reviewed again (epoch ms) */
+  dueAt: number;
+};
+
 export type LearnState = {
   unlockedGroups: number;
   keyStats: Record<string, KeyStat>;
+  /** spaced-review schedules; absent in pre-0.10.0 states */
+  reviewState?: Record<string, LetterReview>;
 };
+
+/**
+ * Curated common Persian words for the early layout groups, where the real
+ * language list has almost no coverage (measured against persian_1k: groups
+ * 1-4 match 0/4/17/39 words). Indexed by the group that unlocks the word's
+ * last letter; a word becomes available once all its letters are unlocked.
+ * Groups 6+ rely on the language list alone.
+ */
+const PERSIAN_STARTER_WORDS: string[][] = [
+  ["بت", "تب"],
+  ["بین", "بن", "بیت"],
+  ["نیست", "بیست", "سمت", "نسبت", "من"],
+  ["یک", "شب", "کم", "کمی", "کن", "کمک", "ممکن", "بیش", "شکست", "سنگ", "کسی"],
+  [
+    "سال",
+    "سلام",
+    "تمام",
+    "نام",
+    "بالا",
+    "است",
+    "اما",
+    "با",
+    "ما",
+    "این",
+    "نشان",
+    "شکل",
+    "ماشین",
+    "انسان",
+    "کامل",
+    "میان",
+  ],
+];
+
+/** the curated starter words whose letters are all currently unlocked */
+function starterWordsFor(unlocked: string): string[] {
+  const allowed = new Set(unlocked.split(""));
+  return PERSIAN_STARTER_WORDS.flat().filter((word) =>
+    [...word].every((ch) => allowed.has(ch)),
+  );
+}
 
 /** letter groups in teaching order (QWERTY finger progression) */
 export const ENGLISH_GROUPS = [
@@ -78,13 +130,15 @@ export function getLearnState(): LearnState {
         typeof parsed.keyStats === "object" &&
         parsed.keyStats !== null
       ) {
+        //reviewState is optional (pre-0.10.0 states lack it)
+        parsed.reviewState ??= {};
         return parsed;
       }
     }
   } catch {
     // fall through to default
   }
-  return { unlockedGroups: 1, keyStats: {} };
+  return { unlockedGroups: 1, keyStats: {}, reviewState: {} };
 }
 
 function saveLearnState(state: LearnState): void {
@@ -238,7 +292,10 @@ export function generateDrillWords(
 ): string[] {
   //oversample real matches so emphasis-aware selection still fills the drill
   const real = filterRealWords(wordList, letters, count * 3);
-  const chosen = prioritizeWords(real, emphasizeLetters, count);
+  //curated Persian starters first: early groups have almost no real coverage
+  //(multiplicity of `real` is intentional — it fills the drill)
+  const candidates = [...starterWordsFor(letters), ...real];
+  const chosen = prioritizeWords(candidates, emphasizeLetters, count);
   while (chosen.length < count) {
     chosen.push(
       ...generatePseudoWords(
@@ -421,10 +478,16 @@ export function takeActiveDrillWords(): string[] | undefined {
   return words;
 }
 
+/** spaced-review intervals: an error puts the letter back to due-now, a
+ * fully correct appearance doubles the interval, capped at 30 days */
+const REVIEW_START_INTERVAL_MS = 86_400_000; //1 day
+const REVIEW_MAX_INTERVAL_MS = 30 * 86_400_000;
+
 /**
  * Registers a finished drill: merges the per-letter stats of this attempt
- * into the persisted learn state and evaluates the unlock threshold.
- * Returns the updated state (also what is persisted).
+ * into the persisted learn state, updates the spaced-review schedule and
+ * evaluates the unlock threshold. Returns the updated state (also what is
+ * persisted).
  */
 export function registerDrillResult(
   drillWords: string[],
@@ -432,10 +495,62 @@ export function registerDrillResult(
   language: string,
 ): LearnState {
   const state = getLearnState();
-  mergeKeyStats(state, computeLetterStats(drillWords, typedWords));
+  const newStats = computeLetterStats(drillWords, typedWords);
+  mergeKeyStats(state, newStats);
+  updateReviewSchedule(state, newStats);
   state.unlockedGroups = evaluateUnlock(state, language);
   saveLearnState(state);
   return state;
+}
+
+/** SM-2 lite: letters typed without error double their review interval
+ * (starting at 1 day, capped at 30); any error resets them to due-now. */
+function updateReviewSchedule(
+  state: LearnState,
+  newStats: Record<string, KeyStat>,
+): void {
+  state.reviewState ??= {};
+  const now = Date.now();
+  for (const [letter, stat] of Object.entries(newStats)) {
+    const previous = state.reviewState[letter];
+    const clean = stat.incorrect === 0 && stat.correct > 0;
+    const previousInterval = previous?.intervalMs ?? 0;
+    const intervalMs = clean
+      ? Math.min(
+          (previousInterval > 0 ? previousInterval : REVIEW_START_INTERVAL_MS) *
+            2,
+          REVIEW_MAX_INTERVAL_MS,
+        )
+      : 0;
+    state.reviewState[letter] = {
+      lastSeen: now,
+      intervalMs,
+      dueAt: now + intervalMs,
+    };
+  }
+}
+
+/** letters that are due for review: never-reviewed, overdue, or reset by a
+ * recent error — weakest accuracy first. Enough samples only: brand-new
+ * letters are the learn drill's job (it emphasises them already). */
+export function rustyLetters(n = 8): { letter: string; acc: number }[] {
+  const state = getLearnState();
+  const now = Date.now();
+  return Object.entries(state.keyStats)
+    .map(([letter, stat]) => {
+      const review = state.reviewState?.[letter];
+      const total = stat.correct + stat.incorrect;
+      return {
+        letter,
+        acc: total > 0 ? stat.correct / total : 1,
+        total,
+        due: review === undefined || review.dueAt <= now,
+      };
+    })
+    .filter((it) => it.due && it.total >= 10)
+    .sort((a, b) => a.acc - b.acc)
+    .slice(0, n)
+    .map(({ letter, acc }) => ({ letter, acc }));
 }
 
 /** Enables the on-screen keyboard during learning drills (nosave): the

@@ -14,6 +14,11 @@ import {
   showSuccessNotification,
 } from "../../../states/notifications";
 import { filters, setFilters } from "../../../states/result-filters";
+import {
+  getDailyGoalMinutes,
+  setDailyGoalMinutes,
+  todayTypingSeconds,
+} from "../../../utils/daily-goal";
 import * as DesktopAutoBackup from "../../../utils/desktop-auto-backup";
 import { qs } from "../../../utils/dom";
 import {
@@ -67,11 +72,12 @@ export function AccountPage(): JSXElement {
   });
 
   const [localStreak, setLocalStreak] = createSignal(0);
+  const [todaySeconds, setTodaySeconds] = createSignal(0);
+  const [goalMinutes, setGoalMinutes] = createSignal(getDailyGoalMinutes());
   onMount(async () => {
+    const results = await loadLocalResults();
     const daySet = new Set(
-      (await loadLocalResults()).map((r) =>
-        new Date(r.timestamp).toDateString(),
-      ),
+      results.map((r) => new Date(r.timestamp).toDateString()),
     );
     let streak = 0;
     const cursor = new Date();
@@ -84,7 +90,17 @@ export function AccountPage(): JSXElement {
       cursor.setDate(cursor.getDate() - 1);
     }
     setLocalStreak(streak);
+    setTodaySeconds(todayTypingSeconds(results));
   });
+
+  const updateGoal = (value: number): void => {
+    setDailyGoalMinutes(value);
+    setGoalMinutes(getDailyGoalMinutes());
+  };
+
+  const todayMinutes = () => Math.round(todaySeconds() / 60);
+  const goalProgressPct = () =>
+    Math.min(100, Math.round((todaySeconds() / (goalMinutes() * 60)) * 100));
 
   return (
     <div class="flex flex-col gap-8">
@@ -131,6 +147,34 @@ export function AccountPage(): JSXElement {
             </div>
             <div class="text-3xl text-main">
               {localStreak()} <span class="text-sm text-sub">days</span>
+            </div>
+          </div>
+
+          <div class="rounded bg-sub-alt p-4">
+            <div class="flex items-baseline justify-between">
+              <div class="text-sub">daily goal (today)</div>
+              <label class="text-xs text-sub">
+                goal:{" "}
+                <input
+                  type="number"
+                  min="1"
+                  max="240"
+                  class="w-14 rounded bg-main px-1 text-main"
+                  value={goalMinutes()}
+                  onInput={(e) => updateGoal(Number(e.currentTarget.value))}
+                />{" "}
+                min
+              </label>
+            </div>
+            <div class="text-3xl text-main">
+              {todayMinutes()}{" "}
+              <span class="text-sm text-sub">/ {goalMinutes()} min</span>
+            </div>
+            <div class="mt-2 h-2 w-full rounded bg-sub">
+              <div
+                class="h-2 rounded bg-main"
+                style={{ width: `${goalProgressPct()}%` }}
+              ></div>
             </div>
           </div>
 

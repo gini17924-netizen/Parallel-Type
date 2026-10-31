@@ -9,6 +9,8 @@ import * as CustomText from "../../../test/custom-text";
 import {
   fetchWordList,
   generateDrillWords,
+  rustyLetters,
+  unlockedLetters,
   weakLetterDrillWords,
   weakLetters,
 } from "../../../utils/learn-stats";
@@ -47,6 +49,7 @@ export function DrillsPage(): JSXElement {
   const language = () => Config.language;
   const [wordList, setWordList] = createSignal<string[]>([]);
   const [weak, setWeak] = createSignal<{ letter: string; acc: number }[]>([]);
+  const [rusty, setRusty] = createSignal<{ letter: string; acc: number }[]>([]);
 
   onMount(async () => {
     try {
@@ -55,6 +58,7 @@ export function DrillsPage(): JSXElement {
       setWordList([]);
     }
     setWeak(weakLetters(8));
+    setRusty(rustyLetters(8));
   });
 
   return (
@@ -129,6 +133,60 @@ export function DrillsPage(): JSXElement {
               if (drill.words.length > 0) {
                 startDrill(drill.words, "problem keys");
               }
+            }}
+          />
+        </Show>
+      </section>
+
+      <section class="grid gap-4 rounded bg-sub-alt p-4">
+        <div class="text-sub">
+          rusty letters (due for review — spaced repetition)
+        </div>
+        <Show
+          when={rusty().length > 0}
+          fallback={
+            <div class="text-sub">
+              nothing due right now — keep drilling and letters will come back
+              when their review interval expires
+            </div>
+          }
+        >
+          <div class="grid grid-cols-8 gap-2 sm:grid-cols-8">
+            <For each={rusty()}>
+              {(it) => (
+                <div class="text-center">
+                  <div class="text-2xl">{it.letter}</div>
+                  <div
+                    class={
+                      it.acc >= 0.95
+                        ? "text-main"
+                        : it.acc >= 0.8
+                          ? "text-text"
+                          : "text-error"
+                    }
+                  >
+                    {Math.round(it.acc * 100)}%
+                  </div>
+                </div>
+              )}
+            </For>
+          </div>
+          <Button
+            text="review rusty letters"
+            fa={{ icon: "fa-history" }}
+            class="w-full"
+            onClick={() => {
+              const emphasize = rusty()
+                .map((it) => it.letter)
+                .join("");
+              const words = generateDrillWords(
+                language(),
+                unlockedLetters(language()),
+                wordList(),
+                30,
+                emphasize,
+              );
+              if (words.length > 0) startDrill(words, "rusty letters");
             }}
           />
         </Show>

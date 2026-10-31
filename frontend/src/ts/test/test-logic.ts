@@ -116,6 +116,8 @@ import {
   takeActiveDrillWords,
 } from "../utils/learn-stats";
 import * as DesktopAutoBackup from "../utils/desktop-auto-backup";
+import * as DesktopDailyGoal from "../utils/daily-goal";
+import { computeLocalXp } from "../utils/local-xp";
 import { WordGenError } from "../utils/word-gen-error";
 import { tryCatch } from "@monkeytype/util/trycatch";
 import * as Sentry from "../sentry";
@@ -1154,7 +1156,12 @@ export async function finish(difficultyFailed = false): Promise<void> {
           //the pending crown from updateCrown stays: it already shows the
           //correct +diff and the offline save is the final confirmation
         }
-        DB.saveLocalResult({ result: snapshotResult, isPb });
+        DB.saveLocalResult({
+          result: snapshotResult,
+          isPb,
+          //desktop offline build: local XP mirrors the upstream server formula
+          xp: computeLocalXp(snapshotResult, DB.getSnapshot()?.streak ?? 0),
+        });
         //learning drill: register per-letter stats and evaluate the unlock
         const drillWords = takeActiveDrillWords();
         if (
@@ -1172,6 +1179,7 @@ export async function finish(difficultyFailed = false): Promise<void> {
         //every result is saved, so the accumulated seconds would inflate
         //typingStats.timeTyping forever
         resetIncompleteTests();
+        void DesktopDailyGoal.maybeNotifyDailyGoal();
         DesktopAutoBackup.queueAutoBackup();
       }
     }

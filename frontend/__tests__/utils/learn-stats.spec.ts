@@ -183,3 +183,74 @@ describe("active drill words (wiring consumed exactly once)", () => {
     expect(fresh.takeActiveDrillWords()).toBeUndefined();
   });
 });
+
+describe("persian starter words (early-group coverage)", () => {
+  it("supplies real curated words where the language list has none", () => {
+    //group 1 only (بت): the 1k list matches zero words, the starters fill in
+    const words = Learn.generateDrillWords("persian", "بت", [], 10);
+    expect(words).toContain("بت");
+    expect(words).toContain("تب");
+    for (const word of words) {
+      for (const ch of word) expect("بت").toContain(ch);
+    }
+  });
+
+  it("unlocks more curated words as groups unlock", () => {
+    //groups 1-3 (بتینسم): from the starter list
+    const words = Learn.generateDrillWords("persian", "بتینسم", [], 15);
+    expect(words).toContain("بین");
+    expect(words).toContain("نیست");
+    for (const word of words) {
+      for (const ch of word) expect("بتینسم").toContain(ch);
+    }
+  });
+
+  it("never uses starter words for english", () => {
+    const words = Learn.generateDrillWords("english", "fj", [], 10);
+    for (const word of words) {
+      for (const ch of word) expect("fj").toContain(ch);
+    }
+  });
+});
+
+describe("spaced review (SM-2 lite)", () => {
+  beforeEach(() => {
+    window.localStorage.clear();
+  });
+
+  it("a clean letter doubles its interval, an error resets it to due-now", async () => {
+    const fresh = await import("../../src/ts/utils/learn-stats");
+    const before = Date.now();
+    const perfect = Array.from({ length: 12 }, () => "fj");
+    fresh.registerDrillResult(perfect, perfect, "english");
+    const state = fresh.getLearnState();
+    expect(state.reviewState?.["f"]?.intervalMs).toBe(2 * 86_400_000);
+    expect(state.reviewState?.["f"]?.dueAt).toBeGreaterThanOrEqual(
+      before + 2 * 86_400_000 - 1000,
+    );
+    //an error on f resets it to due-now (typed 'xj' vs 'fj': f is wrong)
+    const drill = Array.from({ length: 12 }, () => "fj");
+    const sloppy = Array.from({ length: 12 }, () => "xj");
+    const state2 = fresh.registerDrillResult(drill, sloppy, "english");
+    expect(state2.reviewState?.["f"]?.intervalMs).toBe(0);
+    expect(state2.reviewState?.["f"]?.dueAt).toBeLessThanOrEqual(Date.now());
+  });
+
+  it("rustyLetters lists due letters weakest-first, hides not-yet-due ones", async () => {
+    const fresh = await import("../../src/ts/utils/learn-stats");
+    const perfect = Array.from({ length: 12 }, () => "fj");
+    for (let i = 0; i < 5; i++) {
+      fresh.registerDrillResult(perfect, perfect, "english");
+    }
+    //f/j: 120 samples at 100%, reviewed 2+ days out → not due
+    expect(fresh.rustyLetters(8)).toHaveLength(0);
+    //an error drill resets f/j to due-now
+    const drill = Array.from({ length: 12 }, () => "fj");
+    const sloppy = Array.from({ length: 12 }, () => "fx");
+    fresh.registerDrillResult(drill, sloppy, "english");
+    const list = fresh.rustyLetters(8);
+    expect(list.length).toBeGreaterThan(0);
+    expect(list[0]?.letter).toBe("x"); //0% accuracy sorts first
+    expect(list.map((it) => it.letter)).toContain("j");
+  });
+});
