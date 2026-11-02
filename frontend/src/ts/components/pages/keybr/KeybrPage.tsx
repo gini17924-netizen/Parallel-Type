@@ -33,7 +33,7 @@ export function KeybrPage(): JSXElement {
   const [ready, setReady] = createSignal(false);
   const [failed, setFailed] = createSignal(false);
   const [lines, setLines] = createSignal<
-    { text: string; chars: { codePoint: number; cls?: string | null }[] }[]
+    { text: string; chars: { codePoint: number; attrs: number }[] }[]
   >([]);
   const [typedCount, setTypedCount] = createSignal(0);
   const [keyStates, setKeyStates] = createSignal<
@@ -94,7 +94,7 @@ export function KeybrPage(): JSXElement {
         text: line.text,
         chars: line.chars.map((ch) => ({
           codePoint: ch.codePoint,
-          cls: ch.cls ?? null,
+          attrs: ch.attrs,
         })),
       })),
     );
@@ -171,7 +171,7 @@ export function KeybrPage(): JSXElement {
         text: line.text,
         chars: line.chars.map((ch) => ({
           codePoint: ch.codePoint,
-          cls: ch.cls ?? null,
+          attrs: ch.attrs,
         })),
       })),
     );
@@ -194,8 +194,22 @@ export function KeybrPage(): JSXElement {
     void bootSession(id);
   };
 
+  const caretStyle = `
+    .keybr-caret {
+      border-left: 0.12em solid var(--main-color);
+      margin-left: -0.06em;
+      animation: keybr-caret-blink 1s step-end infinite;
+    }
+    @keyframes keybr-caret-blink {
+      50% {
+        border-color: transparent;
+      }
+    }
+  `;
+
   return (
     <div class="content-grid grid gap-8">
+      <style>{caretStyle}</style>
       <section>
         <H2 text="keybr engine" fa={{ icon: "fa-bolt" }} />
         <p class="text-sub">
@@ -251,11 +265,25 @@ export function KeybrPage(): JSXElement {
                 {(line) => (
                   <div class="break-words whitespace-pre-wrap">
                     <For each={line.chars}>
-                      {(ch) => (
-                        <span class={ch.cls ?? "text-text"}>
-                          {String.fromCodePoint(ch.codePoint)}
-                        </span>
-                      )}
+                      {(ch) => {
+                        const hit = (ch.attrs & 1) !== 0; //Attr.Hit
+                        const miss = (ch.attrs & 2) !== 0; //Attr.Miss
+                        const garbage = (ch.attrs & 4) !== 0; //Attr.Garbage
+                        const caret = (ch.attrs & 8) !== 0; //Attr.Cursor
+                        const cls =
+                          miss || garbage
+                            ? "text-error"
+                            : hit
+                              ? "text-main"
+                              : "text-sub";
+                        return (
+                          <span
+                            class={`keybr-char ${cls} ${caret ? "keybr-caret" : ""} ${garbage ? "line-through opacity-80" : ""}`}
+                          >
+                            {String.fromCodePoint(ch.codePoint)}
+                          </span>
+                        );
+                      }}
                     </For>
                   </div>
                 )}
