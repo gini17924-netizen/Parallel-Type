@@ -2,39 +2,39 @@ import { createSignal, JSXElement, Show } from "solid-js";
 
 import { sendVerificationEmail } from "../../../auth";
 import { isUserVerified } from "../../../states/core";
-import { DESKTOP_OFFLINE } from "../../../utils/local-persistence";
 import { cn } from "../../../utils/cn";
+import { DESKTOP_OFFLINE } from "../../../utils/local-persistence";
 import { Button } from "../../common/Button";
 import { Fa } from "../../common/Fa";
 
 export function VerifyNotice(props: { class?: string }): JSXElement {
   const [isProcessing, setProcessing] = createSignal(false);
 
-  //desktop offline build: no account, nothing to verify
-  if (DESKTOP_OFFLINE) return <div class={cn(props.class ?? "")} />;
-
   const resendVerificationEmail = () => {
     setProcessing(true);
     void sendVerificationEmail().finally(() => setProcessing(false));
   };
   return (
-    <Show when={!isUserVerified()}>
-      <div
-        class={cn(
-          `grid items-center gap-4 rounded p-4 ring-4 ring-sub-alt md:grid-cols-[1fr_auto] ${props.class ?? ""}`,
-        )}
-      >
-        <div class="grid grid-cols-[auto_1fr] items-center gap-4">
-          <Fa icon="fa-exclamation-triangle" class="text-4xl text-sub" />
-          <div>Your email address is still not verified</div>
+    //desktop offline build: no account, nothing to verify
+    <Show when={!DESKTOP_OFFLINE}>
+      <Show when={!isUserVerified()}>
+        <div
+          class={cn(
+            `grid items-center gap-4 rounded p-4 ring-4 ring-sub-alt md:grid-cols-[1fr_auto] ${props.class ?? ""}`,
+          )}
+        >
+          <div class="grid grid-cols-[auto_1fr] items-center gap-4">
+            <Fa icon="fa-exclamation-triangle" class="text-4xl text-sub" />
+            <div>Your email address is still not verified</div>
+          </div>
+          <Button
+            class="px-4"
+            text="resend verification email"
+            disabled={isProcessing()}
+            onClick={resendVerificationEmail}
+          />
         </div>
-        <Button
-          class="px-4"
-          text="resend verification email"
-          disabled={isProcessing()}
-          onClick={resendVerificationEmail}
-        />
-      </div>
+      </Show>
     </Show>
   );
 }

@@ -15,7 +15,9 @@ async function freshModule(): Promise<void> {
   LocalPersistence = await import("../../src/ts/utils/local-persistence");
 }
 
-function makeResult(overrides: Partial<SnapshotResult<Mode>> = {}): SnapshotResult<Mode> {
+function makeResult(
+  overrides: Partial<SnapshotResult<Mode>> = {},
+): SnapshotResult<Mode> {
   return {
     _id: "test_id_1",
     wpm: 100,
@@ -85,7 +87,8 @@ describe("LocalPersistence (desktop offline, IndexedDB)", () => {
         _id: "heavy",
         chartData: [[1, 2]] as unknown as SnapshotResult<Mode>["chartData"],
         keySpacing: "toolong" as unknown as SnapshotResult<Mode>["keySpacing"],
-        keyDuration: "toolong" as unknown as SnapshotResult<Mode>["keyDuration"],
+        keyDuration:
+          "toolong" as unknown as SnapshotResult<Mode>["keyDuration"],
       });
       await LocalPersistence.appendLocalResult(result);
       const loaded = await LocalPersistence.loadLocalResults();
@@ -331,7 +334,8 @@ describe("LocalPersistence (desktop offline, IndexedDB)", () => {
           makeResult({
             _id: "heavy_restore",
             chartData: [[1]] as unknown as SnapshotResult<Mode>["chartData"],
-            keySpacing: "toolong" as unknown as SnapshotResult<Mode>["keySpacing"],
+            keySpacing:
+              "toolong" as unknown as SnapshotResult<Mode>["keySpacing"],
           }),
         ],
       } as never);
@@ -347,7 +351,10 @@ describe("LocalPersistence (desktop offline, IndexedDB)", () => {
         LocalPersistence.importBackup({ hello: 1 } as never),
       ).rejects.toThrow("Invalid backup file");
       await expect(
-        LocalPersistence.importBackup({ schemaVersion: 99, results: [] } as never),
+        LocalPersistence.importBackup({
+          schemaVersion: 99,
+          results: [],
+        } as never),
       ).rejects.toThrow("Invalid backup file");
     });
   });

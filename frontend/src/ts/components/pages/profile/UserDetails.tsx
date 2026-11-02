@@ -317,7 +317,11 @@ function AvatarAndName(props: {
         </div>
         <div class="grid">
           <Show when={!!props.profile.addedAt}>
-            <Balloon inline text={accountAgeHint()} position={balloonPosition()}>
+            <Balloon
+              inline
+              text={accountAgeHint()}
+              position={balloonPosition()}
+            >
               Joined {formatDate(props.profile.addedAt ?? 0, "dd MMM yyyy")}
             </Balloon>
           </Show>

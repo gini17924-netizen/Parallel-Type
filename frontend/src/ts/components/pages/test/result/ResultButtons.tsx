@@ -1,15 +1,15 @@
 import { createKeyHold } from "@tanstack/solid-hotkeys";
 import { JSXElement, onMount, Show } from "solid-js";
 
-import { getConfig } from "../../../../config/store";
 import { setConfig } from "../../../../config/setters";
-import { getLastResult } from "../../../../states/snapshot";
+import { getConfig } from "../../../../config/store";
 import { getIsScreenshotting } from "../../../../states/core";
 import { showModal } from "../../../../states/modals";
 import {
   showNoticeNotification,
   showSuccessNotification,
 } from "../../../../states/notifications";
+import { getLastResult } from "../../../../states/snapshot";
 import {
   captureAndCopyToClipboard,
   captureAndDownload,
@@ -75,9 +75,7 @@ export function ResultButtons(props: { glarses: boolean }): JSXElement {
           onClick={() => {
             const last = getLastResult();
             if (last === undefined || last.wpm <= 0) {
-              showNoticeNotification(
-                "No previous result to race against yet",
-              );
+              showNoticeNotification("No previous result to race against yet");
               return;
             }
             setConfig("paceCaret", "custom");

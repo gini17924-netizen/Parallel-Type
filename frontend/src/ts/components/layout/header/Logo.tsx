@@ -1,6 +1,5 @@
 import { Link } from "@tanstack/solid-router";
-import type { JSX } from "solid-js";
-import { JSXElement } from "solid-js";
+import { For, JSXElement } from "solid-js";
 
 import { restartTestEvent } from "../../../events/test";
 import { getRoutePage } from "../../../states/router";
@@ -8,26 +7,6 @@ import { getFocus } from "../../../states/test";
 import { cn } from "../../../utils/cn";
 import { isDevEnvironment } from "../../../utils/env";
 import ptLogoPaths from "./pt-logo-paths.json";
-
-/**
- * Colour layers of the ParallelType emblem. Each layer is a white shape
- * rendered as a CSS mask and filled with a theme colour, so the logo
- * follows the active theme automatically.
- */
-function maskLayerStyle(image: string, color: string): JSX.CSSProperties {
-  const mask = `url(/images/${image})`;
-  return {
-    "background-color": color,
-    "-webkit-mask-image": mask,
-    "mask-image": mask,
-    "-webkit-mask-position": "center",
-    "mask-position": "center",
-    "-webkit-mask-size": "contain",
-    "mask-size": "contain",
-    "-webkit-mask-repeat": "no-repeat",
-    "mask-repeat": "no-repeat",
-  };
-}
 
 export function Logo(): JSXElement {
   return (
@@ -47,7 +26,7 @@ export function Logo(): JSXElement {
       <span
         aria-hidden="true"
         class={cn(
-          "relative inline-block h-12 aspect-square transition-opacity duration-250",
+          "relative inline-block aspect-square h-12 transition-opacity duration-250",
           { "opacity-50": getFocus() },
         )}
       >
@@ -59,15 +38,11 @@ export function Logo(): JSXElement {
         >
           {/* keycaps (dim colour) */}
           <g fill="var(--sub-color)">
-          {ptLogoPaths.keys.map((d) => (
-            <path d={d} />
-          ))}
+            <For each={ptLogoPaths.keys}>{(d) => <path d={d}></path>}</For>
           </g>
           {/* strokes and letters (main colour) */}
           <g fill="var(--main-color)">
-          {ptLogoPaths.main.map((d) => (
-            <path d={d} />
-          ))}
+            <For each={ptLogoPaths.main}>{(d) => <path d={d}></path>}</For>
           </g>
         </svg>
       </span>

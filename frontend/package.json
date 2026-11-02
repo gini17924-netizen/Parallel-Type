@@ -132,10 +132,10 @@
   },
   "lint-staged": {
     "*": [
-      "oxfmt --no-error-on-unmatched-pattern -c ../.oxfmtrc.json"
+      "sh ../scripts/fmt-staged.sh --no-error-on-unmatched-pattern -c ../.oxfmtrc.json"
     ],
     "*.{ts,js,tsx}": [
-      "oxlint --type-aware --type-check"
+      "sh ../scripts/lint-staged-ts.sh"
     ]
   },
   "browserslist": [

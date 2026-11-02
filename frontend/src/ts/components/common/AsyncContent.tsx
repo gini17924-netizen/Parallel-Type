@@ -1,5 +1,4 @@
 import { typedKeys } from "@monkeytype/util/objects";
-import { DESKTOP_OFFLINE } from "../../utils/local-persistence";
 import { UseQueryResult } from "@tanstack/solid-query";
 import {
   Accessor,
@@ -15,6 +14,7 @@ import {
 
 import { showErrorNotification } from "../../states/notifications";
 import { createErrorMessage } from "../../utils/error";
+import { DESKTOP_OFFLINE } from "../../utils/local-persistence";
 import { LoadingCircle } from "./LoadingCircle";
 
 type AsyncEntry<T> = {
