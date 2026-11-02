@@ -64,6 +64,7 @@ export function KeybrPage(): JSXElement {
       progress = new Progress(settings, lesson);
       progress.seed(loadStoredResults(lang));
       startLessonState();
+      window.localStorage.removeItem("mtKeybrBootError");
       setReady(true);
     } catch (error) {
       window.localStorage.setItem(
