@@ -84,7 +84,8 @@ export function KeybrPage(): JSXElement {
       const lang = language();
       progress?.append(result, () => {});
       storeResultStats(lang, resultStats(textInput));
-      setLastSpeed(Math.round(result.speed * 60) / 60);
+      //keybr Result.speed is characters per minute
+      setLastSpeed(Math.round(result.speed));
       setLastAccuracy(Math.round(result.accuracy * 1000) / 10);
       setLessonCount((c) => c + 1);
       startLessonState();
@@ -254,7 +255,8 @@ export function KeybrPage(): JSXElement {
                 lessons: {lessonCount()} · typed: {typedCount()}
               </div>
               <div class="text-sub">
-                speed: {lastSpeed()} cpm · accuracy: {lastAccuracy()}%
+                speed: {lastSpeed()} cpm (≈ {Math.round(lastSpeed() / 5)} wpm) ·
+                accuracy: {lastAccuracy()}%
               </div>
             </div>
             <div
