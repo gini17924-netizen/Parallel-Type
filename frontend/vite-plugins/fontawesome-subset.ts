@@ -100,6 +100,9 @@ function getFontawesomeConfig(debug = false): FontawesomeConfig {
   const srcFiles = findAllFiles(
     "./src",
     (filename) =>
+      //the vendored keybr tree contains "fa-ir"-style layout ids that would
+      //be misdetected as fontawesome icons
+      !filename.startsWith("src/keybr/") &&
       !filename.endsWith("fontawesome-5.scss") &&
       !filename.endsWith("fontawesome-6.scss"), //ignore our own css
   );

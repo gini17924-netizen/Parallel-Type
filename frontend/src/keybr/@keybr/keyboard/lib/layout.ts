@@ -880,7 +880,7 @@ export class Layout implements XEnumItem {
     ),
   );
   static readonly FA_IR_LEGACY = new Layout(
-    /* id= */ "fa-ir-legacy",
+    /* id= */ "kb-ir-legacy",
     /* xid= */ 0x8f,
     /* name= */ "Persian Legacy «پیش فرض فارسی»",
     /* family= */ "persian",
@@ -910,7 +910,7 @@ export class Layout implements XEnumItem {
     ),
   );
   static readonly FA_IR = new Layout(
-    /* id= */ "fa-ir",
+    /* id= */ "kb-ir",
     /* xid= */ 0x91,
     /* name= */ "Persian Standard «استاندارد فارسی»",
     /* family= */ "persian",
