@@ -1,0 +1,1 @@
+Vendored verbatim from keybr.com (AGPL-3.0), package @keybr/textinput-events. React-bound *.tsx files and upstream tests removed; re-exports stripped. See SoftwareRelease/docs/KEYBR_PORT_ARCHITECTURE.md.

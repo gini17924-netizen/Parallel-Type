@@ -28,6 +28,10 @@ import solidPlugin from "vite-plugin-solid";
 import devtools from "solid-devtools/vite";
 import tailwindcss from "@tailwindcss/vite";
 import { workspacePackagesAlias } from "./vite-plugins/workspace-packages";
+import {
+  keybrPackagesAlias,
+  keybrStateAlias,
+} from "./vite-plugins/keybr-packages";
 
 function getFontsConfig(): string {
   return `\n${Object.keys(Fonts)
@@ -357,6 +361,8 @@ export default defineConfig(({ mode }): UserConfig => {
     resolve: {
       alias: [
         ...workspacePackagesAlias,
+        ...keybrPackagesAlias,
+        ...keybrStateAlias,
         ...(isDevelopment
           ? []
           : [

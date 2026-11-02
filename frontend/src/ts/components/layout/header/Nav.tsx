@@ -119,6 +119,18 @@ export function Nav(): JSXElement {
       <Button
         variant="text"
         fa={{
+          icon: "fa-bolt",
+          fixedWidth: true,
+        }}
+        class={buttonClass()}
+        dataset={{
+          "data-nav-item": "keybr",
+        }}
+        to="/keybr"
+      />
+      <Button
+        variant="text"
+        fa={{
           icon: "fa-dumbbell",
           fixedWidth: true,
         }}

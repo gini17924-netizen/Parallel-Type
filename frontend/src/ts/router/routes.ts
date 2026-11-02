@@ -17,6 +17,7 @@ import { isResultsReady, waitForResultsReady } from "../collections/results";
 import { PageSwitcher } from "../components/core/PageSwitcher";
 import { AboutPage } from "../components/pages/AboutPage";
 import { LearnPage } from "../components/pages/learn/LearnPage";
+import { KeybrPage } from "../components/pages/keybr/KeybrPage";
 import { DrillsPage } from "../components/pages/drills/DrillsPage";
 import { GamesPage } from "../components/pages/games/GamesPage";
 import { AccountSettingsPage } from "../components/pages/account-settings/AccountSettingsPage";
@@ -76,6 +77,7 @@ export type PageName =
   | "friends"
   | "leaderboards"
   | "learn"
+  | "keybr"
   | "drills"
   | "games";
 
@@ -270,6 +272,13 @@ const learn = createRoute({
   component: createRouterPage(LearnPage),
 });
 
+const keybr = createRoute({
+  getParentRoute: () => userDataRoute,
+  path: "/keybr",
+  staticData: { page: "keybr" },
+  component: createRouterPage(KeybrPage),
+});
+
 const drills = createRoute({
   getParentRoute: () => userDataRoute,
   path: "/drills",
@@ -423,6 +432,7 @@ export const routeTree = root.addChildren([
     about,
     settings,
     learn,
+    keybr,
     drills,
     games,
     login,

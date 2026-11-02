@@ -3,6 +3,10 @@ import { dirname } from "node:path";
 import { fileURLToPath } from "node:url";
 import { defineConfig, UserWorkspaceConfig } from "vitest/config";
 import { workspacePackagesAlias } from "./vite-plugins/workspace-packages";
+import {
+  keybrPackagesAlias,
+  keybrStateAlias,
+} from "./vite-plugins/keybr-packages";
 import { languageHashes } from "./vite-plugins/language-hashes";
 import { envConfig } from "./vite-plugins/env-config";
 import solidPlugin from "vite-plugin-solid";
@@ -13,7 +17,9 @@ const plugins = [
   solidPlugin({ hot: false }),
 ];
 
-const resolve = { alias: workspacePackagesAlias };
+const resolve = {
+  alias: [...workspacePackagesAlias, ...keybrPackagesAlias, ...keybrStateAlias],
+};
 
 // worktrees set up by scripts/setup-worktree.sh link node_modules from the main
 // checkout: allow reading the linked deps, and keep vite's cache in the
