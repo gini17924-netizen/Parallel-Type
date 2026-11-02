@@ -3,6 +3,7 @@
 
 import {
   Geometry,
+  KeyboardOptions,
   Language,
   Layout,
   loadKeyboard,

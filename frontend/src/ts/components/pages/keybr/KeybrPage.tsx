@@ -66,6 +66,10 @@ export function KeybrPage(): JSXElement {
       startLessonState();
       setReady(true);
     } catch (error) {
+      window.localStorage.setItem(
+        "mtKeybrBootError",
+        String((error as any)?.stack || error),
+      );
       console.error("keybr session failed to boot", error);
       setFailed(true);
     }
