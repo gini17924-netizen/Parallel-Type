@@ -8,6 +8,7 @@ import {
   onMount,
 } from "solid-js";
 
+import { Config } from "../../../config/store";
 import {
   KEYBR_LANGUAGES,
   type KeybrLanguage,
@@ -20,6 +21,7 @@ import {
   saveKeybrSettings,
   storeResultStats,
 } from "../../../keybr/session";
+import { getCharFromEvent } from "../../../test/layout-emulator";
 import { Button } from "../../common/Button";
 import { H2 } from "../../common/Headers";
 
@@ -119,7 +121,7 @@ export function KeybrPage(): JSXElement {
     setKeyStates(states);
   }
 
-  function handleKeyDown(event: KeyboardEvent): void {
+  async function handleKeyDown(event: KeyboardEvent): Promise<void> {
     if (!ready() || lessonState === undefined) return;
     if (event.ctrlKey || event.metaKey || event.altKey) return;
     if (event.key === "Backspace") {
@@ -135,12 +137,23 @@ export function KeybrPage(): JSXElement {
       return;
     }
     if (event.key.length !== 1) return;
-    const codePoint = event.key.codePointAt(0);
-    if (codePoint === undefined) return;
     event.preventDefault();
     const now = performance.now();
     const timeToType = Math.min(Math.max(now - lastKeyAt, 0), 5000);
     lastKeyAt = now;
+    //respect the layout emulator exactly like the main test: with a
+    //non-default layout the typed char comes from the key mapping, not
+    //from the OS-produced event.key
+    let codePoint: number;
+    if (Config.layout !== "default") {
+      const emulated = await getCharFromEvent(event);
+      if (emulated === null || emulated === "") return;
+      codePoint = emulated.codePointAt(0)!;
+    } else {
+      const raw = event.key.codePointAt(0);
+      if (raw === undefined) return;
+      codePoint = raw;
+    }
     lessonState.onInput({
       type: "input",
       timeStamp: now,
