@@ -93,21 +93,26 @@ export function Nav(): JSXElement {
           }}
         />
       </Show>
-      <Button
-        variant="text"
-        fa={{
-          icon: "fa-keyboard",
-          fixedWidth: true,
-        }}
-        to="/"
-        class={buttonClass()}
-        dataset={{
-          "data-nav-item": "test",
-        }}
-        onClick={() => {
-          if (getRoutePage() === "test") restartTestEvent.dispatch();
-        }}
-      />
+      {/* the keyboard button lives on the typing test only: elsewhere the
+          home hub and its sections cover navigation, and on the test itself
+          clicking it restarts the test */}
+      <Show when={getRoutePage() === "test"}>
+        <Button
+          variant="text"
+          fa={{
+            icon: "fa-keyboard",
+            fixedWidth: true,
+          }}
+          to="/"
+          class={buttonClass()}
+          dataset={{
+            "data-nav-item": "test",
+          }}
+          onClick={() => {
+            if (getRoutePage() === "test") restartTestEvent.dispatch();
+          }}
+        />
+      </Show>
       <Button
         variant="text"
         fa={{
