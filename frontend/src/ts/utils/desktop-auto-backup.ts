@@ -1,5 +1,6 @@
 import {
   exportBackup,
+  hasKeybrState,
   importBackup,
   loadLocalResults,
   loadLocalSnapshotFields,
@@ -86,7 +87,12 @@ export async function restoreFromAutoBackupIfNeeded(): Promise<void> {
     const results = await loadLocalResults();
     const snapshot = loadLocalSnapshotFields();
     const learnState = window.localStorage.getItem(LEARN_STATE_KEY);
-    if (results.length > 0 || snapshot !== undefined || learnState !== null) {
+    if (
+      results.length > 0 ||
+      snapshot !== undefined ||
+      learnState !== null ||
+      hasKeybrState()
+    ) {
       return; //local data exists - nothing to recover
     }
     const contents = await invoke<string | null>("backup_read");

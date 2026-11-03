@@ -25,6 +25,8 @@ import { type TextInput } from "@keybr/textinput";
 import faModelUrl from "@keybr/phonetic-model/assets/model-fa.data?url";
 import enModelUrl from "@keybr/phonetic-model/assets/model-en.data?url";
 
+import * as DesktopAutoBackup from "../utils/desktop-auto-backup";
+
 export type KeybrLanguageId = "fa" | "en";
 
 export type KeybrLanguage = {
@@ -196,4 +198,6 @@ export function storeResultStats(
   //keep a recent window: the engine only needs per-key confidence history
   while (results.length > 200) results.shift();
   store(language.id, results);
+  //keep the automatic backup file current for keybr-only users too
+  DesktopAutoBackup.queueAutoBackup();
 }

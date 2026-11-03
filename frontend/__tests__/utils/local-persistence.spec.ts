@@ -65,7 +65,7 @@ describe("LocalPersistence (desktop offline, IndexedDB)", () => {
       await LocalPersistence.appendLocalResult(makeResult({ _id: "r1" }));
       const loaded = await LocalPersistence.loadLocalResults();
       expect(loaded).toHaveLength(1);
-      expect(loaded[0]._id).toBe("r1");
+      expect(loaded[0]?._id).toBe("r1");
     });
 
     it("returns results sorted oldest first", async () => {
@@ -83,13 +83,13 @@ describe("LocalPersistence (desktop offline, IndexedDB)", () => {
 
   describe("appendLocalResult", () => {
     it("strips heavy fields before storing", async () => {
+      //keySpacing/keyDuration are not on the current result type anymore
       const result = makeResult({
         _id: "heavy",
-        chartData: [[1, 2]] as unknown as SnapshotResult<Mode>["chartData"],
-        keySpacing: "toolong" as unknown as SnapshotResult<Mode>["keySpacing"],
-        keyDuration:
-          "toolong" as unknown as SnapshotResult<Mode>["keyDuration"],
-      });
+        chartData: [[1, 2]],
+        keySpacing: "toolong",
+        keyDuration: "toolong",
+      } as unknown as Partial<SnapshotResult<Mode>>);
       await LocalPersistence.appendLocalResult(result);
       const loaded = await LocalPersistence.loadLocalResults();
       const stored = loaded.find((r) => r._id === "heavy") as unknown as Record<
@@ -131,7 +131,7 @@ describe("LocalPersistence (desktop offline, IndexedDB)", () => {
       const loaded = await LocalPersistence.loadLocalResults();
       const dups = loaded.filter((r) => r._id === "dup");
       expect(dups).toHaveLength(1);
-      expect(dups[0].wpm).toBe(70);
+      expect(dups[0]?.wpm).toBe(70);
     });
   });
 
@@ -210,7 +210,7 @@ describe("LocalPersistence (desktop offline, IndexedDB)", () => {
       LocalPersistence.saveLocalSnapshotFields(snap as never);
       const loaded = LocalPersistence.loadLocalSnapshotFields();
       expect(loaded?.typingStats).toEqual(snap.typingStats);
-      expect(loaded?.personalBests.words[10][0].wpm).toBe(110.81);
+      expect(loaded?.personalBests?.words[10]?.[0]?.wpm).toBe(110.81);
       expect(loaded?.xp).toBe(0);
     });
 
@@ -261,7 +261,7 @@ describe("LocalPersistence (desktop offline, IndexedDB)", () => {
       } as never);
 
       const backup = await LocalPersistence.exportBackup();
-      expect(backup.schemaVersion).toBe(1);
+      expect(backup.schemaVersion).toBe(2);
       //rows from earlier tests may still exist; these two are the newest
       expect(backup.results.slice(-2).map((r) => r._id)).toEqual([
         "bk_1",
@@ -303,7 +303,7 @@ describe("LocalPersistence (desktop offline, IndexedDB)", () => {
       expect(loaded.map((r) => r._id)).toEqual(["b_1", "b_2"]); //replaced, not merged
       const snap = LocalPersistence.loadLocalSnapshotFields();
       expect(snap?.xp).toBe(100);
-      expect(snap?.personalBests.words[25][0].wpm).toBe(80);
+      expect(snap?.personalBests?.words[25]?.[0]?.wpm).toBe(80);
       expect(snap?.typingStats).toEqual({
         timeTyping: 30,
         startedTests: 5,
@@ -323,7 +323,7 @@ describe("LocalPersistence (desktop offline, IndexedDB)", () => {
       expect(imported).toBe(1000);
       const loaded = await LocalPersistence.loadLocalResults();
       expect(loaded).toHaveLength(1000);
-      expect(loaded[0]._id).toBe("imp_5"); //oldest dropped
+      expect(loaded[0]?._id).toBe("imp_5"); //oldest dropped
     });
 
     it("strips heavy fields on restore", async () => {
@@ -333,10 +333,9 @@ describe("LocalPersistence (desktop offline, IndexedDB)", () => {
         results: [
           makeResult({
             _id: "heavy_restore",
-            chartData: [[1]] as unknown as SnapshotResult<Mode>["chartData"],
-            keySpacing:
-              "toolong" as unknown as SnapshotResult<Mode>["keySpacing"],
-          }),
+            chartData: [[1]],
+            keySpacing: "toolong",
+          } as unknown as Partial<SnapshotResult<Mode>>),
         ],
       } as never);
       expect(imported).toBe(1);
@@ -356,6 +355,83 @@ describe("LocalPersistence (desktop offline, IndexedDB)", () => {
           results: [],
         } as never),
       ).rejects.toThrow("Invalid backup file");
+    });
+  });
+
+  describe("desktop state backup (schema v2)", () => {
+    it("round-trips keybr state, daily goal and word blast difficulty", async () => {
+      window.localStorage.setItem("mtKeybrResults:fa", '[{"timeStamp":1}]');
+      window.localStorage.setItem("mtKeybrResults:en", '[{"timeStamp":2}]');
+      window.localStorage.setItem("mtKeybrLanguage", "fa");
+      window.localStorage.setItem("mtKeybrBootError", "transient"); //never backed up
+      window.localStorage.setItem("mtDesktopDailyGoalMinutes", "45");
+      window.localStorage.setItem("mtDesktopWordBlastDifficulty", "hard");
+
+      const backup = await LocalPersistence.exportBackup();
+      expect(backup.keybrState).toEqual({
+        "mtKeybrResults:fa": '[{"timeStamp":1}]',
+        "mtKeybrResults:en": '[{"timeStamp":2}]',
+        mtKeybrLanguage: "fa",
+      });
+      expect(backup.dailyGoal).toBe(45);
+      expect(backup.wordBlast).toBe("hard");
+
+      window.localStorage.clear();
+      //the shared fake-indexeddb store may carry leftover results from other
+      //tests, so the restored count is not asserted here
+      await LocalPersistence.importBackup(backup);
+      expect(window.localStorage.getItem("mtKeybrResults:fa")).toBe(
+        '[{"timeStamp":1}]',
+      );
+      expect(window.localStorage.getItem("mtKeybrLanguage")).toBe("fa");
+      expect(window.localStorage.getItem("mtKeybrBootError")).toBeNull();
+      expect(window.localStorage.getItem("mtDesktopDailyGoalMinutes")).toBe(
+        "45",
+      );
+      expect(window.localStorage.getItem("mtDesktopWordBlastDifficulty")).toBe(
+        "hard",
+      );
+    });
+
+    it("v1 backups import fine and keep current desktop state", async () => {
+      window.localStorage.setItem("mtDesktopDailyGoalMinutes", "60");
+      window.localStorage.setItem("mtKeybrResults:fa", '[{"kept":true}]');
+      const v1Backup = {
+        schemaVersion: 1,
+        exportedAt: "2026-10-01T00:00:00.000Z",
+        results: [makeResult({ _id: "v1_r1", timestamp: 2200000000000 })],
+        snapshot: undefined,
+        learnState: undefined,
+      };
+      const count = await LocalPersistence.importBackup(v1Backup);
+      expect(count).toBe(1);
+      //schema v1 carries no desktop state: current values must survive
+      expect(window.localStorage.getItem("mtDesktopDailyGoalMinutes")).toBe(
+        "60",
+      );
+      expect(window.localStorage.getItem("mtKeybrResults:fa")).toBe(
+        '[{"kept":true}]',
+      );
+    });
+
+    it("v2 restore replaces keybr state instead of merging", async () => {
+      window.localStorage.setItem("mtKeybrResults:fa", '[{"old":true}]');
+      window.localStorage.setItem("mtKeybrResults:en", '[{"old":true}]');
+      const backup = {
+        schemaVersion: 2,
+        exportedAt: "2026-11-01T00:00:00.000Z",
+        results: [],
+        snapshot: undefined,
+        learnState: undefined,
+        keybrState: { "mtKeybrResults:fa": '[{"new":true}]' },
+        dailyGoal: undefined,
+        wordBlast: undefined,
+      };
+      await LocalPersistence.importBackup(backup);
+      expect(window.localStorage.getItem("mtKeybrResults:fa")).toBe(
+        '[{"new":true}]',
+      );
+      expect(window.localStorage.getItem("mtKeybrResults:en")).toBeNull();
     });
   });
 });

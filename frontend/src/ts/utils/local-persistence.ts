@@ -266,10 +266,70 @@ export function saveLocalSnapshotFields(fields: PersistedSnapshotFields): void {
 }
 
 // ---------------------------------------------------------------------------
+// desktop state outside the snapshot (backed up since schema v2)
+// ---------------------------------------------------------------------------
+
+const DAILY_GOAL_KEY = "mtDesktopDailyGoalMinutes"; //owner: utils/daily-goal.ts
+const WORD_BLAST_DIFFICULTY_KEY = "mtDesktopWordBlastDifficulty"; //owner: utils/word-blast.ts
+
+/** transient runtime state that must never be carried across restores */
+const KEYBR_STATE_EXCLUDED = new Set(["mtKeybrBootError"]);
+
+/** every localStorage key holding keybr engine state (owner: keybr/session.ts) */
+function keybrStateKeys(): string[] {
+  const keys: string[] = [];
+  for (let i = 0; i < window.localStorage.length; i++) {
+    const key = window.localStorage.key(i);
+    if (
+      key !== null &&
+      key.startsWith("mtKeybr") &&
+      !KEYBR_STATE_EXCLUDED.has(key)
+    ) {
+      keys.push(key);
+    }
+  }
+  return keys;
+}
+
+/** keybr engine state as raw key/value pairs, or undefined when absent */
+export function loadKeybrState(): Record<string, string> | undefined {
+  const keys = keybrStateKeys();
+  if (keys.length === 0) return undefined;
+  const state: Record<string, string> = {};
+  for (const key of keys) {
+    state[key] = window.localStorage.getItem(key) ?? "";
+  }
+  return state;
+}
+
+/** whether any keybr engine state exists (auto-backup emptiness gate) */
+export function hasKeybrState(): boolean {
+  return keybrStateKeys().length > 0;
+}
+
+/** v1 backups carry no keybr state: keep whatever the user has */
+function restoreKeybrState(state: Record<string, string> | undefined): void {
+  if (state === undefined) return;
+  for (const key of keybrStateKeys()) {
+    window.localStorage.removeItem(key);
+  }
+  for (const [key, value] of Object.entries(state)) {
+    window.localStorage.setItem(key, value);
+  }
+}
+
+function loadDailyGoal(): number | undefined {
+  const raw = window.localStorage.getItem(DAILY_GOAL_KEY);
+  if (raw === null) return undefined;
+  const parsed = Number(raw);
+  return Number.isFinite(parsed) ? parsed : undefined;
+}
+
+// ---------------------------------------------------------------------------
 // backup / restore (full local data as one JSON file)
 // ---------------------------------------------------------------------------
 
-const BACKUP_SCHEMA_VERSION = 1;
+const BACKUP_SCHEMA_VERSION = 2;
 
 export type LocalBackup = {
   schemaVersion: number;
@@ -277,6 +337,12 @@ export type LocalBackup = {
   results: SnapshotResult<Mode>[];
   snapshot: LoadedSnapshotFields | undefined;
   learnState: Record<string, unknown> | undefined;
+  /** schema v2: keybr engine state (mtKeybr* keys, per-language histories) */
+  keybrState?: Record<string, string> | undefined;
+  /** schema v2: daily goal minutes (mtDesktopDailyGoalMinutes) */
+  dailyGoal?: number | undefined;
+  /** schema v2: word blast difficulty (mtDesktopWordBlastDifficulty) */
+  wordBlast?: string | undefined;
 };
 
 /** Exports all local data (results + snapshot fields) as a backup object. */
@@ -287,6 +353,10 @@ export async function exportBackup(): Promise<LocalBackup> {
     results: await loadLocalResults(),
     snapshot: loadLocalSnapshotFields(),
     learnState: readJsonSafe(LEARN_STATE_KEY),
+    keybrState: loadKeybrState(),
+    dailyGoal: loadDailyGoal(),
+    wordBlast:
+      window.localStorage.getItem(WORD_BLAST_DIFFICULTY_KEY) ?? undefined,
   };
 }
 
@@ -311,8 +381,9 @@ export async function importBackup(backup: LocalBackup): Promise<number> {
   if (
     backup === null ||
     typeof backup !== "object" ||
-    backup.schemaVersion !== BACKUP_SCHEMA_VERSION ||
-    !Array.isArray(backup.results)
+    !Array.isArray(backup.results) ||
+    (backup.schemaVersion !== 1 &&
+      backup.schemaVersion !== BACKUP_SCHEMA_VERSION)
   ) {
     throw new Error("Invalid backup file: unknown schema");
   }
@@ -362,6 +433,16 @@ export async function importBackup(backup: LocalBackup): Promise<number> {
     .learnState;
   if (learnState !== undefined && learnState !== null) {
     window.localStorage.setItem(LEARN_STATE_KEY, JSON.stringify(learnState));
+  }
+
+  //schema v2 desktop state: a v1 backup carries none of it, and the current
+  //values are kept in that case
+  restoreKeybrState(backup.keybrState);
+  if (backup.dailyGoal !== undefined && backup.dailyGoal !== null) {
+    window.localStorage.setItem(DAILY_GOAL_KEY, String(backup.dailyGoal));
+  }
+  if (backup.wordBlast !== undefined && backup.wordBlast !== null) {
+    window.localStorage.setItem(WORD_BLAST_DIFFICULTY_KEY, backup.wordBlast);
   }
   return validResults.length;
 }
