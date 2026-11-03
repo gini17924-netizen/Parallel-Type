@@ -1,5 +1,6 @@
 import { Language } from "@monkeytype/schemas/languages";
 import { LEARN_STATE_KEY } from "./local-persistence";
+import { loadKeybrLetterStats } from "./keybr-letter-stats";
 
 /**
  * Learning/progressive-mode engine (Keybr-style, fully offline).
@@ -447,10 +448,23 @@ export function evaluateUnlock(state: LearnState, language: string): number {
   return state.unlockedGroups;
 }
 
-/** the letters the user struggles with most (lowest accuracy, enough samples) */
+/** the letters the user struggles with most (lowest accuracy, enough samples).
+ * V3 of the keybr port: the keybr engine's per-character histograms merge in
+ * read-only (keybr-letter-stats.ts) — the learn state itself stays
+ * monkeytype-driven, so review scheduling and unlock gating are unchanged. */
 export function weakLetters(n = 8): { letter: string; acc: number }[] {
   const state = getLearnState();
-  return Object.entries(state.keyStats)
+  const combined: Record<string, { correct: number; incorrect: number }> = {
+    ...state.keyStats,
+  };
+  for (const [letter, stat] of Object.entries(loadKeybrLetterStats())) {
+    const existing = combined[letter] ?? { correct: 0, incorrect: 0 };
+    combined[letter] = {
+      correct: existing.correct + stat.correct,
+      incorrect: existing.incorrect + stat.incorrect,
+    };
+  }
+  return Object.entries(combined)
     .map(([letter, stat]) => ({
       letter,
       acc:
