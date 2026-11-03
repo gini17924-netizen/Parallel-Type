@@ -77,18 +77,22 @@ export function Nav(): JSXElement {
 
   return (
     <nav class={cn("z-5 flex w-full items-center gap-1 md:gap-2")}>
-      <Button
-        variant="text"
-        fa={{
-          icon: "fa-home",
-          fixedWidth: true,
-        }}
-        to="/home"
-        class={buttonClass()}
-        dataset={{
-          "data-nav-item": "home",
-        }}
-      />
+      {/* home is one click away everywhere else; on the home hub itself it
+          would just point at the current page */}
+      <Show when={getRoutePage() !== "home"}>
+        <Button
+          variant="text"
+          fa={{
+            icon: "fa-home",
+            fixedWidth: true,
+          }}
+          to="/home"
+          class={buttonClass()}
+          dataset={{
+            "data-nav-item": "home",
+          }}
+        />
+      </Show>
       <Button
         variant="text"
         fa={{
@@ -103,78 +107,6 @@ export function Nav(): JSXElement {
         onClick={() => {
           if (getRoutePage() === "test") restartTestEvent.dispatch();
         }}
-      />
-      <Button
-        variant="text"
-        fa={{
-          icon: "fa-crown",
-          fixedWidth: true,
-        }}
-        dataset={{
-          "data-nav-item": "leaderboards",
-        }}
-        class={buttonClass()}
-        to="/leaderboards"
-      />
-      <Button
-        variant="text"
-        fa={{
-          icon: "fa-graduation-cap",
-          fixedWidth: true,
-        }}
-        class={buttonClass()}
-        dataset={{
-          "data-nav-item": "learn",
-        }}
-        to="/learn"
-      />
-      <Button
-        variant="text"
-        fa={{
-          icon: "fa-bolt",
-          fixedWidth: true,
-        }}
-        class={buttonClass()}
-        dataset={{
-          "data-nav-item": "keybr",
-        }}
-        to="/keybr"
-      />
-      <Button
-        variant="text"
-        fa={{
-          icon: "fa-dumbbell",
-          fixedWidth: true,
-        }}
-        class={buttonClass()}
-        dataset={{
-          "data-nav-item": "drills",
-        }}
-        to="/drills"
-      />
-      <Button
-        variant="text"
-        fa={{
-          icon: "fa-gamepad",
-          fixedWidth: true,
-        }}
-        class={buttonClass()}
-        dataset={{
-          "data-nav-item": "games",
-        }}
-        to="/games"
-      />
-      <Button
-        variant="text"
-        fa={{
-          icon: "fa-info",
-          fixedWidth: true,
-        }}
-        class={buttonClass()}
-        dataset={{
-          "data-nav-item": "about",
-        }}
-        to="/about"
       />
       <Button
         variant="text"
