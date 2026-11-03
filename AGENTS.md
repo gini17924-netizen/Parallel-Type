@@ -1,5 +1,5 @@
 Be extremely concise. Sacrifice grammar for concision.
-Frontend is partially migrated from vanilla JS to SolidJS — new components use `.tsx`, legacy code remains vanilla.
+Frontend is React (upstream Monkeytype). Only the `/keybr` page is deliberately SolidJS (isolated island). A broader Solid migration is a plan only (`docs/specs/solid-monkeytype`) — do not "migrate" other pages.
 Single test file: `pnpm vitest run path/to/test.ts`
 When running oxc lint, always use `--format agent`.
 Format with `npx oxfmt <files>` (not prettier).
