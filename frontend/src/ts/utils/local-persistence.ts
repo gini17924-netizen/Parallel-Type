@@ -216,7 +216,12 @@ export async function appendLocalResult(
 
 type PersistedSnapshotFields = Pick<
   Snapshot,
-  "personalBests" | "typingStats" | "xp" | "streak" | "maxStreak"
+  | "personalBests"
+  | "typingStats"
+  | "xp"
+  | "streak"
+  | "maxStreak"
+  | "streakLastResultTimestamp"
 >;
 
 /** snapshot fields as loaded from disk: personalBests may be absent
@@ -227,6 +232,7 @@ export type LoadedSnapshotFields = {
   xp: number;
   streak: number;
   maxStreak: number;
+  streakLastResultTimestamp: number;
 };
 
 export function loadLocalSnapshotFields(): LoadedSnapshotFields | undefined {
@@ -244,6 +250,7 @@ export function loadLocalSnapshotFields(): LoadedSnapshotFields | undefined {
       xp: parsed.xp ?? 0,
       streak: parsed.streak ?? 0,
       maxStreak: parsed.maxStreak ?? 0,
+      streakLastResultTimestamp: parsed.streakLastResultTimestamp ?? 0,
     };
   } catch {
     return undefined;
@@ -346,6 +353,7 @@ export async function importBackup(backup: LocalBackup): Promise<number> {
       xp: backup.snapshot.xp ?? 0,
       streak: backup.snapshot.streak ?? 0,
       maxStreak: backup.snapshot.maxStreak ?? 0,
+      streakLastResultTimestamp: backup.snapshot.streakLastResultTimestamp ?? 0,
     } as PersistedSnapshotFields);
   }
 

@@ -117,7 +117,7 @@ import {
 } from "../utils/learn-stats";
 import * as DesktopAutoBackup from "../utils/desktop-auto-backup";
 import * as DesktopDailyGoal from "../utils/daily-goal";
-import { computeLocalXp } from "../utils/local-xp";
+
 import { WordGenError } from "../utils/word-gen-error";
 import { tryCatch } from "@monkeytype/util/trycatch";
 import * as Sentry from "../sentry";
@@ -1156,11 +1156,11 @@ export async function finish(difficultyFailed = false): Promise<void> {
           //the pending crown from updateCrown stays: it already shows the
           //correct +diff and the offline save is the final confirmation
         }
+        //desktop offline build: db.ts owns the local streak update and the
+        //local XP, in the upstream order (updateStreak → calculateXp)
         DB.saveLocalResult({
           result: snapshotResult,
           isPb,
-          //desktop offline build: local XP mirrors the upstream server formula
-          xp: computeLocalXp(snapshotResult, DB.getSnapshot()?.streak ?? 0),
         });
         //learning drill: register per-letter stats and evaluate the unlock
         const drillWords = takeActiveDrillWords();

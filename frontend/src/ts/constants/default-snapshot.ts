@@ -66,6 +66,9 @@ export type Snapshot = Omit<
   inboxUnreadSize: number;
   streak: number;
   maxStreak: number;
+  //desktop offline build: streak bookkeeping — the backend stores this inside
+  //the user's streak object; locally it lives flat on the snapshot
+  streakLastResultTimestamp?: number;
   isPremium: boolean;
   streakHourOffset?: number;
   xp: number;
@@ -104,6 +107,7 @@ const defaultSnap = {
   streak: 0,
   maxStreak: 0,
   streakHourOffset: undefined,
+  streakLastResultTimestamp: 0,
   //desktop offline build: a fresh local profile has no leaderboard data;
   //fake entries rendered "0th / Top NaN%" on the account page
   allTimeLbs: {

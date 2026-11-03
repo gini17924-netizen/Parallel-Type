@@ -41,6 +41,8 @@ import {
   loadLocalSnapshotFields,
   saveLocalSnapshotFields,
 } from "./utils/local-persistence";
+import { updateLocalStreak } from "./utils/local-streak";
+import { computeLocalXp } from "./utils/local-xp";
 
 let dbSnapshot: Snapshot | undefined;
 const firstDayOfTheWeek = getFirstDayOfTheWeek();
@@ -319,6 +321,7 @@ export function initLocalSnapshot(): void {
     snap.xp = stored.xp;
     snap.streak = stored.streak;
     snap.maxStreak = stored.maxStreak;
+    snap.streakLastResultTimestamp = stored.streakLastResultTimestamp;
   }
   setSnapshot(snap, { dispatchEvent: false });
 }
@@ -335,7 +338,28 @@ export function saveLocalResult(data: SaveLocalResultData): void {
   const snapshot = getSnapshot();
   if (!snapshot) return;
 
+  let xp = data.xp;
+
   if (data.result !== undefined) {
+    //desktop offline build: mirror the backend order (dal/user.ts
+    //updateStreak → result.ts calculateXp) — the streak updates first, then
+    //XP is computed with the POST-update streak. Signed-in and modal paths
+    //pass server values and keep upstream behavior.
+    if (DESKTOP_OFFLINE && data.streak === undefined && xp === undefined) {
+      const streakUpdate = updateLocalStreak(
+        {
+          lastResultTimestamp: snapshot.streakLastResultTimestamp ?? 0,
+          length: snapshot.streak,
+          maxLength: snapshot.maxStreak,
+        },
+        data.result.timestamp,
+      );
+      snapshot.streak = streakUpdate.length;
+      snapshot.maxStreak = streakUpdate.maxLength;
+      snapshot.streakLastResultTimestamp = streakUpdate.lastResultTimestamp;
+      xp = computeLocalXp(data.result, streakUpdate.length);
+    }
+
     void insertLocalResult({ result: data.result });
     setLastResult(data.result);
     if (snapshot.testActivity !== undefined) {
@@ -373,9 +397,9 @@ export function saveLocalResult(data: SaveLocalResultData): void {
     }
   }
 
-  if (data.xp !== undefined) {
+  if (xp !== undefined) {
     snapshot.xp ??= 0;
-    snapshot.xp += data.xp;
+    snapshot.xp += xp;
   }
 
   if (data.streak !== undefined) {
@@ -383,6 +407,11 @@ export function saveLocalResult(data: SaveLocalResultData): void {
 
     if (snapshot.streak > snapshot.maxStreak) {
       snapshot.maxStreak = snapshot.streak;
+    }
+    //keep local streak bookkeeping consistent with a server-provided streak
+    //(signed-in / last-signed-out-result paths)
+    if (data.result !== undefined) {
+      snapshot.streakLastResultTimestamp = data.result.timestamp;
     }
   }
 
@@ -393,9 +422,9 @@ export function saveLocalResult(data: SaveLocalResultData): void {
     //desktop offline build: persist snapshot so pbs/stats survive restarts
     saveLocalSnapshotFields(snapshot);
   }
-  if (data.xp !== undefined) {
+  if (xp !== undefined) {
     setXpBarData({
-      addedXp: data.xp,
+      addedXp: xp,
       resultingXp: snapshot.xp,
       breakdown: data.xpBreakdown,
     });

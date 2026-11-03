@@ -27,6 +27,7 @@ import {
   importBackup,
   loadLocalResults,
 } from "../../../utils/local-persistence";
+import { computeStreakFromResults } from "../../../utils/local-streak";
 import { downloadResultsCSV } from "../../../utils/misc";
 import { Advertisement } from "../../common/Advertisement";
 import AsyncContent from "../../common/AsyncContent";
@@ -76,20 +77,9 @@ export function AccountPage(): JSXElement {
   const [goalMinutes, setGoalMinutes] = createSignal(getDailyGoalMinutes());
   onMount(async () => {
     const results = await loadLocalResults();
-    const daySet = new Set(
-      results.map((r) => new Date(r.timestamp).toDateString()),
-    );
-    let streak = 0;
-    const cursor = new Date();
-    //a streak counts today (or yesterday, if today has no result yet) backwards
-    if (!daySet.has(cursor.toDateString())) {
-      cursor.setDate(cursor.getDate() - 1);
-    }
-    while (daySet.has(cursor.toDateString())) {
-      streak++;
-      cursor.setDate(cursor.getDate() - 1);
-    }
-    setLocalStreak(streak);
+    //same algorithm db.ts uses to maintain the snapshot streak — one source
+    //of truth for the displayed and XP-relevant streak
+    setLocalStreak(computeStreakFromResults(results));
     setTodaySeconds(todayTypingSeconds(results));
   });
 

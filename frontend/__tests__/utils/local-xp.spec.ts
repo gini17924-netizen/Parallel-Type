@@ -76,4 +76,10 @@ describe("computeLocalXp (upstream formula, local defaults)", () => {
     //base 60*1.5=90*1=90 + incomplete 20 = 110
     expect(computeLocalXp(r, 0)).toBe(110);
   });
+
+  it("acceptance (KI-23): a 5-day streak raises a 30s/97% result 56 → 73 xp", () => {
+    //base 60 * (1 + 0.3 streak ramp — upstream mapRange rounds 0.25 to 0.3
+    //via toFixed(1)) = 78 * 0.94 acc = 73.32 → 73
+    expect(computeLocalXp(makeResult(), 5)).toBe(73);
+  });
 });
