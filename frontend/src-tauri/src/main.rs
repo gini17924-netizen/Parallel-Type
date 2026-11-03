@@ -71,6 +71,10 @@ fn toggle_main_window(app: &tauri::AppHandle) {
 /// Update checking. Disabled until a real update endpoint exists (B28): the
 /// configured endpoint is still the `.example` placeholder (KI-05), so every
 /// boot would fire a doomed request. Flip to true when B28 lands.
+///
+/// The two switches move together: this flag AND `plugins.updater.endpoints`
+/// in tauri.conf.json. Enabling only one fires doomed requests (flag on,
+/// placeholder endpoint) or silently never updates (endpoint set, flag off).
 const UPDATES_ENABLED: bool = false;
 
 /// Checks the update endpoint once at startup. Non-fatal: any failure
@@ -211,6 +215,12 @@ fn backup_read(app: tauri::AppHandle) -> Result<Option<String>, String> {
 
 fn main() {
     tauri::Builder::default()
+        //must be the FIRST plugin: a second launch forwards here instead of
+        //starting a duplicate process — close-to-tray would make that
+        //duplicate an invisible window the user cannot see
+        .plugin(tauri_plugin_single_instance::init(|app, _args, _cwd| {
+            focus_main_window(app);
+        }))
         .plugin(tauri_plugin_opener::init())
         .plugin(tauri_plugin_updater::Builder::new().build())
         .plugin(tauri_plugin_global_shortcut::Builder::new().build())
