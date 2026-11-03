@@ -80,6 +80,18 @@ export function Nav(): JSXElement {
       <Button
         variant="text"
         fa={{
+          icon: "fa-home",
+          fixedWidth: true,
+        }}
+        to="/home"
+        class={buttonClass()}
+        dataset={{
+          "data-nav-item": "home",
+        }}
+      />
+      <Button
+        variant="text"
+        fa={{
           icon: "fa-keyboard",
           fixedWidth: true,
         }}

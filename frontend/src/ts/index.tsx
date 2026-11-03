@@ -63,6 +63,19 @@ if (import.meta.env.DEV) {
   void import("./dev/expose");
 }
 
+// desktop offline build: the app boots into the home hub instead of the test
+// page. Rewriting the url before the router exists loads /home directly: no
+// flash of the test page, no extra navigation. Bare "/" only: url actions
+// (challenge links etc.) keep landing on the test page.
+if (
+  DESKTOP_OFFLINE &&
+  window.location.pathname === "/" &&
+  window.location.search === "" &&
+  window.location.hash === ""
+) {
+  window.history.replaceState(null, "", "/home");
+}
+
 // render before anything that might touch component-rendered DOM (eg. test page).
 // Renders after the static markup in <body> (index.html)
 render(() => <App />, document.body);

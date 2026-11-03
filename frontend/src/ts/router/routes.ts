@@ -20,12 +20,15 @@ import { LearnPage } from "../components/pages/learn/LearnPage";
 import { KeybrPage } from "../components/pages/keybr/KeybrPage";
 import { DrillsPage } from "../components/pages/drills/DrillsPage";
 import { GamesPage } from "../components/pages/games/GamesPage";
+import { HomePage } from "../components/pages/home/HomePage";
+import { SectionsPage } from "../components/pages/sections/SectionsPage";
 import { AccountSettingsPage } from "../components/pages/account-settings/AccountSettingsPage";
 import { AccountPage } from "../components/pages/account/AccountPage";
 import { FriendsPage } from "../components/pages/connections/FriendsPage";
 import { LeaderboardPage } from "../components/pages/leaderboard/LeaderboardPage";
 import { LoginPage } from "../components/pages/login/LoginPage";
 import { createRouterPage } from "../components/core/Page";
+import { getSection } from "../constants/app-structure";
 import { ProfilePage } from "../components/pages/profile/ProfilePage";
 import { ProfileSearchPage } from "../components/pages/profile/ProfileSearchPage";
 import { SettingsPage } from "../components/pages/settings/SettingsPage";
@@ -65,6 +68,8 @@ import { DESKTOP_OFFLINE } from "../utils/local-persistence";
 /** A page of the site, rendered by its route (see `staticData.page`). */
 export type PageName =
   | "loading"
+  | "home"
+  | "sections"
   | "test"
   | "about"
   | "settings"
@@ -272,6 +277,26 @@ const learn = createRoute({
   component: createRouterPage(LearnPage),
 });
 
+const home = createRoute({
+  getParentRoute: () => userDataRoute,
+  path: "/home",
+  staticData: { page: "home" },
+  component: createRouterPage(HomePage),
+});
+
+const sections = createRoute({
+  getParentRoute: () => userDataRoute,
+  path: "/sections/$sectionId",
+  staticData: { page: "sections" },
+  component: createRouterPage(SectionsPage),
+  //unknown section ids go back to the home hub
+  beforeLoad: ({ params }) => {
+    if (getSection(params.sectionId) === undefined) {
+      redirect({ to: "/home", replace: true, throw: true });
+    }
+  },
+});
+
 const keybr = createRoute({
   getParentRoute: () => userDataRoute,
   path: "/keybr",
@@ -428,6 +453,8 @@ const friends = createRoute({
 export const routeTree = root.addChildren([
   userDataRoute.addChildren([
     test,
+    home,
+    sections,
     leaderboards,
     about,
     settings,
