@@ -32,22 +32,37 @@ export const APP_SECTIONS: readonly AppSection[] = [
   {
     id: "learning",
     title: "learning",
-    description: "guided courses, adaptive lessons and targeted drills",
+    description: "progressive course and adaptive lessons",
     icon: "fa-graduation-cap",
     subSections: [
       {
         id: "learn",
-        title: "learning course",
+        title: "progressive learning",
         description: "unlock letter groups step by step at your own pace",
         icon: "fa-chalkboard",
         route: "/learn",
       },
       {
         id: "keybr",
-        title: "adaptive engine",
+        title: "keybr engine",
         description: "lessons that follow your weakest keys automatically",
         icon: "fa-bolt",
         route: "/keybr",
+      },
+    ],
+  },
+  {
+    id: "practice",
+    title: "practice",
+    description: "the classic test and targeted drills",
+    icon: "fa-keyboard",
+    subSections: [
+      {
+        id: "test",
+        title: "typing test",
+        description: "time, words, quotes and zen — the classic test",
+        icon: "fa-keyboard",
+        route: "/",
       },
       {
         id: "drills",
@@ -59,16 +74,9 @@ export const APP_SECTIONS: readonly AppSection[] = [
     ],
   },
   {
-    id: "practice",
-    title: "practice",
-    description: "the classic typing test: time, words, quotes, zen",
-    icon: "fa-keyboard",
-    route: "/",
-  },
-  {
     id: "games",
     title: "games",
-    description: "typing, but playful",
+    description: "typing, but playful — word blast",
     icon: "fa-gamepad",
     route: "/games",
   },

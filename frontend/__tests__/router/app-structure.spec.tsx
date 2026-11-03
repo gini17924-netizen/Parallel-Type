@@ -35,22 +35,31 @@ describe("app structure (home hub sections)", () => {
     ]);
   });
 
-  it("learning has three sub-sections; practice and games are direct", () => {
+  it("learning has two sub-sections (drills lives under practice)", () => {
     expect(must("learning").subSections?.map((sub) => sub.id)).toEqual([
       "learn",
       "keybr",
-      "drills",
     ]);
     expect(sectionHasPicker(must("learning"))).toBe(true);
-    expect(must("practice").route).toBe("/");
+  });
+
+  it("practice has typing test and drills behind a picker", () => {
+    const practice = must("practice");
+    expect(practice.subSections?.map((sub) => sub.id)).toEqual([
+      "test",
+      "drills",
+    ]);
+    expect(sectionHasPicker(practice)).toBe(true);
+  });
+
+  it("games is a single destination (word blast), no picker", () => {
     expect(must("games").route).toBe("/games");
-    expect(sectionHasPicker(must("practice"))).toBe(false);
     expect(sectionHasPicker(must("games"))).toBe(false);
   });
 
   it("picker sections link to /sections/<id>, direct ones to their route", () => {
     expect(sectionDestination(must("learning"))).toBe("/sections/learning");
-    expect(sectionDestination(must("practice"))).toBe("/");
+    expect(sectionDestination(must("practice"))).toBe("/sections/practice");
     expect(sectionDestination(must("games"))).toBe("/games");
   });
 });
@@ -75,7 +84,7 @@ describe("home hub routing", () => {
     }
   });
 
-  it("the learning picker renders every sub-section and links back home", async () => {
+  it("the learning picker renders its sub-sections and links back home", async () => {
     const app = renderApp();
     await app.settle();
     await app.router.navigate({
@@ -85,10 +94,46 @@ describe("home hub routing", () => {
     await app.settle();
     expect(getRoutePage()).toBe("sections");
     const text = pageText(app);
-    expect(text).toContain("learning course");
-    expect(text).toContain("adaptive engine");
-    expect(text).toContain("drills");
+    expect(text).toContain("progressive learning");
+    expect(text).toContain("keybr engine");
     expect(text).toContain("back to home");
+  });
+
+  it("the practice picker renders typing test and drills", async () => {
+    const app = renderApp();
+    await app.settle();
+    await app.router.navigate({
+      to: "/sections/$sectionId",
+      params: { sectionId: "practice" },
+    });
+    await app.settle();
+    expect(getRoutePage()).toBe("sections");
+    const text = pageText(app);
+    expect(text).toContain("typing test");
+    expect(text).toContain("drills");
+  });
+
+  it("the test page never stays in a perpetual loading state", async () => {
+    const app = renderApp();
+    await app.settle();
+    await app.router.navigate({ to: "/home" });
+    await app.settle();
+    await app.router.navigate({ to: "/" });
+    await app.settle();
+    //a stuck page reports "loading" as its page name forever
+    expect(getRoutePage()).toBe("test");
+    expect(pageText(app)).not.toBe("");
+  });
+
+  it("the leaderboards page never stays in a perpetual loading state", async () => {
+    const app = renderApp();
+    await app.settle();
+    await app.router.navigate({ to: "/leaderboards" });
+    await app.settle();
+    //desktop offline: the backend prefetches are skipped (routes.ts loader);
+    //the route itself must still resolve to the page, not hang on loading
+    expect(getRoutePage()).toBe("leaderboards");
+    expect(pageText(app)).not.toBe("");
   });
 
   it("unknown section ids land back on the home hub", async () => {
