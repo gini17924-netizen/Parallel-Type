@@ -173,6 +173,19 @@ describe("DesktopAutoBackup (KI-02)", () => {
   });
 
   it("flushes a pending throttled write on beforeunload (audit L6)", async () => {
+    //poll instead of fixed sleeps: this test drives real timers and must
+    //stay deterministic under parallel-suite load
+    const waitFor = async (
+      predicate: () => boolean,
+      timeoutMs = 2_000,
+    ): Promise<void> => {
+      const start = Date.now();
+      while (!predicate()) {
+        if (Date.now() - start > timeoutMs) throw new Error("waitFor timeout");
+        await new Promise((resolve) => setTimeout(resolve, 10));
+      }
+    };
+
     const fake = installFakeTauri(null);
     const AutoBackup = await freshModule();
     AutoBackup._setMinWriteIntervalForTests(60_000);
@@ -181,7 +194,7 @@ describe("DesktopAutoBackup (KI-02)", () => {
     //an initial write marks lastWriteAt: the next queue is parked by the
     //throttle instead of firing immediately
     AutoBackup.queueAutoBackup();
-    await new Promise((resolve) => setTimeout(resolve, 30));
+    await waitFor(() => fake.file() !== null); //warm-up write completed
 
     const { appendLocalResult } =
       await import("../../src/ts/utils/local-persistence");
@@ -193,8 +206,7 @@ describe("DesktopAutoBackup (KI-02)", () => {
 
     //tearing the page down flushes it immediately
     window.dispatchEvent(new Event("beforeunload"));
-    await new Promise((resolve) => setTimeout(resolve, 60));
-    expect(fake.file()).toContain("test_exit_flush");
+    await waitFor(() => (fake.file() ?? "").includes("test_exit_flush"));
 
     //and a second beforeunload without a pending write stays harmless
     expect(() => window.dispatchEvent(new Event("beforeunload"))).not.toThrow();
