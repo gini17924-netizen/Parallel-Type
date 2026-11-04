@@ -19,13 +19,16 @@ import { type WordList } from "@keybr/content";
 import { Settings } from "@keybr/settings";
 import { Result } from "@keybr/result";
 import { GuidedLesson } from "@keybr/lesson";
-import { Histogram, type Sample, makeStats } from "@keybr/textinput";
+import { makeStats } from "@keybr/textinput";
 import { type TextInput } from "@keybr/textinput";
 
 import faModelUrl from "@keybr/phonetic-model/assets/model-fa.data?url";
 import enModelUrl from "@keybr/phonetic-model/assets/model-en.data?url";
 
 import * as DesktopAutoBackup from "../utils/desktop-auto-backup";
+import { storedRowsToResults, type StoredStats } from "./stored-results";
+
+export type { StoredStats };
 
 export type KeybrLanguageId = "fa" | "en";
 
@@ -122,15 +125,7 @@ export async function makeLesson(
 // result persistence (localStorage, per language)
 // ---------------------------------------------------------------------------
 
-type StoredStats = {
-  timeStamp: number;
-  length: number;
-  time: number;
-  errors: number;
-  histogram: Sample[];
-};
-
-function loadStored(language: KeybrLanguageId): StoredStats[] {
+function loadStored(language: KeybrLanguageId): unknown[] {
   try {
     const raw = window.localStorage.getItem(`${RESULTS_KEY}:${language}`);
     if (raw !== null) {
@@ -154,22 +149,10 @@ function store(language: KeybrLanguageId, results: StoredStats[]): void {
   }
 }
 
-/** rebuilds persisted stats into Result objects for the engine */
+/** rebuilds persisted stats into Result objects for the engine; malformed
+ * rows (e.g. from a corrupt backup restore) are skipped, not fatal (audit L1) */
 export function loadStoredResults(language: KeybrLanguage): Result[] {
-  const layout = language.layout;
-  const textType = 0; // TextType.TEXT
-  return loadStored(language.id).map(
-    (it) =>
-      new Result(
-        layout,
-        textType,
-        it.timeStamp ?? Date.now(),
-        it.length,
-        it.time,
-        it.errors,
-        new Histogram(it.histogram),
-      ),
-  );
+  return storedRowsToResults(language.layout, loadStored(language.id));
 }
 
 /** extracts the storable stats of a finished text input */
