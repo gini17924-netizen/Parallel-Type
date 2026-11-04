@@ -52,13 +52,16 @@ const LINK_INTERCEPT_SCRIPT: &str = r#"
 })();
 "#;
 
-/// Shows the main window, or hides it when it is visible and focused
-/// (the tray/hotkey toggle behaviour).
+/// Shows the main window - or hides it when it is visible AND focused (the
+/// tray/hotkey toggle behaviour). A visible-but-unfocused window is summoned
+/// to the front, never hidden: the hotkey's main use case is calling the app
+/// up while working elsewhere (audit Y3).
 fn toggle_main_window(app: &tauri::AppHandle) {
     if let Some(window) = app.get_webview_window("main") {
         let visible = window.is_visible().unwrap_or(false);
         let minimized = window.is_minimized().unwrap_or(false);
-        if visible && !minimized {
+        let focused = window.is_focused().unwrap_or(false);
+        if visible && !minimized && focused {
             let _ = window.hide();
         } else {
             let _ = window.show();
