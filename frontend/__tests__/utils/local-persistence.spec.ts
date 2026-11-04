@@ -432,6 +432,33 @@ describe("LocalPersistence (desktop offline, IndexedDB)", () => {
       );
     });
 
+    it("deleteLocalResult removes one row and keeps the others", async () => {
+      await LocalPersistence.appendLocalResult(
+        makeResult({ _id: "del_a", timestamp: 2300000000001 }),
+      );
+      await LocalPersistence.appendLocalResult(
+        makeResult({ _id: "del_b", timestamp: 2300000000002 }),
+      );
+      await LocalPersistence.appendLocalResult(
+        makeResult({ _id: "del_c", timestamp: 2300000000003 }),
+      );
+      await LocalPersistence.deleteLocalResult("del_b");
+      const loaded = await LocalPersistence.loadLocalResults();
+      const ids = loaded.map((r) => r._id);
+      expect(ids).toContain("del_a");
+      expect(ids).toContain("del_c");
+      expect(ids).not.toContain("del_b");
+    });
+
+    it("deleteLocalResult is a no-op for a missing id", async () => {
+      const before = await LocalPersistence.loadLocalResults();
+      await expect(
+        LocalPersistence.deleteLocalResult("missing_id"),
+      ).resolves.toBeUndefined();
+      const after = await LocalPersistence.loadLocalResults();
+      expect(after).toHaveLength(before.length);
+    });
+
     it("v2 restore replaces keybr state instead of merging", async () => {
       window.localStorage.setItem("mtKeybrResults:fa", '[{"old":true}]');
       window.localStorage.setItem("mtKeybrResults:en", '[{"old":true}]');

@@ -210,6 +210,21 @@ export async function appendLocalResult(
   });
 }
 
+/** Deletes one stored result by id. A missing id is a no-op (IndexedDB
+ * delete on an absent key completes successfully) and all other rows are
+ * preserved. */
+export async function deleteLocalResult(resultId: string): Promise<void> {
+  await ensureResultsMigrated();
+  const db = await openResultsDb();
+  const tx = db.transaction(RESULTS_STORE, "readwrite");
+  tx.objectStore(RESULTS_STORE).delete(resultId);
+  await new Promise<void>((resolve, reject) => {
+    tx.oncomplete = () => resolve();
+    tx.onerror = () => reject(tx.error ?? new Error("failed to delete result"));
+    tx.onabort = () => reject(tx.error ?? new Error("delete aborted"));
+  });
+}
+
 // ---------------------------------------------------------------------------
 // snapshot fields (localStorage, synchronous boot path)
 // ---------------------------------------------------------------------------

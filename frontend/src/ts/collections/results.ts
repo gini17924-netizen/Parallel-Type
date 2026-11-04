@@ -47,6 +47,7 @@ import {
   appendLocalResult,
   loadLocalResults,
 } from "../utils/local-persistence";
+
 import { getConfig } from "../config/store";
 import { getMode2 } from "../utils/misc";
 import { getCurrentQuote } from "../states/test";
@@ -226,7 +227,7 @@ function normalizeResult(
   } as SnapshotResult<Mode>;
 }
 
-const resultsCollection = createCollection(
+export const resultsCollection = createCollection(
   queryCollectionOptions({
     ...blockingDownloadOptions,
     staleTime: Infinity,
@@ -296,6 +297,9 @@ type ActionType = {
   deleteLocalTag: {
     tagId: string;
   };
+  deleteLocalResult: {
+    resultId: string;
+  };
 };
 
 const actions = {
@@ -353,6 +357,17 @@ const actions = {
     },
     mutationFn: async () => {
       //we don't sync the changes back to the backend here, it is done already
+      return;
+    },
+  }),
+  deleteLocalResult: createOptimisticAction<ActionType["deleteLocalResult"]>({
+    onMutate: ({ resultId }) => {
+      //writeDelete (not collection.delete()): the collection is cached with
+      //staleTime Infinity, so an outside delete would never invalidate it
+      resultsCollection.utils.writeDelete(resultId);
+    },
+    mutationFn: async () => {
+      //we do not sync the changes back to the backend
       return;
     },
   }),
@@ -437,6 +452,21 @@ export async function insertLocalResult(
     return;
   }
   const transaction = actions.insertLocalResult(params);
+  await transaction.isPersisted.promise;
+}
+
+/**
+ * Thin wrapper: runs the local-delete optimistic action (writeDelete on
+ * the cached collection). The full delete orchestration lives in db.ts.
+ */
+export async function deleteLocalResultFromCollection(
+  params: ActionType["deleteLocalResult"],
+): Promise<void> {
+  if (!resultsCollection.isReady()) {
+    //not loaded yet, nothing to update in the UI
+    return;
+  }
+  const transaction = actions.deleteLocalResult(params);
   await transaction.isPersisted.promise;
 }
 

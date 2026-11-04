@@ -6,12 +6,15 @@ import { Accessor, createMemo, createSignal, JSXElement, Show } from "solid-js";
 
 import { type TagItem, useTagsLiveQuery } from "../../../collections/tags";
 import { SnapshotResult } from "../../../constants/default-snapshot";
+import { deleteLocalResult } from "../../../db";
 import { getFormatting } from "../../../states/core";
 import { showEditResultTagsModal } from "../../../states/edit-result-tags";
 import { showModal } from "../../../states/modals";
 import { showNoticeNotification } from "../../../states/notifications";
+import { showSimpleModal } from "../../../states/simple-modal";
 import { cn } from "../../../utils/cn";
 import { Formatting } from "../../../utils/format";
+import { DESKTOP_OFFLINE } from "../../../utils/local-persistence";
 import { replaceUnderscoresWithSpaces } from "../../../utils/strings";
 import { Button } from "../../common/Button";
 import { Fa, FaProps } from "../../common/Fa";
@@ -220,6 +223,32 @@ function getColumns<M extends Mode>({
                 }}
               />
             </span>
+            <Show when={DESKTOP_OFFLINE}>
+              <span data-balloon-pos="up" aria-label="delete result">
+                <Button
+                  class="p-0 text-inherit"
+                  variant="text"
+                  fa={{ icon: "fa-trash", fixedWidth: true }}
+                  onClick={() => {
+                    showSimpleModal({
+                      title: "Delete result",
+                      text: "Are you sure you want to delete this test result? This action cannot be undone.",
+                      buttonText: "delete",
+                      execFn: async () => {
+                        await deleteLocalResult(info.row.original._id);
+                        //streak/goal cards read on mount: a reload is the
+                        //established way to refresh them all at once
+                        setTimeout(() => window.location.reload(), 300);
+                        return {
+                          status: "success",
+                          message: "Result deleted",
+                        };
+                      },
+                    });
+                  }}
+                />
+              </span>
+            </Show>
           </div>
         );
       },

@@ -24,7 +24,11 @@ import { getFirstDayOfTheWeek } from "./utils/date-and-time";
 import { Language } from "@monkeytype/schemas/languages";
 import { authEvent } from "./events/auth";
 import { configurationPromise } from "./ape/server-configuration";
-import { insertLocalResult } from "./collections/results";
+import {
+  deleteLocalResultFromCollection,
+  insertLocalResult,
+  resultsCollection,
+} from "./collections/results";
 import {
   setLastResult,
   _setSnapshot as setSolidSnapshot,
@@ -36,8 +40,12 @@ import { __nonReactive } from "./collections/tags";
 import { fetchUserFromApi } from "./ape/user";
 import { SnapshotInitError } from "./utils/snapshot-init-error";
 import { updateTagsInFilterStorage } from "./states/result-filters";
+import * as DesktopAutoBackup from "./utils/desktop-auto-backup";
+import { applyDeleteSnapshotSideEffects } from "./utils/local-result-maintenance";
 import {
   DESKTOP_OFFLINE,
+  deleteLocalResult as removeLocalResultFromStorage,
+  loadLocalResults,
   loadLocalSnapshotFields,
   saveLocalSnapshotFields,
 } from "./utils/local-persistence";
@@ -429,6 +437,45 @@ export function saveLocalResult(data: SaveLocalResultData): void {
       breakdown: data.xpBreakdown,
     });
   }
+}
+
+/**
+ * Deletes one local result (desktop offline build, idea #2): persists the
+ * deletion, recomputes the dependent snapshot state (typingStats reversal,
+ * streak, PB bucket + isPb promotion), updates the live collection and
+ * queues the automatic backup. XP is intentionally retained unchanged.
+ */
+export async function deleteLocalResult(resultId: string): Promise<void> {
+  if (!isAuthenticated() && DESKTOP_OFFLINE) {
+    //identify the target from storage truth before the deletion
+    const all = await loadLocalResults();
+    const target = all.find((it) => it._id === resultId);
+    await removeLocalResultFromStorage(resultId);
+    const remaining = await loadLocalResults();
+
+    const snapshot = getSnapshot();
+    if (target !== undefined && snapshot !== undefined) {
+      const { promotedId } = applyDeleteSnapshotSideEffects(
+        snapshot,
+        target,
+        remaining,
+      );
+      setSnapshot(snapshot, { dispatchEvent: false });
+      saveLocalSnapshotFields(snapshot);
+      if (promotedId !== undefined && resultsCollection.isReady()) {
+        //keep the account PB filter truthful: the promoted row becomes PB
+        resultsCollection.utils.writeUpdate({ _id: promotedId, isPb: true });
+      }
+    }
+
+    //the deleted result was the newest: move the last-result pointer back
+    if (target !== undefined && all.at(-1)?._id === resultId) {
+      setLastResult(remaining.at(-1));
+    }
+
+    DesktopAutoBackup.queueAutoBackup();
+  }
+  await deleteLocalResultFromCollection({ resultId });
 }
 
 export function addXp(xp: number, breakdown?: XpBreakdown): void {
