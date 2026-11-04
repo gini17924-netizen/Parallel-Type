@@ -37,6 +37,10 @@ function makeResult(
 
 describe("LocalPersistence (desktop offline, IndexedDB)", () => {
   beforeEach(async () => {
+    //own the store: several spec files share one worker-level fake-indexeddb
+    //global, and scheduling luck must never decide whether "empty store"
+    //really is empty (idea #11 verification - rare cross-file flake)
+    (globalThis as { indexedDB: unknown }).indexedDB = new IDBFactory();
     window.localStorage.clear();
     await freshModule();
   });
@@ -102,23 +106,27 @@ describe("LocalPersistence (desktop offline, IndexedDB)", () => {
       expect(stored).not.toHaveProperty("keyDuration");
     });
 
-    it("keeps the newest 1000 results and drops the oldest", async () => {
+    it("keeps the newest MAX_RESULTS results and drops the oldest", async () => {
       //the cap is global; rows left over from earlier tests shift the
       //drop boundary, so compute it from the live count
       const preCount = (await LocalPersistence.loadLocalResults()).length;
-      for (let i = 0; i < 1005; i++) {
+      for (let i = 0; i < LocalPersistence.MAX_RESULTS + 5; i++) {
         await LocalPersistence.appendLocalResult(
           makeResult({ _id: `cap_${i}`, timestamp: 1600000000000 + i }),
         );
       }
-      const overflow = preCount + 1005 - 1000;
+      const overflow =
+        preCount +
+        LocalPersistence.MAX_RESULTS +
+        5 -
+        LocalPersistence.MAX_RESULTS;
       const loaded = await LocalPersistence.loadLocalResults();
       const ids = new Set(loaded.map((r) => r._id));
-      expect(loaded).toHaveLength(1000);
+      expect(loaded).toHaveLength(LocalPersistence.MAX_RESULTS);
       expect(ids.has("cap_0")).toBe(false); //oldest dropped
       expect(ids.has(`cap_${overflow - 1}`)).toBe(false); //last dropped
       expect(ids.has(`cap_${overflow}`)).toBe(true); //first survivor
-      expect(ids.has("cap_1004")).toBe(true); //newest kept
+      expect(ids.has(`cap_${LocalPersistence.MAX_RESULTS + 4}`)).toBe(true); //newest kept
     });
 
     it("upserts: re-appending the same _id does not duplicate", async () => {
@@ -311,18 +319,19 @@ describe("LocalPersistence (desktop offline, IndexedDB)", () => {
       });
     });
 
-    it("caps restored results at 1000", async () => {
-      const results = Array.from({ length: 1005 }, (_, i) =>
-        makeResult({ _id: `imp_${i}`, timestamp: 1600000000000 + i }),
+    it("caps restored results at MAX_RESULTS", async () => {
+      const results = Array.from(
+        { length: LocalPersistence.MAX_RESULTS + 5 },
+        (_, i) => makeResult({ _id: `imp_${i}`, timestamp: 1600000000000 + i }),
       );
       const imported = await LocalPersistence.importBackup({
         schemaVersion: 1,
         exportedAt: "2026-10-27T00:00:00.000Z",
         results,
       } as never);
-      expect(imported).toBe(1000);
+      expect(imported).toBe(LocalPersistence.MAX_RESULTS);
       const loaded = await LocalPersistence.loadLocalResults();
-      expect(loaded).toHaveLength(1000);
+      expect(loaded).toHaveLength(LocalPersistence.MAX_RESULTS);
       expect(loaded[0]?._id).toBe("imp_5"); //oldest dropped
     });
 

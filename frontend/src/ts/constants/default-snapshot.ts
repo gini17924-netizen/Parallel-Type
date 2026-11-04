@@ -1,7 +1,7 @@
 import { User, UserProfileDetails } from "@monkeytype/schemas/users";
 import { getDefaultConfig } from "./default-config";
 import { Mode } from "@monkeytype/schemas/shared";
-import { Result } from "@monkeytype/schemas/results";
+import { CompletedEventCustomText, Result } from "@monkeytype/schemas/results";
 import { Difficulty, FunboxName } from "@monkeytype/schemas/configs";
 import {
   ModifiableTestActivityCalendar,
@@ -45,6 +45,11 @@ export type SnapshotResult<M extends Mode> = Omit<
   //desktop fork (audit Y5): the effective punctuation set at save time,
   //recorded by the offline save path; legacy rows lack the field
   customPunctuation?: string;
+  //desktop fork (idea #11): the offline save path persists a clone of the
+  //completed event, which carries these CompletedEvent-only fields; storage
+  //rows really hold them even though the upstream Result type omits them
+  customText?: CompletedEventCustomText;
+  wpmConsistency?: number;
 };
 
 export type Snapshot = Omit<

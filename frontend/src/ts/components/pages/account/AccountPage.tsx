@@ -4,7 +4,6 @@ import { createMemo, createSignal, JSXElement, onMount, Show } from "solid-js";
 
 import {
   createResultsQueryState,
-  getResultsQueryOnce,
   useResultsLiveQuery,
 } from "../../../collections/results";
 import { SnapshotResult } from "../../../constants/default-snapshot";
@@ -29,7 +28,7 @@ import {
   loadLocalResults,
 } from "../../../utils/local-persistence";
 import { computeStreakFromResults } from "../../../utils/local-streak";
-import { downloadResultsCSV } from "../../../utils/misc";
+import { exportResultsCsv } from "../../../utils/result-export";
 import { Advertisement } from "../../common/Advertisement";
 import AsyncContent from "../../common/AsyncContent";
 import { Button } from "../../common/Button";
@@ -233,19 +232,22 @@ export function AccountPage(): JSXElement {
               }}
             />
             <Button
-              text="Export CSV"
+              text="Export CSV (all)"
               fa={{ icon: "fa-file-csv" }}
               class="col-start-3 w-full"
               disabled={isExporting()}
               onClick={() => {
                 setIsExporting(true);
                 showLoaderBar();
-                void getResultsQueryOnce({ queryState, sorting })
-                  .then(
-                    async (results) =>
-                      results !== undefined &&
-                      (await downloadResultsCSV(results)),
-                  )
+                //idea #11: full store export (no filters, no cap), RFC 4180
+                //escaping - replaces the filtered capped table export
+                void exportResultsCsv()
+                  .catch((error: unknown) => {
+                    console.error("Failed to export results CSV", error);
+                    showErrorNotification("Failed to export results", {
+                      error,
+                    });
+                  })
                   .finally(() => {
                     hideLoaderBar();
                     setIsExporting(false);

@@ -1,5 +1,5 @@
 import "fake-indexeddb/auto";
-import { describe, it, expect, beforeEach, vi } from "vitest";
+import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
 import { IDBFactory } from "fake-indexeddb";
 
 import { SnapshotResult } from "../../src/ts/constants/default-snapshot";
@@ -77,6 +77,12 @@ describe("DesktopAutoBackup (KI-02)", () => {
     window.localStorage.clear();
     removeFakeTauri();
     vi.clearAllMocks();
+  });
+  //leave a clean shared fake-indexeddb factory behind: several spec
+  //files share one worker global and a downstream file asserts an
+  //empty store (audit of idea #11 - cross-file row leakage)
+  afterEach(() => {
+    (globalThis as { indexedDB: unknown }).indexedDB = new IDBFactory();
   });
 
   it("does nothing when local data already exists", async () => {

@@ -30,7 +30,7 @@ const LEGACY_RESULTS_KEY = "mtDesktopLocalResults";
 const RESULTS_DB_NAME = "mtDesktopResults";
 const RESULTS_STORE = "results";
 const RESULTS_TIMESTAMP_INDEX = "by_timestamp";
-export const MAX_RESULTS = 1000;
+export const MAX_RESULTS = 10000;
 
 /** whether a results collection is at the storage cap (its owner should
  * disclose that older rows are hidden) */
