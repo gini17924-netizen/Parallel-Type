@@ -51,22 +51,29 @@ export function KeybrPage(): JSXElement {
   let progress: Progress | undefined;
   let lessonState: LessonState | undefined;
   let lastKeyAt = 0;
+  //audit L2: rapid language switches race two async boots - the slower
+  //older boot must not overwrite the newer one's engine state
+  let bootGeneration = 0;
 
   const language = (): KeybrLanguage => keybrLanguageById(languageId());
 
   const bootSession = async (id: KeybrLanguageId): Promise<void> => {
+    const generation = ++bootGeneration;
     setReady(false);
     setFailed(false);
     try {
       const lang = keybrLanguageById(id);
       settings = loadKeybrSettings();
-      lesson = await makeLesson(lang, settings);
+      const nextLesson = await makeLesson(lang, settings);
+      if (generation !== bootGeneration) return; //superseded by a newer boot
+      lesson = nextLesson;
       progress = new Progress(settings, lesson);
       progress.seed(loadStoredResults(lang));
       startLessonState();
       window.localStorage.removeItem("mtKeybrBootError");
       setReady(true);
     } catch (error: unknown) {
+      if (generation !== bootGeneration) return; //a newer boot owns the UI
       const detail =
         error instanceof Error ? (error.stack ?? error.message) : String(error);
       window.localStorage.setItem("mtKeybrBootError", detail);
