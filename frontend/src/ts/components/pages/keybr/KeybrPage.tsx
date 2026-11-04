@@ -297,7 +297,7 @@ export function KeybrPage(): JSXElement {
             aria-label="typing area"
           >
             <div
-              class="grid gap-1 font-mono text-2xl leading-relaxed md:text-3xl"
+              class="grid gap-1 text-2xl leading-relaxed font-(--font) md:text-3xl"
               dir="auto"
             >
               <For each={lines()}>
@@ -398,7 +398,7 @@ function StatCell(props: {
 }): JSXElement {
   return (
     <div class="rounded bg-sub-alt px-3 py-2 text-center">
-      <div class="text-xl font-bold text-main">{props.value}</div>
+      <div class="text-xl font-bold text-main tabular-nums">{props.value}</div>
       <div class="text-xs text-sub">
         {props.label}
         {props.note !== undefined ? ` · ${props.note}` : ""}
