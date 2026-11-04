@@ -1,3 +1,5 @@
+import { z } from "zod";
+
 import { Mode } from "@monkeytype/schemas/shared";
 import { Snapshot, SnapshotResult } from "../constants/default-snapshot";
 
@@ -412,6 +414,64 @@ function readJsonSafe(key: string): Record<string, unknown> | undefined {
   }
 }
 
+// ---------------------------------------------------------------------------
+// backup snapshot field validation (audit Y6)
+// ---------------------------------------------------------------------------
+
+const nonNegativeNumber = z.number().finite().nonnegative();
+
+const typingStatsSchema = z.object({
+  timeTyping: nonNegativeNumber,
+  startedTests: nonNegativeNumber,
+  completedTests: nonNegativeNumber,
+});
+
+/** the structural essence of PersonalBests: mode -> mode2 -> pb rows */
+const personalBestsSchema = z.record(
+  z.string(),
+  z.record(z.string(), z.array(z.unknown())),
+);
+
+/** the value when valid, undefined (with a console note) when not */
+function importNumberField(
+  value: unknown,
+  fallback: number,
+  name: string,
+): number {
+  const parsed = nonNegativeNumber.safeParse(value);
+  if (parsed.success) return parsed.data;
+  console.error(
+    `backup import: invalid snapshot field "${name}" (${String(value)}), keeping the current value`,
+  );
+  return fallback;
+}
+
+function parseTypingStats(
+  value: unknown,
+): LoadedSnapshotFields["typingStats"] | undefined {
+  const parsed = typingStatsSchema.safeParse(value);
+  if (parsed.success) return parsed.data;
+  if (value !== undefined) {
+    console.error(
+      "backup import: invalid typingStats, keeping the current value",
+    );
+  }
+  return undefined;
+}
+
+function parsePersonalBests(
+  value: unknown,
+): LoadedSnapshotFields["personalBests"] {
+  const parsed = personalBestsSchema.safeParse(value);
+  if (parsed.success) return value as LoadedSnapshotFields["personalBests"];
+  if (value !== undefined && value !== null) {
+    console.error(
+      "backup import: invalid personalBests, keeping the current value",
+    );
+  }
+  return undefined;
+}
+
 /**
  * Replaces all local data with the given backup. Results are capped at
  * MAX_RESULTS like normal appends. Throws on an invalid backup file.
@@ -453,17 +513,35 @@ export async function importBackup(backup: LocalBackup): Promise<number> {
   });
 
   if (backup.snapshot !== undefined && backup.snapshot !== null) {
-    saveLocalSnapshotFields({
-      personalBests: backup.snapshot.personalBests,
-      typingStats: backup.snapshot.typingStats ?? {
+    //field-level validation (audit Y6): the file may be hand-edited or
+    //corrupt (yet valid JSON), so every field is checked and an invalid one
+    //falls back to the current stored value instead of poisoning the
+    //snapshot. An absent field means "no data", not "erase" - the current
+    //value is kept there too.
+    const src = backup.snapshot;
+    const current = loadLocalSnapshotFields();
+    const pbs = parsePersonalBests(src.personalBests) ?? current?.personalBests;
+    const typingStats = parseTypingStats(src.typingStats) ??
+      current?.typingStats ?? {
         timeTyping: 0,
         startedTests: 0,
         completedTests: 0,
-      },
-      xp: backup.snapshot.xp ?? 0,
-      streak: backup.snapshot.streak ?? 0,
-      maxStreak: backup.snapshot.maxStreak ?? 0,
-      streakLastResultTimestamp: backup.snapshot.streakLastResultTimestamp ?? 0,
+      };
+    saveLocalSnapshotFields({
+      personalBests: pbs,
+      typingStats,
+      xp: importNumberField(src.xp, current?.xp ?? 0, "xp"),
+      streak: importNumberField(src.streak, current?.streak ?? 0, "streak"),
+      maxStreak: importNumberField(
+        src.maxStreak,
+        current?.maxStreak ?? 0,
+        "maxStreak",
+      ),
+      streakLastResultTimestamp: importNumberField(
+        src.streakLastResultTimestamp,
+        current?.streakLastResultTimestamp ?? 0,
+        "streakLastResultTimestamp",
+      ),
     } as PersistedSnapshotFields);
   }
 

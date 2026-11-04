@@ -356,6 +356,81 @@ describe("LocalPersistence (desktop offline, IndexedDB)", () => {
         } as never),
       ).rejects.toThrow("Invalid backup file");
     });
+
+    it("keeps current values for invalid snapshot fields (audit Y6)", async () => {
+      //seed the "current" state the import must fall back to
+      LocalPersistence.saveLocalSnapshotFields({
+        personalBests: {
+          time: {},
+          words: { 60: [{ wpm: 90, acc: 97, timestamp: 3 }] },
+          quote: {},
+          zen: {},
+          custom: {},
+        },
+        typingStats: { timeTyping: 555, startedTests: 9, completedTests: 8 },
+        xp: 500,
+        streak: 4,
+        maxStreak: 6,
+        streakLastResultTimestamp: 1000,
+      } as never);
+
+      await LocalPersistence.importBackup({
+        schemaVersion: 2,
+        exportedAt: "2026-11-05T00:00:00.000Z",
+        results: [],
+        snapshot: {
+          //valid field: applied
+          xp: 700,
+          //invalid fields: rejected, current values survive
+          streak: -5,
+          maxStreak: "many",
+          streakLastResultTimestamp: Number.NaN,
+          typingStats: {
+            timeTyping: "lots",
+            startedTests: 1,
+            completedTests: 1,
+          },
+          personalBests: "garbage",
+        } as never,
+      } as never);
+
+      const snap = LocalPersistence.loadLocalSnapshotFields();
+      expect(snap?.xp).toBe(700); //valid field from the backup
+      expect(snap?.streak).toBe(4);
+      expect(snap?.maxStreak).toBe(6);
+      expect(snap?.streakLastResultTimestamp).toBe(1000);
+      expect(snap?.typingStats).toEqual({
+        timeTyping: 555,
+        startedTests: 9,
+        completedTests: 8,
+      });
+      expect(snap?.personalBests?.words[60]?.[0]?.wpm).toBe(90);
+    });
+
+    it("falls back to zero defaults for invalid snapshot fields on a fresh profile (audit Y6)", async () => {
+      const imported = await LocalPersistence.importBackup({
+        schemaVersion: 2,
+        exportedAt: "2026-11-05T00:00:00.000Z",
+        results: [],
+        snapshot: {
+          xp: "garbage",
+          streak: -1,
+          typingStats: { timeTyping: null, startedTests: 0, completedTests: 0 },
+          personalBests: 42,
+        } as never,
+      } as never);
+      expect(imported).toBe(0);
+
+      const snap = LocalPersistence.loadLocalSnapshotFields();
+      expect(snap?.xp).toBe(0);
+      expect(snap?.streak).toBe(0);
+      expect(snap?.typingStats).toEqual({
+        timeTyping: 0,
+        startedTests: 0,
+        completedTests: 0,
+      });
+      expect(snap?.personalBests).toBeUndefined();
+    });
   });
 
   describe("desktop state backup (schema v2)", () => {
