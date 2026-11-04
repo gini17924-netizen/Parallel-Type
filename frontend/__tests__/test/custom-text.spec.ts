@@ -280,3 +280,85 @@ describe("test/custom-text.ts", () => {
     });
   });
 });
+describe("test/custom-text.ts — saved-text rotation", () => {
+  let CustomText: typeof CustomTextModule;
+
+  beforeEach(async () => {
+    localStorage.clear();
+    vi.resetModules();
+    CustomText = await import("../../src/ts/test/custom-text");
+  });
+
+  function seedTexts(): void {
+    CustomText.setCustomText("alpha", "one two");
+    CustomText.setCustomText("beta", "three four");
+    CustomText.setCustomText("gamma", "five six");
+  }
+
+  function enablePool(names: string[]): void {
+    CustomText.setRotationState({
+      enabled: true,
+      pool: names.map((name) => ({ name, long: false })),
+      last: null,
+    });
+  }
+
+  it("returns null when rotation is disabled", () => {
+    seedTexts();
+    expect(CustomText.getRotationState().enabled).toBe(false);
+    expect(CustomText.rotateCustomText()).toBeNull();
+  });
+
+  it("returns null when the pool is empty", () => {
+    seedTexts();
+    CustomText.setRotationState({
+      enabled: true,
+      pool: [],
+      last: null,
+    });
+    expect(CustomText.rotateCustomText()).toBeNull();
+  });
+
+  it("round-robins deterministically and wraps around", () => {
+    seedTexts();
+    enablePool(["alpha", "beta", "gamma"]);
+    expect(CustomText.rotateCustomText()?.name).toBe("alpha");
+    expect(CustomText.rotateCustomText()?.name).toBe("beta");
+    expect(CustomText.rotateCustomText()?.name).toBe("gamma");
+    expect(CustomText.rotateCustomText()?.name).toBe("alpha");
+    expect(CustomText.getRotationState().last).toBe("alpha");
+  });
+
+  it("starts from the persisted cursor after a module reset", async () => {
+    seedTexts();
+    enablePool(["alpha", "beta", "gamma"]);
+    expect(CustomText.rotateCustomText()?.name).toBe("alpha");
+    vi.resetModules();
+    CustomText = await import("../../src/ts/test/custom-text");
+    //cursor persisted in localStorage: next pick continues, not restarts
+    expect(CustomText.rotateCustomText()?.name).toBe("beta");
+  });
+
+  it("skips pool entries whose saved text was deleted", () => {
+    seedTexts();
+    enablePool(["alpha", "beta", "gamma"]);
+    expect(CustomText.rotateCustomText()?.name).toBe("alpha");
+    CustomText.deleteCustomText("beta", false);
+    expect(CustomText.rotateCustomText()?.name).toBe("gamma");
+    expect(CustomText.rotateCustomText()?.name).toBe("alpha");
+  });
+
+  it("ignores long entries in the pool (v1 short-only)", () => {
+    seedTexts();
+    CustomText.setRotationState({
+      enabled: true,
+      pool: [
+        { name: "book", long: true },
+        { name: "alpha", long: false },
+      ],
+      last: null,
+    });
+    expect(CustomText.rotateCustomText()?.name).toBe("alpha");
+    expect(CustomText.rotateCustomText()?.name).toBe("alpha");
+  });
+});

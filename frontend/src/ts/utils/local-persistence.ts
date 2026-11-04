@@ -273,6 +273,10 @@ const DAILY_GOAL_KEY = "mtDesktopDailyGoalMinutes"; //owner: utils/daily-goal.ts
 //owner: components/pages/games/GamesPage.tsx (the difficulty picker writes it)
 const WORD_BLAST_DIFFICULTY_KEY = "mtDesktopWordBlastDifficulty";
 const WORD_BLAST_SCORES_KEY = "mtDesktopWordBlastScores"; //owner: utils/word-blast-scores.ts
+const CUSTOM_TEXT_KEY = "customText"; //owner: test/custom-text.ts
+const CUSTOM_TEXT_LONG_KEY = "customTextLong"; //owner: test/custom-text.ts
+const CUSTOM_TEXT_SETTINGS_KEY = "customTextSettings"; //owner: test/custom-text.ts
+const CUSTOM_TEXT_ROTATION_KEY = "customTextRotation"; //owner: test/custom-text.ts
 
 /** transient runtime state that must never be carried across restores */
 const KEYBR_STATE_EXCLUDED = new Set(["mtKeybrBootError"]);
@@ -347,6 +351,11 @@ export type LocalBackup = {
   wordBlast?: string | undefined;
   /** schema v2: word blast bests + recent history (mtDesktopWordBlastScores) */
   wordBlastScores?: Record<string, unknown> | undefined;
+  /** schema v2: saved custom texts, their settings and the rotation state */
+  customTexts?: Record<string, unknown> | undefined;
+  customTextsLong?: Record<string, unknown> | undefined;
+  customTextSettings?: Record<string, unknown> | undefined;
+  customTextRotation?: Record<string, unknown> | undefined;
 };
 
 /** Exports all local data (results + snapshot fields) as a backup object. */
@@ -362,6 +371,10 @@ export async function exportBackup(): Promise<LocalBackup> {
     wordBlast:
       window.localStorage.getItem(WORD_BLAST_DIFFICULTY_KEY) ?? undefined,
     wordBlastScores: readJsonSafe(WORD_BLAST_SCORES_KEY),
+    customTexts: readJsonSafe(CUSTOM_TEXT_KEY),
+    customTextsLong: readJsonSafe(CUSTOM_TEXT_LONG_KEY),
+    customTextSettings: readJsonSafe(CUSTOM_TEXT_SETTINGS_KEY),
+    customTextRotation: readJsonSafe(CUSTOM_TEXT_ROTATION_KEY),
   };
 }
 
@@ -454,6 +467,17 @@ export async function importBackup(backup: LocalBackup): Promise<number> {
       WORD_BLAST_SCORES_KEY,
       JSON.stringify(backup.wordBlastScores),
     );
+  }
+  const jsonBackedKeys: [string, Record<string, unknown> | undefined][] = [
+    [CUSTOM_TEXT_KEY, backup.customTexts],
+    [CUSTOM_TEXT_LONG_KEY, backup.customTextsLong],
+    [CUSTOM_TEXT_SETTINGS_KEY, backup.customTextSettings],
+    [CUSTOM_TEXT_ROTATION_KEY, backup.customTextRotation],
+  ];
+  for (const [key, payload] of jsonBackedKeys) {
+    if (payload !== undefined && payload !== null) {
+      window.localStorage.setItem(key, JSON.stringify(payload));
+    }
   }
   return validResults.length;
 }

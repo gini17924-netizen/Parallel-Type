@@ -41,7 +41,11 @@ import * as Arrays from "../utils/arrays";
 import { getGlarsesMode } from "../states/glarses-mode";
 import { getSarcasticResultMessage } from "../states/sarcastic-result-message";
 import { closeResultWords, toggleResultWords } from "./words-history";
-import { getCustomTextIndicator, isAuthenticated } from "../states/core";
+import {
+  getCustomTextIndicator,
+  isAuthenticated,
+  setCustomTextIndicator,
+} from "../states/core";
 import {
   setIsDirectionReversed,
   setIsLanguageRightToLeft,
@@ -337,6 +341,10 @@ export async function restart(options = {} as RestartOptions): Promise<void> {
     options.withSameWordset = true;
   }
 
+  //desktop fork: capture before the practice restore below mutates it, so
+  //rotation can tell a practice-word restart apart from a regular one
+  const wasPractiseRestore = PractiseWords.before.mode !== null;
+
   if (
     PractiseWords.before.mode !== null &&
     !options.withSameWordset &&
@@ -361,6 +369,34 @@ export async function restart(options = {} as RestartOptions): Promise<void> {
 
     setConfig("mode", PractiseWords.before.mode);
     PractiseWords.resetBefore();
+  }
+
+  //desktop fork: round-robin rotation over saved SHORT custom texts. The
+  //gates (repeated tests, practice-word flows, long/book-mode texts,
+  //synthetic indicator names) live in pickRotationForRestart. Best-effort:
+  //never throws — a rotation problem must not break the restart.
+  try {
+    const pick = CustomText.pickRotationForRestart({
+      mode: Config.mode,
+      withSameWordset: options.withSameWordset === true,
+      wasPractiseRestore,
+      practiseBeforeMode: PractiseWords.before.mode,
+      indicatorIsLong: getCustomTextIndicator()?.isLong === true,
+      indicatorName: getCustomTextIndicator()?.name,
+    });
+    if (pick !== null) {
+      const savedWords = CustomText.getCustomText(pick.name, pick.long);
+      CustomText.setPipeDelimiter(
+        CustomText.getCustomTextIsPipeDelimiter(pick.name, pick.long),
+      );
+      //setText first (it rewrites the limit), then pin the limit to the
+      //picked text's length with the user's existing limit mode
+      CustomText.setText(savedWords);
+      CustomText.setLimitValue(savedWords.length);
+      setCustomTextIndicator({ name: pick.name, isLong: false });
+    }
+  } catch {
+    //rotation is optional; a failure leaves the current custom text in place
   }
 
   // reset state

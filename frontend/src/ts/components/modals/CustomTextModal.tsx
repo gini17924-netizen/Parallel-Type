@@ -181,6 +181,36 @@ export function CustomTextModal(): JSXElement {
   const showWordLimit = () => !formValues().pipeDelimiter;
   const showSectionLimit = () => formValues().pipeDelimiter;
 
+  //desktop fork: round-robin rotation over saved short custom texts. The
+  //pool is persisted immediately on every change so it survives restarts.
+  const [rotationEnabled, setRotationEnabled] = createSignal(
+    CustomText.getRotationState().enabled,
+  );
+  const [rotationPool, setRotationPool] = createSignal<string[]>(
+    CustomText.getRotationState()
+      .pool.filter((entry) => !entry.long)
+      .map((entry) => entry.name),
+  );
+  const persistRotation = (): void => {
+    CustomText.setRotationState({
+      enabled: rotationEnabled(),
+      pool: rotationPool().map((name) => ({ name, long: false })),
+      last: CustomText.getRotationState().last,
+    });
+  };
+  const toggleRotation = (): void => {
+    setRotationEnabled(!rotationEnabled());
+    persistRotation();
+  };
+  const togglePoolItem = (name: string): void => {
+    setRotationPool(
+      rotationPool().includes(name)
+        ? rotationPool().filter((it) => it !== name)
+        : [...rotationPool(), name],
+    );
+    persistRotation();
+  };
+
   const cleanUpText = (): string[] => {
     let text = form.getFieldValue("text");
     if (text === "") return [];
@@ -642,6 +672,43 @@ export function CustomTextModal(): JSXElement {
                   )}
                 </For>
               </div>
+            </SettingsGroup>
+
+            <SettingsGroup
+              title="Rotate saved texts"
+              icon="fa-sync"
+              sub="Round-robin through selected saved short texts on every restart while in custom mode."
+            >
+              <div class="flex w-full gap-2">
+                <Button
+                  variant="button"
+                  text={rotationEnabled() ? "on" : "off"}
+                  class="flex-1"
+                  active={rotationEnabled()}
+                  onClick={toggleRotation}
+                />
+              </div>
+              <Show when={rotationEnabled()}>
+                <div class="flex w-full flex-wrap gap-2">
+                  <For each={CustomText.getCustomTextNames(false)}>
+                    {(name) => (
+                      <Button
+                        variant="button"
+                        text={name}
+                        active={rotationPool().includes(name)}
+                        onClick={() => {
+                          togglePoolItem(name);
+                        }}
+                      />
+                    )}
+                  </For>
+                </div>
+                <Show when={rotationPool().length === 0}>
+                  <div class="text-xs text-sub">
+                    no texts selected — rotation is skipped until you pick some
+                  </div>
+                </Show>
+              </Show>
             </SettingsGroup>
             <Separator />
             <div class="grid gap-2">

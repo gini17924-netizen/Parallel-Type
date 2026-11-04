@@ -250,3 +250,88 @@ export function getCustomTextNames(long = false): string[] {
     return Object.keys(getLocalStorage());
   }
 }
+
+// ---------------------------------------------------------------------------
+// saved-text rotation (desktop fork): round-robin over saved short texts.
+// A text-SELECTION feature, deliberately separate from the
+// repeat/random/shuffle word-order mode.
+// ---------------------------------------------------------------------------
+
+const CustomTextRotationSchema = z.object({
+  enabled: z.boolean(),
+  pool: z.array(z.object({ name: z.string(), long: z.boolean() })),
+  last: z.string().nullable(),
+});
+
+type CustomTextRotation = z.infer<typeof CustomTextRotationSchema>;
+
+const customTextRotation = new LocalStorageWithSchema({
+  key: "customTextRotation",
+  schema: CustomTextRotationSchema,
+  fallback: { enabled: false, pool: [], last: null },
+});
+
+export function getRotationState(): CustomTextRotation {
+  return customTextRotation.get();
+}
+
+export function setRotationState(state: CustomTextRotation): void {
+  customTextRotation.set(state);
+}
+
+/**
+ * Picks the next saved SHORT text from the rotation pool in deterministic
+ * round-robin order. Skips pool entries whose saved text was deleted;
+ * persists the cursor () so the cycle survives app restarts.
+ *
+ * Returns null when rotation is disabled, the pool is empty, or no valid
+ * entry remains — callers must no-op on null and never throw.
+ */
+export type RestartGateInput = {
+  mode: string;
+  withSameWordset: boolean;
+  /** a practice-word session was reverted by this restart */
+  wasPractiseRestore: boolean;
+  /** an active practice-word session (before the restart's revert) */
+  practiseBeforeMode: string | null;
+  indicatorIsLong: boolean;
+  indicatorName: string | undefined;
+};
+
+/**
+ * Gate + pick for the restart funnel: returns the next saved text when the
+ * current restart may rotate, or null when any gate blocks it (non-custom
+ * mode, repeated tests, practice-word flows, long/book-mode texts, or
+ * synthetic indicator names such as learning drills).
+ */
+export function pickRotationForRestart(
+  gates: RestartGateInput,
+): { name: string; long: boolean } | null {
+  if (gates.mode !== "custom") return null;
+  if (gates.withSameWordset) return null;
+  if (gates.wasPractiseRestore) return null;
+  if (gates.practiseBeforeMode !== null) return null;
+  if (gates.indicatorIsLong) return null;
+  if (
+    gates.indicatorName !== undefined &&
+    !getCustomTextNames(false).includes(gates.indicatorName)
+  ) {
+    return null;
+  }
+  return rotateCustomText();
+}
+
+export function rotateCustomText(): { name: string; long: boolean } | null {
+  const state = customTextRotation.get();
+  if (!state.enabled) return null;
+  const valid = state.pool.filter(
+    (entry) => !entry.long && getCustomTextNames(false).includes(entry.name),
+  );
+  if (valid.length === 0) return null;
+  const lastIndex = valid.findIndex((entry) => entry.name === state.last);
+  const nextIndex = lastIndex === -1 ? 0 : (lastIndex + 1) % valid.length;
+  const next = valid[nextIndex];
+  if (next === undefined) return null;
+  customTextRotation.set({ ...state, last: next.name });
+  return { name: next.name, long: next.long };
+}

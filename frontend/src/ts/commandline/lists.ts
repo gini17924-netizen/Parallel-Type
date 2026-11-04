@@ -14,6 +14,7 @@ import FunboxCommands from "./lists/funbox";
 import ThemesCommands from "./lists/themes";
 import LoadChallengeCommands from "./lists/load-challenge";
 
+import * as CustomText from "../test/custom-text";
 import { Config } from "../config/store";
 import { setConfig } from "../config/setters";
 import { randomizeTheme } from "../controllers/theme-controller";
@@ -60,6 +61,18 @@ export const commands: CommandsSubgroup = {
       icon: "fa-align-left",
       exec: (): void => {
         showModal("CustomText");
+      },
+    },
+    {
+      id: "toggleCustomTextRotation",
+      display: "Toggle custom text rotation",
+      icon: "fa-sync",
+      exec: (): void => {
+        const state = CustomText.getRotationState();
+        CustomText.setRotationState({ ...state, enabled: !state.enabled });
+        showSuccessNotification(
+          `Custom text rotation ${!state.enabled ? "enabled" : "disabled"}`,
+        );
       },
     },
     {
