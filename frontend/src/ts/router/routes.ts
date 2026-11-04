@@ -22,6 +22,7 @@ import { DrillsPage } from "../components/pages/drills/DrillsPage";
 import { GamesPage } from "../components/pages/games/GamesPage";
 import { HomePage } from "../components/pages/home/HomePage";
 import { SectionsPage } from "../components/pages/sections/SectionsPage";
+import { WrappedPage } from "../components/pages/wrapped/WrappedPage";
 import { AccountSettingsPage } from "../components/pages/account-settings/AccountSettingsPage";
 import { AccountPage } from "../components/pages/account/AccountPage";
 import { FriendsPage } from "../components/pages/connections/FriendsPage";
@@ -84,7 +85,8 @@ export type PageName =
   | "learn"
   | "keybr"
   | "drills"
-  | "games";
+  | "games"
+  | "wrapped";
 
 declare module "@tanstack/solid-router" {
   // oxlint-disable-next-line typescript/consistent-type-definitions -- module augmentation needs an interface
@@ -318,6 +320,13 @@ const games = createRoute({
   component: createRouterPage(GamesPage),
 });
 
+const wrapped = createRoute({
+  getParentRoute: () => userDataRoute,
+  path: "/wrapped",
+  staticData: { page: "wrapped" },
+  component: createRouterPage(WrappedPage),
+});
+
 const about = createRoute({
   getParentRoute: () => userDataRoute,
   path: "/about",
@@ -462,6 +471,7 @@ export const routeTree = root.addChildren([
     keybr,
     drills,
     games,
+    wrapped,
     login,
     account,
     accountSettings,

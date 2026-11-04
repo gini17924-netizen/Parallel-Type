@@ -1,4 +1,5 @@
 import { Mode } from "@monkeytype/schemas/shared";
+import { Link } from "@tanstack/solid-router";
 import { createMemo, createSignal, JSXElement, onMount, Show } from "solid-js";
 
 import {
@@ -139,6 +140,19 @@ export function AccountPage(): JSXElement {
               {localStreak()} <span class="text-sm text-sub">days</span>
             </div>
           </div>
+
+          <Link
+            to="/wrapped"
+            class="flex items-center justify-between rounded bg-sub-alt p-4 transition-colors duration-125 hover:bg-text"
+          >
+            <div>
+              <div class="text-lg font-bold text-main">year wrapped</div>
+              <div class="text-sub">
+                your last 365 days of typing, as a recap
+              </div>
+            </div>
+            <i class="fas fa-arrow-right text-main"></i>
+          </Link>
 
           <div class="rounded bg-sub-alt p-4">
             <div class="flex items-baseline justify-between">

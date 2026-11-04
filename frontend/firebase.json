@@ -4,7 +4,7 @@
     "ignore": ["firebase.json", "**/.*", "**/node_modules/**"],
     "rewrites": [
       {
-        "source": "/@(test|settings|account|about|login|profile|friends|account-settings|leaderboards|home|learn|keybr|drills|games|sections){,/**}",
+        "source": "/@(test|settings|account|about|login|profile|friends|account-settings|leaderboards|home|learn|keybr|drills|games|wrapped|sections){,/**}",
         "destination": "/index.html"
       },
       {
