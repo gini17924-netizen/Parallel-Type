@@ -152,6 +152,30 @@ export const configMetadata: ConfigMetadataObject = {
       return value;
     },
   },
+  punctuationStyle: {
+    key: "punctuationStyle",
+    fa: {
+      icon: "fa-at",
+    },
+    changeRequiresRestart: true,
+    group: "test",
+  },
+  customPunctuation: {
+    key: "customPunctuation",
+    fa: {
+      icon: "fa-at",
+    },
+    changeRequiresRestart: true,
+    group: "test",
+  },
+  customPunctuationZwnj: {
+    key: "customPunctuationZwnj",
+    fa: {
+      icon: "fa-at",
+    },
+    changeRequiresRestart: true,
+    group: "test",
+  },
   numbers: {
     key: "numbers",
     fa: {
