@@ -1,6 +1,7 @@
 import { Language } from "@monkeytype/schemas/languages";
 import { LEARN_STATE_KEY } from "./local-persistence";
 import { loadKeybrLetterStats } from "./keybr-letter-stats";
+import { buildWeaknessMap } from "./weakness-model";
 
 /**
  * Learning/progressive-mode engine (Keybr-style, fully offline).
@@ -448,35 +449,33 @@ export function evaluateUnlock(state: LearnState, language: string): number {
   return state.unlockedGroups;
 }
 
-/** the letters the user struggles with most (lowest accuracy, enough samples).
- * V3 of the keybr port: the keybr engine's per-character histograms merge in
- * read-only (keybr-letter-stats.ts) — the learn state itself stays
- * monkeytype-driven, so review scheduling and unlock gating are unchanged. */
-export function weakLetters(n = 8): { letter: string; acc: number }[] {
-  const state = getLearnState();
-  const combined: Record<string, { correct: number; incorrect: number }> = {
-    ...state.keyStats,
-  };
-  for (const [letter, stat] of Object.entries(loadKeybrLetterStats())) {
-    const existing = combined[letter] ?? { correct: 0, incorrect: 0 };
-    combined[letter] = {
-      correct: existing.correct + stat.correct,
-      incorrect: existing.incorrect + stat.incorrect,
-    };
-  }
-  return Object.entries(combined)
-    .map(([letter, stat]) => ({
-      letter,
-      acc:
-        stat.correct + stat.incorrect > 0
-          ? stat.correct / (stat.correct + stat.incorrect)
-          : 1,
-      total: stat.correct + stat.incorrect,
-    }))
-    .filter((it) => it.total >= 10)
-    .sort((a, b) => a.acc - b.acc)
+/** the letters the user struggles with most, with their evidence sources.
+ * Idea #7: this is a thin adapter over the unified weakness model — the
+ * learn state and the keybr histograms (read-only) merge per-source
+ * (smoothed, rank-normalized), so 200 keybr sessions cannot drown the
+ * drill history. The learn state itself stays monkeytype-driven: review
+ * scheduling and unlock gating are unchanged. */
+export function weakLettersDetailed(n = 8): {
+  letter: string;
+  acc: number;
+  score: number;
+  evidence: { source: "drill" | "keybr"; n: number }[];
+}[] {
+  const map = buildWeaknessMap(getLearnState(), loadKeybrLetterStats());
+  return Object.values(map)
+    .sort((a, b) => b.score - a.score)
     .slice(0, n)
-    .map(({ letter, acc }) => ({ letter, acc }));
+    .map(({ letter, acc, score, evidence }) => ({
+      letter,
+      acc,
+      score,
+      evidence,
+    }));
+}
+
+/** the letters the user struggles with most (lowest accuracy first) */
+export function weakLetters(n = 8): { letter: string; acc: number }[] {
+  return weakLettersDetailed(n).map(({ letter, acc }) => ({ letter, acc }));
 }
 
 /** builds a drill from the weakest letters (real words containing them) */

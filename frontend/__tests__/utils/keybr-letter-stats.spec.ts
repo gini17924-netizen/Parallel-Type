@@ -13,7 +13,12 @@ const FA_ALEF = 0x0627;
 const EN_J = 0x006a;
 
 function keybrSession(
-  histogram: { codePoint: number; hitCount: number; missCount: number }[],
+  histogram: {
+    codePoint: number;
+    hitCount: number;
+    missCount: number;
+    timeToType?: number;
+  }[],
 ): unknown {
   return { timeStamp: 1, length: 10, time: 5, errors: 1, histogram };
 }
@@ -45,9 +50,38 @@ describe("loadKeybrLetterStats (keybr → drills bridge, read-only)", () => {
     );
 
     expect(loadKeybrLetterStats()).toEqual({
-      ف: { correct: 7, incorrect: 8 },
-      ا: { correct: 9, incorrect: 1 },
-      j: { correct: 2, incorrect: 2 },
+      ف: { correct: 7, incorrect: 8, totalTimeToType: 0 },
+      ا: { correct: 9, incorrect: 1, totalTimeToType: 0 },
+      j: { correct: 2, incorrect: 2, totalTimeToType: 0 },
+    });
+  });
+
+  it("aggregates the latency signal (idea #7) when sessions carry it", () => {
+    window.localStorage.setItem(
+      "mtKeybrResults:fa",
+      JSON.stringify([
+        keybrSession([
+          {
+            codePoint: FA_F,
+            hitCount: 3,
+            missCount: 1,
+            timeToType: 300,
+          },
+        ]),
+        keybrSession([
+          {
+            codePoint: FA_F,
+            hitCount: 2,
+            missCount: 1,
+            timeToType: 500,
+          },
+        ]),
+      ]),
+    );
+    expect(loadKeybrLetterStats()["ف"]).toEqual({
+      correct: 5,
+      incorrect: 2,
+      totalTimeToType: 800,
     });
   });
 

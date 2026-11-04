@@ -14,7 +14,13 @@
  * letters of that script.
  */
 
-export type KeybrLetterStat = { correct: number; incorrect: number };
+export type KeybrLetterStat = {
+  correct: number;
+  incorrect: number;
+  /** summed timeToType over the samples (idea #7 latency signal); 0 when
+   * the stored sessions predate the field */
+  totalTimeToType: number;
+};
 
 const KEYBR_RESULTS_PREFIX = "mtKeybrResults:";
 
@@ -28,6 +34,7 @@ type StoredHistogramSample = {
   codePoint: number;
   hitCount: number;
   missCount: number;
+  timeToType?: number;
 };
 type StoredStats = { histogram?: StoredHistogramSample[] };
 
@@ -58,9 +65,17 @@ export function loadKeybrLetterStats(): Record<string, KeybrLetterStat> {
           }
           const char = String.fromCodePoint(sample.codePoint).toLowerCase();
           if (isSkippable(char)) continue;
-          const stat = stats[char] ?? { correct: 0, incorrect: 0 };
+          const stat = stats[char] ?? {
+            correct: 0,
+            incorrect: 0,
+            totalTimeToType: 0,
+          };
           stat.correct += sample.hitCount;
           stat.incorrect += sample.missCount;
+          //latency signal (idea #7): old rows may lack the field
+          if (typeof sample.timeToType === "number") {
+            stat.totalTimeToType += sample.timeToType;
+          }
           stats[char] = stat;
         }
       }
