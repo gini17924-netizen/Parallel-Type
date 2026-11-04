@@ -26,7 +26,17 @@ export function MiniResultChart(props: { resultId: string }): JSXElement {
     <AnimatedModal id="MiniResultChartModal" modalClass="max-w-300">
       <AsyncContent queries={{ query }}>
         {({ queryData }) => {
-          const data = queryData().chartData as ChartData;
+          const chartData = queryData().chartData;
+          //idea #11 guard: rows saved before the heavy store existed (and
+          //the "toolong" sentinel for very long tests) have no usable chart
+          if (chartData === undefined || chartData === "toolong") {
+            return (
+              <div class="p-4 text-sub">
+                graph history is not available for this result.
+              </div>
+            );
+          }
+          const data = chartData as ChartData;
 
           return (
             <div class="h-60 w-full">

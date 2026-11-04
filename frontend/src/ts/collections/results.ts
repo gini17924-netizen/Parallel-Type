@@ -45,6 +45,8 @@ import { applyIdWorkaround } from "./utils/misc";
 import {
   DESKTOP_OFFLINE,
   appendLocalResult,
+  getLocalResultById,
+  loadLocalHeavyResult,
   loadLocalResults,
 } from "../utils/local-persistence";
 
@@ -628,6 +630,19 @@ export const getSingleResultQueryOptions = (_id: string) =>
   queryOptions({
     queryKey: queryKeys.fullResult(_id),
     queryFn: async () => {
+      if (!isAuthenticated() && DESKTOP_OFFLINE) {
+        //idea #11: the offline stored row + its heavy chartData twin.
+        //rows saved before the heavy store existed have no twin - the
+        //consumer guards on a missing chartData.
+        const light = await getLocalResultById(_id);
+        if (light === undefined) {
+          throw new Error(`Result ${_id} not found in the local store`);
+        }
+        const heavy = await loadLocalHeavyResult(_id);
+        return heavy === undefined
+          ? light
+          : { ...light, chartData: heavy.chartData };
+      }
       const response = await Ape.results.getById({ params: { resultId: _id } });
 
       if (response.status !== 200) {

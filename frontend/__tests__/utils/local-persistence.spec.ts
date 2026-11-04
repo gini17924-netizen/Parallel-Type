@@ -106,6 +106,93 @@ describe("LocalPersistence (desktop offline, IndexedDB)", () => {
       expect(stored).not.toHaveProperty("keyDuration");
     });
 
+    it("moves chartData into the uncapped heavy store (idea #11)", async () => {
+      const chartData = { wpm: [50, 60], burst: [55, 66], err: [0, 1] };
+      await LocalPersistence.appendLocalResult(
+        makeResult({ _id: "twin_1", chartData, timestamp: 1600000000000 }),
+      );
+
+      const stored = (await LocalPersistence.loadLocalResults()).find(
+        (r) => r._id === "twin_1",
+      ) as unknown as Record<string, unknown>;
+      expect(stored).not.toHaveProperty("chartData"); //light store stripped
+      const heavy = await LocalPersistence.loadLocalHeavyResult("twin_1");
+      expect(heavy?.chartData).toEqual(chartData); //twin kept whole
+      expect(heavy?.timestamp).toBe(1600000000000);
+    });
+
+    it("upserts the heavy twin together with the light row", async () => {
+      await LocalPersistence.appendLocalResult(
+        makeResult({
+          _id: "twin_up",
+          chartData: { wpm: [1], burst: [1], err: [0] },
+        }),
+      );
+      await LocalPersistence.appendLocalResult(
+        makeResult({
+          _id: "twin_up",
+          chartData: { wpm: [2], burst: [2], err: [0] },
+          wpm: 99,
+        }),
+      );
+      const heavy = await LocalPersistence.loadLocalHeavyResult("twin_up");
+      expect(heavy?.chartData).toEqual({
+        wpm: [2],
+        burst: [2],
+        err: [0],
+      }); //replaced, not duplicated
+      const loaded = (await LocalPersistence.loadLocalResults()).filter(
+        (r) => r._id === "twin_up",
+      );
+      expect(loaded).toHaveLength(1);
+    });
+
+    it("deleting a result removes its heavy twin too (idea #11 symmetry)", async () => {
+      await LocalPersistence.appendLocalResult(
+        makeResult({
+          _id: "twin_del",
+          chartData: { wpm: [9], burst: [9], err: [0] },
+        }),
+      );
+      await LocalPersistence.deleteLocalResult("twin_del");
+      expect(
+        await LocalPersistence.loadLocalHeavyResult("twin_del"),
+      ).toBeUndefined();
+      expect(
+        (await LocalPersistence.loadLocalResults()).some(
+          (r) => r._id === "twin_del",
+        ),
+      ).toBe(false);
+    });
+
+    it("cap eviction keeps heavy rows (relocation, not deletion - KI-20)", async () => {
+      //fill to the cap with chartData twins, append one more: the oldest
+      //light row is evicted but its chartData must survive
+      for (let i = 0; i < LocalPersistence.MAX_RESULTS; i++) {
+        await LocalPersistence.appendLocalResult(
+          makeResult({
+            _id: `capheavy_${i}`,
+            timestamp: 1500000000000 + i,
+            chartData: { wpm: [i], burst: [i], err: [0] },
+          }),
+        );
+      }
+      await LocalPersistence.appendLocalResult(
+        makeResult({
+          _id: "capheavy_overflow",
+          timestamp: 1600000001000,
+          chartData: { wpm: [1], burst: [1], err: [0] },
+        }),
+      );
+      const loaded = await LocalPersistence.loadLocalResults();
+      expect(loaded).toHaveLength(LocalPersistence.MAX_RESULTS);
+      const ids = new Set(loaded.map((r) => r._id));
+      expect(ids.has("capheavy_0")).toBe(false); //oldest light row evicted
+      expect(
+        await LocalPersistence.loadLocalHeavyResult("capheavy_0"),
+      ).toBeDefined(); //its chartData survives - the KI-20 promise
+    });
+
     it("keeps the newest MAX_RESULTS results and drops the oldest", async () => {
       //the cap is global; rows left over from earlier tests shift the
       //drop boundary, so compute it from the live count

@@ -29,6 +29,7 @@ const LOCAL_SNAPSHOT_KEY = "mtDesktopLocalSnapshot";
 const LEGACY_RESULTS_KEY = "mtDesktopLocalResults";
 const RESULTS_DB_NAME = "mtDesktopResults";
 const RESULTS_STORE = "results";
+const RESULTS_HEAVY_STORE = "resultsHeavy";
 const RESULTS_TIMESTAMP_INDEX = "by_timestamp";
 export const MAX_RESULTS = 10000;
 
@@ -38,12 +39,21 @@ export function isResultsCapped(count: number): boolean {
   return count >= MAX_RESULTS;
 }
 
-/** fields too heavy (or not needed) to keep in local storage */
+/** fields too heavy (or not needed) to keep in the light store; chartData is
+ * moved to the uncapped heavy store instead of dropped (idea #11, closes the
+ * KI-20 trade-off decision: relocation, not deletion) */
 const STRIPPED_RESULT_FIELDS = [
   "chartData",
   "keySpacing",
   "keyDuration",
 ] as const;
+
+/** one heavy-store row: the per-second chart of one result */
+type HeavyResult = {
+  _id: string;
+  timestamp: number;
+  chartData: unknown;
+};
 
 export function makeLocalResultId(): string {
   return `local_${Date.now().toString(36)}${Math.random()
@@ -73,19 +83,26 @@ function createResultsStore(db: IDBDatabase): void {
     const store = db.createObjectStore(RESULTS_STORE, { keyPath: "_id" });
     store.createIndex(RESULTS_TIMESTAMP_INDEX, "timestamp");
   }
+  //idea #11: uncapped twin store holding one chartData document per result
+  if (!db.objectStoreNames.contains(RESULTS_HEAVY_STORE)) {
+    db.createObjectStore(RESULTS_HEAVY_STORE, { keyPath: "_id" });
+  }
 }
 
 async function openResultsDb(): Promise<IDBDatabase> {
   resultsDbPromise ??= new Promise((resolve, reject) => {
     //open without a version: whatever version the database is at, opening
-    //must succeed. the store is only created (via a version bump) when it
-    //is missing - e.g. an externally created or empty database. opening
-    //with a fixed version would throw VersionError once the repair bumped
-    //the version past it.
+    //must succeed. a missing store (externally created DB, or an older
+    //profile without the heavy store) is created via a version bump -
+    //opening with a fixed version would throw VersionError once the repair
+    //bumped the version past it.
     const request = indexedDB.open(RESULTS_DB_NAME);
     request.onsuccess = () => {
       const db = request.result;
-      if (db.objectStoreNames.contains(RESULTS_STORE)) {
+      if (
+        db.objectStoreNames.contains(RESULTS_STORE) &&
+        db.objectStoreNames.contains(RESULTS_HEAVY_STORE)
+      ) {
         resolve(db);
         return;
       }
@@ -173,14 +190,24 @@ export async function loadLocalResults(): Promise<SnapshotResult<Mode>[]> {
     .sort((a, b) => a.timestamp - b.timestamp);
 }
 
-/** Adds a result, keeping at most MAX_RESULTS (oldest dropped). */
+/** Adds a result, keeping at most MAX_RESULTS (oldest dropped). The result's
+ * chartData twin is written to the uncapped heavy store in the same
+ * transaction (idea #11). */
 export async function appendLocalResult(
   result: SnapshotResult<Mode>,
 ): Promise<void> {
   await ensureResultsMigrated();
   const db = await openResultsDb();
-  const tx = db.transaction(RESULTS_STORE, "readwrite");
+  const tx = db.transaction([RESULTS_STORE, RESULTS_HEAVY_STORE], "readwrite");
   const store = tx.objectStore(RESULTS_STORE);
+  const chartData = (result as { chartData?: unknown }).chartData;
+  if (chartData !== undefined) {
+    tx.objectStore(RESULTS_HEAVY_STORE).put({
+      _id: result._id,
+      timestamp: result.timestamp,
+      chartData,
+    });
+  }
   store.put(stripHeavyFields(result));
   //cap enforcement: count, then delete the oldest overflow entries.
   //all requests are chained inside success handlers so the transaction
@@ -218,19 +245,60 @@ export async function appendLocalResult(
   });
 }
 
-/** Deletes one stored result by id. A missing id is a no-op (IndexedDB
- * delete on an absent key completes successfully) and all other rows are
- * preserved. */
+/** Deletes one stored result by id - light row AND its heavy chartData twin
+ * (idea #11 symmetry). A missing id is a no-op (IndexedDB delete on an
+ * absent key completes successfully) and all other rows are preserved. */
 export async function deleteLocalResult(resultId: string): Promise<void> {
   await ensureResultsMigrated();
   const db = await openResultsDb();
-  const tx = db.transaction(RESULTS_STORE, "readwrite");
+  const tx = db.transaction([RESULTS_STORE, RESULTS_HEAVY_STORE], "readwrite");
   tx.objectStore(RESULTS_STORE).delete(resultId);
+  tx.objectStore(RESULTS_HEAVY_STORE).delete(resultId);
   await new Promise<void>((resolve, reject) => {
     tx.oncomplete = () => resolve();
     tx.onerror = () => reject(tx.error ?? new Error("failed to delete result"));
     tx.onabort = () => reject(tx.error ?? new Error("delete aborted"));
   });
+}
+
+/** the one stored light result, or undefined */
+export async function getLocalResultById(
+  resultId: string,
+): Promise<SnapshotResult<Mode> | undefined> {
+  await ensureResultsMigrated();
+  const db = await openResultsDb();
+  const tx = db.transaction(RESULTS_STORE, "readonly");
+  const row = await requestToPromise(
+    tx.objectStore(RESULTS_STORE).get(resultId) as IDBRequest<
+      SnapshotResult<Mode> | undefined
+    >,
+  );
+  if (row === undefined) return undefined;
+  if (
+    typeof row !== "object" ||
+    row === null ||
+    typeof row._id !== "string" ||
+    typeof row.timestamp !== "number"
+  ) {
+    return undefined;
+  }
+  return row;
+}
+
+/** the stored chartData twin of one result, or undefined for rows saved
+ * before the heavy store existed (idea #11) */
+export async function loadLocalHeavyResult(
+  resultId: string,
+): Promise<HeavyResult | undefined> {
+  await ensureResultsMigrated();
+  const db = await openResultsDb();
+  const tx = db.transaction(RESULTS_HEAVY_STORE, "readonly");
+  const row = await requestToPromise(
+    tx.objectStore(RESULTS_HEAVY_STORE).get(resultId) as IDBRequest<
+      HeavyResult | undefined
+    >,
+  );
+  return row;
 }
 
 // ---------------------------------------------------------------------------
