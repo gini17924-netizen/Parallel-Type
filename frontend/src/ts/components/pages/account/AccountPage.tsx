@@ -8,6 +8,7 @@ import {
   useResultsLiveQuery,
 } from "../../../collections/results";
 import { SnapshotResult } from "../../../constants/default-snapshot";
+import { importLocalBackup } from "../../../db";
 import { isAuthenticated } from "../../../states/core";
 import { hideLoaderBar, showLoaderBar } from "../../../states/loader-bar";
 import {
@@ -25,7 +26,6 @@ import { qs } from "../../../utils/dom";
 import {
   DESKTOP_OFFLINE,
   exportBackup,
-  importBackup,
   loadLocalResults,
 } from "../../../utils/local-persistence";
 import { computeStreakFromResults } from "../../../utils/local-streak";
@@ -262,9 +262,14 @@ export function AccountPage(): JSXElement {
                 event.currentTarget.value = "";
                 if (file === undefined) return;
                 setIsRestoring(true);
+                //importLocalBackup (not importBackup): the session's
+                //in-memory snapshot must follow the restored storage even
+                //before the reload below (audit Y1)
                 void file
                   .text()
-                  .then(async (text) => importBackup(JSON.parse(text) as never))
+                  .then(async (text) =>
+                    importLocalBackup(JSON.parse(text) as never),
+                  )
                   .then(async (imported) => {
                     showSuccessNotification(
                       `Restored ${imported} results, reloading`,

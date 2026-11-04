@@ -30,6 +30,7 @@ import {
   resultsCollection,
 } from "./collections/results";
 import {
+  getLastResult,
   setLastResult,
   _setSnapshot as setSolidSnapshot,
 } from "./states/snapshot";
@@ -46,9 +47,11 @@ import { applyDeleteSnapshotSideEffects } from "./utils/local-result-maintenance
 import {
   DESKTOP_OFFLINE,
   deleteLocalResult as removeLocalResultFromStorage,
+  importBackup,
   loadLocalResults,
   loadLocalSnapshotFields,
   saveLocalSnapshotFields,
+  type LocalBackup,
 } from "./utils/local-persistence";
 import { updateLocalStreak } from "./utils/local-streak";
 import { computeLocalXp } from "./utils/local-xp";
@@ -318,13 +321,9 @@ export async function updateLbMemory<M extends Mode>(
   }
 }
 
-/**
- * desktop offline build: give signed-out users a snapshot so local results,
- * personal bests and typing stats work, restored from localStorage.
- */
-export function initLocalSnapshot(): void {
-  if (dbSnapshot !== undefined) return;
-  if (isAuthenticated()) return;
+/** the boot/reload snapshot for signed-out desktop users: defaults overlaid
+ * with whatever is persisted in localStorage */
+function buildLocalSnapshot(): Snapshot {
   const snap = getDefaultSnapshot();
   const stored = loadLocalSnapshotFields();
   if (stored !== undefined) {
@@ -335,7 +334,57 @@ export function initLocalSnapshot(): void {
     snap.maxStreak = stored.maxStreak;
     snap.streakLastResultTimestamp = stored.streakLastResultTimestamp;
   }
-  setSnapshot(snap, { dispatchEvent: false });
+  return snap;
+}
+
+/**
+ * desktop offline build: give signed-out users a snapshot so local results,
+ * personal bests and typing stats work, restored from localStorage.
+ */
+export function initLocalSnapshot(): void {
+  if (dbSnapshot !== undefined) return;
+  if (isAuthenticated()) return;
+  setSnapshot(buildLocalSnapshot(), { dispatchEvent: false });
+}
+
+/**
+ * desktop offline build: rebuild the in-memory session state from storage
+ * (audit Y1). A backup import writes storage directly - without this, the
+ * session keeps its pre-import (possibly empty) snapshot and the first
+ * saveLocalResult persists it over the restored data. Mirrors the boot path
+ * (initLocalSnapshot) and the collection's boot fill (results.ts queryFn).
+ */
+export async function reloadLocalSnapshotIntoSession(): Promise<void> {
+  if (isAuthenticated()) return;
+  setSnapshot(buildLocalSnapshot(), { dispatchEvent: false });
+  try {
+    const results = await loadLocalResults();
+    if (getLastResult() === undefined && results.length > 0) {
+      //loadLocalResults is oldest first: the newest is the last one
+      setLastResult(results.at(-1));
+    }
+  } catch {
+    //a storage read failure must not fail the import itself
+  }
+}
+
+/**
+ * desktop offline build: one import path for both the automatic restore at
+ * boot (desktop-auto-backup) and the manual restore on the account page -
+ * applies the backup to storage, then resyncs the in-memory session state
+ * (audit Y1).
+ */
+export async function importLocalBackup(backup: LocalBackup): Promise<number> {
+  const imported = await importBackup(backup);
+  if (!isAuthenticated() && DESKTOP_OFFLINE) {
+    await reloadLocalSnapshotIntoSession();
+    if (resultsCollection.isReady()) {
+      //the collection caches with staleTime Infinity: an outside write is
+      //never seen without an explicit refetch
+      void resultsCollection.utils.refetch();
+    }
+  }
+  return imported;
 }
 
 export type SaveLocalResultData = {

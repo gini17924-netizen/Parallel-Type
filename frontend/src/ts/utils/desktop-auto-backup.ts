@@ -1,7 +1,6 @@
 import {
   exportBackup,
   hasKeybrState,
-  importBackup,
   loadLocalResults,
   loadLocalSnapshotFields,
   LEARN_STATE_KEY,
@@ -98,7 +97,11 @@ export async function restoreFromAutoBackupIfNeeded(): Promise<void> {
     const contents = await invoke<string | null>("backup_read");
     if (contents === null || contents === undefined) return;
     const backup = JSON.parse(contents) as LocalBackup;
-    const count = await importBackup(backup);
+    //late-bound import: db.ts statically imports this module, so a static
+    //import here would create a module cycle (same pattern as
+    //learn-stats.ts fetchWordList)
+    const db = await import("../db");
+    const count = await db.importLocalBackup(backup);
     await writeAutoBackup(); //re-anchor the file to the current app data dir
     showSuccessNotification(`Restored ${count} results from automatic backup`);
   } catch (error) {
