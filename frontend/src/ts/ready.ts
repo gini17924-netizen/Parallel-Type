@@ -33,6 +33,9 @@ onDOMReady(async () => {
   //when the webview profile was wiped or migrated (KI-02)
   if (DESKTOP_OFFLINE) {
     void DesktopAutoBackup.restoreFromAutoBackupIfNeeded();
+    //flush a pending throttled backup write when the page is torn down
+    //(audit L6 - whether tray Quit fires beforeunload is verified on Windows)
+    DesktopAutoBackup.installExitFlush();
   }
 
   //this line goes back to pretty much the beginning of the project and im pretty sure its here

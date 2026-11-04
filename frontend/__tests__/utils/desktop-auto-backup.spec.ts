@@ -171,4 +171,32 @@ describe("DesktopAutoBackup (KI-02)", () => {
     ).resolves.toBeUndefined();
     expect(() => AutoBackup.queueAutoBackup()).not.toThrow();
   });
+
+  it("flushes a pending throttled write on beforeunload (audit L6)", async () => {
+    const fake = installFakeTauri(null);
+    const AutoBackup = await freshModule();
+    AutoBackup._setMinWriteIntervalForTests(60_000);
+    AutoBackup.installExitFlush();
+
+    //an initial write marks lastWriteAt: the next queue is parked by the
+    //throttle instead of firing immediately
+    AutoBackup.queueAutoBackup();
+    await new Promise((resolve) => setTimeout(resolve, 30));
+
+    const { appendLocalResult } =
+      await import("../../src/ts/utils/local-persistence");
+    await appendLocalResult(
+      makeResult({ _id: "test_exit_flush", timestamp: 1700000090000 }),
+    );
+    AutoBackup.queueAutoBackup();
+    expect(fake.file()).not.toContain("test_exit_flush");
+
+    //tearing the page down flushes it immediately
+    window.dispatchEvent(new Event("beforeunload"));
+    await new Promise((resolve) => setTimeout(resolve, 60));
+    expect(fake.file()).toContain("test_exit_flush");
+
+    //and a second beforeunload without a pending write stays harmless
+    expect(() => window.dispatchEvent(new Event("beforeunload"))).not.toThrow();
+  });
 });

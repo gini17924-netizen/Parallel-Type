@@ -74,6 +74,26 @@ export function queueAutoBackup(): void {
 }
 
 /**
+ * Best-effort flush when the page is being torn down (audit L6): fires a
+ * pending (throttled) backup write immediately so quitting within the
+ * 30-second throttle window does not leave the file behind the data.
+ *
+ * Honest caveat: whether the Tauri tray Quit actually fires beforeunload
+ * must be verified on Windows with a rebuilt installer. If it never fires,
+ * this is dead code and the throttled schedule remains the only guarantee -
+ * in that case the finding closes as an accepted limitation instead.
+ */
+export function installExitFlush(): void {
+  if (getInvoke() === undefined) return; //not running inside Tauri
+  window.addEventListener("beforeunload", () => {
+    if (writeTimer === undefined) return; //nothing pending
+    clearTimeout(writeTimer);
+    writeTimer = undefined;
+    void writeAutoBackup();
+  });
+}
+
+/**
  * Boot-time recovery: when every local store is empty (fresh/migrated
  * webview profile) and a backup file exists, restore it. A non-empty store
  * is never touched. Restores are pushed back to the current app data dir
