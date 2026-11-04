@@ -101,3 +101,9 @@ function isDifficultyRecord(
 ): value is WordBlastGameRecord {
   return value !== undefined && typeof value.score === "number";
 }
+
+/** test hook: drops the memoized cache and the stored payload so a test's
+ * store reads start fresh (repo convention: _-prefixed test hooks) */
+export function _resetWordBlastScoresForTests(): void {
+  store.remove();
+}
