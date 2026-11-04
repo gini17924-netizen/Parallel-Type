@@ -1,13 +1,11 @@
-// @ts-nocheck -- keybr session glue: framework-free composition of the
+// keybr session glue: framework-free composition of the
 // vendored keybr.com engine (AGPL). See SoftwareRelease/docs/KEYBR_PORT_ARCHITECTURE.md
 
 import {
-  Geometry,
   KeyboardOptions,
   Language,
   Layout,
   loadKeyboard,
-  ZoneMod,
 } from "@keybr/keyboard";
 import {
   censor,
@@ -58,7 +56,12 @@ export const KEYBR_LANGUAGES: readonly KeybrLanguage[] = [
 ];
 
 export function keybrLanguageById(id: KeybrLanguageId): KeybrLanguage {
-  return KEYBR_LANGUAGES.find((it) => it.id === id) ?? KEYBR_LANGUAGES[0];
+  const found = KEYBR_LANGUAGES.find((it) => it.id === id);
+  if (found !== undefined) return found;
+  //KEYBR_LANGUAGES is a non-empty compile-time constant; this is unreachable
+  const fallback = KEYBR_LANGUAGES.at(0);
+  if (fallback === undefined) throw new Error("no keybr languages configured");
+  return fallback;
 }
 
 const SETTINGS_KEY = "mtKeybrSettings";
@@ -101,13 +104,12 @@ export async function makeLesson(
   language: KeybrLanguage,
   settings: Settings,
 ): Promise<GuidedLesson> {
+  //the public factory (the constructor is private): its defaults are the
+  //same ANSI_101/STANDARD geometry the fork previously passed explicitly
   const keyboard = loadKeyboard(
-    new KeyboardOptions(
-      language.language,
-      language.layout,
-      Geometry.ANSI_101,
-      ZoneMod.STANDARD,
-    ),
+    KeyboardOptions.default()
+      .withLanguage(language.language)
+      .withLayout(language.layout),
   );
   const [model, wordList] = await Promise.all([
     loadPhoneticModel(language),
@@ -176,7 +178,9 @@ export function storeResultStats(
   language: KeybrLanguage,
   stats: StoredStats,
 ): void {
-  const results = loadStored(language.id);
+  //write side: these rows were written by this module (the read side, in
+  //stored-results.ts, validates their shape defensively - audit L1)
+  const results = loadStored(language.id) as StoredStats[];
   results.push(stats);
   //keep a recent window: the engine only needs per-key confidence history
   while (results.length > 200) results.shift();
