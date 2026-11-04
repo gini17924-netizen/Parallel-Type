@@ -197,8 +197,11 @@ export function KeybrPage(): JSXElement {
 
   const caretStyle = `
     .keybr-caret {
-      border-left: 0.12em solid var(--main-color);
-      margin-left: -0.06em;
+      /* logical properties: the caret must hug the typed text on both
+         directions — left of the cursor char in LTR, right of it in RTL
+         (Persian). Physical border-left sat one char ahead in RTL. */
+      border-inline-start: 0.12em solid var(--main-color);
+      margin-inline-start: -0.06em;
       animation: keybr-caret-blink 1s step-end infinite;
     }
     @keyframes keybr-caret-blink {
