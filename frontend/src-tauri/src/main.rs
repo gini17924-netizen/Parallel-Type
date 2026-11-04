@@ -188,6 +188,24 @@ fn legacy_backup_file_path(app: &tauri::AppHandle) -> Option<std::path::PathBuf>
     Some(legacy_dir.join(BACKUP_FILE))
 }
 
+/// Writes the backup file atomically: the payload goes to `<name>.tmp` first
+/// and is then renamed over the target (an atomic same-volume operation), so
+/// a crash or power loss mid-write can never leave a truncated backup behind
+/// (audit Y2). Any failure leaves the previous file untouched.
+fn write_backup_file_atomic(path: &std::path::Path, contents: &str) -> Result<(), String> {
+    let file_name = path
+        .file_name()
+        .map(|name| name.to_string_lossy().to_string())
+        .ok_or_else(|| "backup path has no file name".to_string())?;
+    let tmp = path.with_file_name(format!("{file_name}.tmp"));
+    std::fs::write(&tmp, contents).map_err(|e| e.to_string())?;
+    std::fs::rename(&tmp, path).map_err(|e| {
+        //best-effort cleanup so a failed rename doesn't leave litter behind
+        let _ = std::fs::remove_file(&tmp);
+        e.to_string()
+    })
+}
+
 /// Writes the automatic backup file (whole JSON payload from the frontend).
 #[tauri::command]
 fn backup_write(app: tauri::AppHandle, contents: String) -> Result<(), String> {
@@ -195,7 +213,7 @@ fn backup_write(app: tauri::AppHandle, contents: String) -> Result<(), String> {
     if let Some(dir) = path.parent() {
         std::fs::create_dir_all(dir).map_err(|e| e.to_string())?;
     }
-    std::fs::write(path, contents).map_err(|e| e.to_string())
+    write_backup_file_atomic(&path, &contents)
 }
 
 /// Reads the automatic backup file, if one exists. Falls back to the backup
@@ -261,4 +279,45 @@ fn main() {
         })
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn temp_dir(name: &str) -> std::path::PathBuf {
+        let dir =
+            std::env::temp_dir().join(format!("paralleltype_atomic_{name}_{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).expect("create temp dir");
+        dir
+    }
+
+    #[test]
+    fn atomic_write_replaces_the_file_and_leaves_no_tmp() {
+        let dir = temp_dir("success");
+        let target = dir.join("backup.json");
+        std::fs::write(&target, "old").expect("seed old file");
+
+        write_backup_file_atomic(&target, "new").expect("atomic write");
+
+        assert_eq!(std::fs::read_to_string(&target).unwrap(), "new");
+        assert!(!dir.join("backup.json.tmp").exists());
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn atomic_write_failure_keeps_the_previous_file() {
+        let dir = temp_dir("failure");
+        let target = dir.join("backup.json");
+        std::fs::write(&target, "old").expect("seed old file");
+        //make the tmp path unusable: a DIRECTORY sits at the tmp location,
+        //so the tmp write fails exactly like a crash mid-write would
+        std::fs::create_dir_all(dir.join("backup.json.tmp")).expect("block tmp");
+
+        assert!(write_backup_file_atomic(&target, "new").is_err());
+
+        assert_eq!(std::fs::read_to_string(&target).unwrap(), "old");
+        let _ = std::fs::remove_dir_all(&dir);
+    }
 }
