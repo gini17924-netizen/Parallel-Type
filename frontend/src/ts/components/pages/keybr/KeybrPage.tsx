@@ -18,11 +18,9 @@ import {
   loadStoredResults,
   makeLesson,
   resultStats,
-  saveKeybrSettings,
   storeResultStats,
 } from "../../../keybr/session";
 import { getCharFromEvent } from "../../../test/layout-emulator";
-import { Button } from "../../common/Button";
 import { H2 } from "../../common/Headers";
 
 /** Renders the vendored keybr.com guided-lesson engine with a Solid UI. */
@@ -56,7 +54,7 @@ export function KeybrPage(): JSXElement {
 
   const language = (): KeybrLanguage => keybrLanguageById(languageId());
 
-  async function bootSession(id: KeybrLanguageId): Promise<void> {
+  const bootSession = async (id: KeybrLanguageId): Promise<void> => {
     setReady(false);
     setFailed(false);
     try {
@@ -68,20 +66,21 @@ export function KeybrPage(): JSXElement {
       startLessonState();
       window.localStorage.removeItem("mtKeybrBootError");
       setReady(true);
-    } catch (error) {
-      window.localStorage.setItem(
-        "mtKeybrBootError",
-        String((error as any)?.stack || error),
-      );
+    } catch (error: unknown) {
+      const detail =
+        error instanceof Error ? (error.stack ?? error.message) : String(error);
+      window.localStorage.setItem("mtKeybrBootError", detail);
       console.error("keybr session failed to boot", error);
       setFailed(true);
     }
-  }
+  };
 
-  function startLessonState(): void {
+  const startLessonState = (): void => {
     if (progress === undefined) return;
+    // oxlint-disable-next-line solid/reactivity -- engine completion callback: setters run imperatively when a lesson finishes, not in a tracked scope
     lessonState = new LessonState(progress, (result, textInput) => {
       const lang = language();
+      // oxlint-disable-next-line no-empty-function -- upstream Progress.append requires a callback; keybr progress is tracked by the engine itself
       progress?.append(result, () => {});
       storeResultStats(lang, resultStats(textInput));
       //keybr Result.speed is characters per minute
@@ -101,9 +100,9 @@ export function KeybrPage(): JSXElement {
     );
     setTypedCount(0);
     publishKeyStates();
-  }
+  };
 
-  function publishKeyStates(): void {
+  const publishKeyStates = (): void => {
     if (lessonState === undefined) return;
     const states: {
       letter: string;
@@ -120,9 +119,9 @@ export function KeybrPage(): JSXElement {
       });
     }
     setKeyStates(states);
-  }
+  };
 
-  async function handleKeyDown(event: KeyboardEvent): Promise<void> {
+  const handleKeyDown = async (event: KeyboardEvent): Promise<void> => {
     if (!ready() || lessonState === undefined) return;
     if (event.ctrlKey || event.metaKey || event.altKey) return;
     if (event.key === "Backspace") {
@@ -149,7 +148,9 @@ export function KeybrPage(): JSXElement {
     if (Config.layout !== "default") {
       const emulated = await getCharFromEvent(event);
       if (emulated === null || emulated === "") return;
-      codePoint = emulated.codePointAt(0)!;
+      const emulatedCodePoint = emulated.codePointAt(0);
+      if (emulatedCodePoint === undefined) return;
+      codePoint = emulatedCodePoint;
     } else {
       const raw = event.key.codePointAt(0);
       if (raw === undefined) return;
@@ -163,9 +164,9 @@ export function KeybrPage(): JSXElement {
       timeToType,
     });
     refreshAfterInput();
-  }
+  };
 
-  function refreshAfterInput(): void {
+  const refreshAfterInput = (): void => {
     if (lessonState === undefined) return;
     setLines(
       lessonState.lines.lines.map((line) => ({
@@ -181,7 +182,7 @@ export function KeybrPage(): JSXElement {
       //a lesson completed: the state was rebuilt by onResult
       publishKeyStates();
     }
-  }
+  };
 
   onMount(() => {
     void bootSession(languageId());
@@ -196,12 +197,15 @@ export function KeybrPage(): JSXElement {
   };
 
   const caretStyle = `
+    .keybr-char {
+      transition: color 0.1s ease-out;
+    }
     .keybr-caret {
       /* logical properties: the caret must hug the typed text on both
          directions — left of the cursor char in LTR, right of it in RTL
          (Persian). Physical border-left sat one char ahead in RTL. */
-      border-inline-start: 0.12em solid var(--main-color);
-      margin-inline-start: -0.06em;
+      border-inline-start: 0.14em solid var(--main-color);
+      margin-inline-start: -0.07em;
       animation: keybr-caret-blink 1s step-end infinite;
     }
     @keyframes keybr-caret-blink {
@@ -209,35 +213,71 @@ export function KeybrPage(): JSXElement {
         border-color: transparent;
       }
     }
+    @media (prefers-reduced-motion: reduce) {
+      .keybr-caret {
+        animation: none;
+      }
+      .keybr-char {
+        transition: none;
+      }
+    }
   `;
 
   return (
-    <div class="content-grid grid gap-8">
+    <div class="content-grid grid gap-6">
       <style>{caretStyle}</style>
-      <section>
+
+      <section class="grid gap-1">
         <H2 text="keybr engine" fa={{ icon: "fa-bolt" }} />
-        <p class="text-sub">
-          The keybr.com adaptive lesson engine, fully offline: lessons focus on
-          your weakest keys, new letters join as you reach the target speed.
-          Pick a language and just type.
+        <p class="text-sm text-sub">
+          adaptive lessons, fully offline — the engine watches every key and
+          focuses on your weakest ones. new letters join as you reach the target
+          speed.
         </p>
       </section>
 
-      <section class="grid gap-2">
-        <div class="text-sub">language</div>
-        <div class="grid grid-cols-2 gap-2">
+      <section class="grid gap-1">
+        <div class="text-xs font-bold tracking-widest text-sub uppercase">
+          language
+        </div>
+        <div
+          class="grid grid-cols-2 gap-1 rounded bg-sub-alt p-1"
+          role="group"
+          aria-label="practice language"
+        >
           <For each={KEYBR_LANGUAGES}>
             {(lang) => (
-              <Button
-                text={lang.label}
-                class={`w-full ${languageId() === lang.id ? "bg-main text-bg" : ""}`}
+              <button
+                type="button"
                 onClick={() => {
                   selectLanguage(lang.id);
                 }}
-              />
+                aria-pressed={languageId() === lang.id}
+                class={`rounded p-2 transition-[background,color] duration-125 focus-visible:outline-2 focus-visible:outline-text ${
+                  languageId() === lang.id
+                    ? "bg-main text-bg"
+                    : "text-sub hover:text-main"
+                }`}
+              >
+                {lang.label}
+              </button>
             )}
           </For>
         </div>
+      </section>
+
+      <section
+        class="grid grid-cols-2 gap-2 sm:grid-cols-4"
+        aria-label="session statistics"
+      >
+        <StatCell label="lessons" value={String(lessonCount())} />
+        <StatCell label="typed" value={String(typedCount())} />
+        <StatCell
+          label="speed"
+          value={`${lastSpeed()} cpm`}
+          note={`≈ ${Math.round(lastSpeed() / 5)} wpm`}
+        />
+        <StatCell label="accuracy" value={`${lastAccuracy()}%`} />
       </section>
 
       <Show
@@ -252,18 +292,12 @@ export function KeybrPage(): JSXElement {
           when={ready()}
           fallback={<div class="text-sub">loading engine…</div>}
         >
-          <section class="grid gap-4 rounded bg-sub-alt p-4">
-            <div class="flex items-baseline justify-between">
-              <div class="text-sub">
-                lessons: {lessonCount()} · typed: {typedCount()}
-              </div>
-              <div class="text-sub">
-                speed: {lastSpeed()} cpm (≈ {Math.round(lastSpeed() / 5)} wpm) ·
-                accuracy: {lastAccuracy()}%
-              </div>
-            </div>
+          <section
+            class="grid gap-2 rounded bg-sub-alt p-6 md:p-8"
+            aria-label="typing area"
+          >
             <div
-              class="grid gap-1 font-mono text-2xl leading-relaxed"
+              class="grid gap-1 font-mono text-2xl leading-relaxed md:text-3xl"
               dir="auto"
             >
               <For each={lines()}>
@@ -279,7 +313,7 @@ export function KeybrPage(): JSXElement {
                           miss || garbage
                             ? "text-error"
                             : hit
-                              ? "text-main"
+                              ? "text-text"
                               : "text-sub";
                         return (
                           <span
@@ -294,25 +328,51 @@ export function KeybrPage(): JSXElement {
                 )}
               </For>
             </div>
-            <div class="text-sub">
+            <div class="text-xs text-sub">
               type the text above — the engine watches every key
             </div>
           </section>
 
-          <section class="grid gap-4 rounded bg-sub-alt p-4">
-            <div class="text-sub">lesson keys (confidence → target speed)</div>
-            <div class="grid grid-cols-6 gap-2 sm:grid-cols-12">
+          <section class="grid gap-3">
+            <div class="flex items-baseline justify-between">
+              <div class="text-xs font-bold tracking-widest text-sub uppercase">
+                character confidence
+              </div>
+              <div class="text-xs text-sub">
+                ⚑ forced · dimmed = not yet included
+              </div>
+            </div>
+            <div class="grid grid-cols-4 gap-2 sm:grid-cols-8 lg:grid-cols-12">
               <For each={keyStates()}>
                 {(key) => (
-                  <div class="text-center">
+                  <div
+                    class={`grid place-items-center gap-1 rounded p-2 transition-opacity duration-125 ${
+                      key.isIncluded ? "bg-sub-alt" : "bg-sub-alt opacity-40"
+                    }`}
+                    aria-label={`${key.letter}: ${
+                      key.confidence === null
+                        ? "no data"
+                        : `${Math.round(key.confidence * 100)}% confidence`
+                    }${key.isForced ? ", forced" : ""}${
+                      key.isIncluded ? "" : ", not yet included"
+                    }`}
+                  >
                     <div
-                      class={
-                        key.isIncluded
-                          ? "text-2xl text-main"
-                          : "text-2xl text-sub opacity-40"
-                      }
+                      class={`text-2xl ${
+                        key.isForced
+                          ? "text-main"
+                          : key.isIncluded
+                            ? "text-text"
+                            : "text-sub"
+                      }`}
                     >
                       {key.letter}
+                    </div>
+                    <div class="h-1 w-full rounded bg-bg">
+                      <div
+                        class="h-1 rounded bg-main"
+                        style={{ width: `${(key.confidence ?? 0) * 100}%` }}
+                      ></div>
                     </div>
                     <div class="text-xs text-sub">
                       {key.confidence === null
@@ -327,6 +387,22 @@ export function KeybrPage(): JSXElement {
           </section>
         </Show>
       </Show>
+    </div>
+  );
+}
+
+function StatCell(props: {
+  label: string;
+  value: string;
+  note?: string;
+}): JSXElement {
+  return (
+    <div class="rounded bg-sub-alt px-3 py-2 text-center">
+      <div class="text-xl font-bold text-main">{props.value}</div>
+      <div class="text-xs text-sub">
+        {props.label}
+        {props.note !== undefined ? ` · ${props.note}` : ""}
+      </div>
     </div>
   );
 }
