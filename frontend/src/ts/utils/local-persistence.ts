@@ -49,7 +49,7 @@ const STRIPPED_RESULT_FIELDS = [
 ] as const;
 
 /** one heavy-store row: the per-second chart of one result */
-type HeavyResult = {
+export type HeavyResult = {
   _id: string;
   timestamp: number;
   chartData: unknown;
@@ -301,6 +301,25 @@ export async function loadLocalHeavyResult(
   return row;
 }
 
+/** every heavy chartData twin (backup export, idea #11); malformed rows are
+ * skipped so one corrupt row cannot break the whole backup */
+export async function loadAllHeavyResults(): Promise<HeavyResult[]> {
+  await ensureResultsMigrated();
+  const db = await openResultsDb();
+  const tx = db.transaction(RESULTS_HEAVY_STORE, "readonly");
+  const all = await requestToPromise(
+    tx.objectStore(RESULTS_HEAVY_STORE).getAll() as IDBRequest<HeavyResult[]>,
+  );
+  return all.filter(
+    (it) =>
+      typeof it === "object" &&
+      it !== null &&
+      typeof it._id === "string" &&
+      typeof it.timestamp === "number" &&
+      it.chartData !== undefined,
+  );
+}
+
 // ---------------------------------------------------------------------------
 // snapshot fields (localStorage, synchronous boot path)
 // ---------------------------------------------------------------------------
@@ -426,7 +445,7 @@ function loadDailyGoal(): number | undefined {
 // backup / restore (full local data as one JSON file)
 // ---------------------------------------------------------------------------
 
-const BACKUP_SCHEMA_VERSION = 2;
+const BACKUP_SCHEMA_VERSION = 3;
 
 export type LocalBackup = {
   schemaVersion: number;
@@ -447,14 +466,20 @@ export type LocalBackup = {
   customTextsLong?: Record<string, unknown> | undefined;
   customTextSettings?: Record<string, unknown> | undefined;
   customTextRotation?: Record<string, unknown> | undefined;
+  /** schema v3 (idea #11): the heavy chartData twins; an ABSENT field means
+   * "keep the current heavy rows" (v1/v2 backups), an explicit array
+   * replaces them wholesale */
+  resultsHeavy?: HeavyResult[] | undefined;
 };
 
-/** Exports all local data (results + snapshot fields) as a backup object. */
+/** Exports all local data (results + snapshot fields + heavy chartData
+ * twins) as a backup object. */
 export async function exportBackup(): Promise<LocalBackup> {
   return {
     schemaVersion: BACKUP_SCHEMA_VERSION,
     exportedAt: new Date().toISOString(),
     results: await loadLocalResults(),
+    resultsHeavy: await loadAllHeavyResults(),
     snapshot: loadLocalSnapshotFields(),
     learnState: readJsonSafe(LEARN_STATE_KEY),
     keybrState: loadKeybrState(),
@@ -550,6 +575,7 @@ export async function importBackup(backup: LocalBackup): Promise<number> {
     typeof backup !== "object" ||
     !Array.isArray(backup.results) ||
     (backup.schemaVersion !== 1 &&
+      backup.schemaVersion !== 2 &&
       backup.schemaVersion !== BACKUP_SCHEMA_VERSION)
   ) {
     throw new Error("Invalid backup file: unknown schema");
@@ -618,6 +644,33 @@ export async function importBackup(backup: LocalBackup): Promise<number> {
     .learnState;
   if (learnState !== undefined && learnState !== null) {
     window.localStorage.setItem(LEARN_STATE_KEY, JSON.stringify(learnState));
+  }
+
+  //schema v3 heavy chartData twins (idea #11): an explicit array replaces
+  //the whole heavy store; an ABSENT field (v1/v2 backups) means "keep the
+  //current heavy rows" - the Y6 absent-means-keep principle. Malformed
+  //entries are skipped, not fatal.
+  if (Array.isArray(backup.resultsHeavy)) {
+    const validHeavy = backup.resultsHeavy.filter(
+      (it) =>
+        typeof it === "object" &&
+        it !== null &&
+        typeof it._id === "string" &&
+        typeof it.timestamp === "number" &&
+        it.chartData !== undefined,
+    );
+    const db = await openResultsDb();
+    const tx = db.transaction(RESULTS_HEAVY_STORE, "readwrite");
+    tx.objectStore(RESULTS_HEAVY_STORE).clear();
+    for (const item of validHeavy) {
+      tx.objectStore(RESULTS_HEAVY_STORE).put(item);
+    }
+    await new Promise<void>((resolve, reject) => {
+      tx.oncomplete = () => resolve();
+      tx.onerror = () =>
+        reject(tx.error ?? new Error("failed to import heavy results"));
+      tx.onabort = () => reject(tx.error ?? new Error("heavy import aborted"));
+    });
   }
 
   //schema v2 desktop state: a v1 backup carries none of it, and the current

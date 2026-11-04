@@ -356,7 +356,7 @@ describe("LocalPersistence (desktop offline, IndexedDB)", () => {
       } as never);
 
       const backup = await LocalPersistence.exportBackup();
-      expect(backup.schemaVersion).toBe(2);
+      expect(backup.schemaVersion).toBe(3); //idea #11 bump
       //rows from earlier tests may still exist; these two are the newest
       expect(backup.results.slice(-2).map((r) => r._id)).toEqual([
         "bk_1",
@@ -649,5 +649,82 @@ describe("LocalPersistence (desktop offline, IndexedDB)", () => {
       );
       expect(window.localStorage.getItem("mtKeybrResults:en")).toBeNull();
     });
+  });
+});
+
+describe("backup schema v3 - heavy chartData (idea #11)", () => {
+  const chartData = { wpm: [10, 20], burst: [12, 22], err: [0, 1] };
+
+  it("exports the heavy twins with schemaVersion 3", async () => {
+    await LocalPersistence.appendLocalResult(
+      makeResult({ _id: "v3_twin", chartData, timestamp: 1600000000000 }),
+    );
+    const backup = await LocalPersistence.exportBackup();
+    expect(backup.schemaVersion).toBe(3);
+    const twin = backup.resultsHeavy?.find((it) => it._id === "v3_twin");
+    expect(twin?.chartData).toEqual(chartData);
+  });
+
+  it("restores a v3 backup: clear + refill of the heavy store", async () => {
+    //a pre-existing twin that the backup must replace
+    await LocalPersistence.appendLocalResult(
+      makeResult({
+        _id: "v3_stale",
+        chartData: { wpm: [1], burst: [1], err: [0] },
+      }),
+    );
+    const imported = await LocalPersistence.importBackup({
+      schemaVersion: 3,
+      exportedAt: "2026-11-05T00:00:00.000Z",
+      results: [makeResult({ _id: "v3_light", timestamp: 1600000000000 })],
+      resultsHeavy: [
+        { _id: "v3_light", timestamp: 1600000000000, chartData },
+        { _id: 42, timestamp: 1, chartData }, //malformed: skipped
+        { _id: "v3_nochart", timestamp: 2 }, //malformed: skipped
+      ],
+    } as never);
+    expect(imported).toBe(1);
+    const heavy = await LocalPersistence.loadLocalHeavyResult("v3_light");
+    expect(heavy?.chartData).toEqual(chartData);
+    expect(
+      await LocalPersistence.loadLocalHeavyResult("v3_stale"),
+    ).toBeUndefined();
+    expect(
+      await LocalPersistence.loadLocalHeavyResult("v3_nochart"),
+    ).toBeUndefined();
+  });
+
+  it("an explicit empty heavy array clears the store (faithful state)", async () => {
+    await LocalPersistence.appendLocalResult(
+      makeResult({
+        _id: "v3_gone",
+        chartData: { wpm: [1], burst: [1], err: [0] },
+      }),
+    );
+    await LocalPersistence.importBackup({
+      schemaVersion: 3,
+      exportedAt: "2026-11-05T00:00:00.000Z",
+      results: [],
+      resultsHeavy: [],
+    } as never);
+    expect(
+      await LocalPersistence.loadLocalHeavyResult("v3_gone"),
+    ).toBeUndefined();
+  });
+
+  it("a v2 backup without the heavy field keeps current heavy rows (absent = keep)", async () => {
+    await LocalPersistence.appendLocalResult(
+      makeResult({
+        _id: "v2_keep",
+        chartData: { wpm: [3], burst: [3], err: [0] },
+      }),
+    );
+    await LocalPersistence.importBackup({
+      schemaVersion: 2,
+      exportedAt: "2026-11-05T00:00:00.000Z",
+      results: [makeResult({ _id: "v2_light", timestamp: 1600000000000 })],
+    } as never);
+    const heavy = await LocalPersistence.loadLocalHeavyResult("v2_keep");
+    expect(heavy?.chartData).toEqual({ wpm: [3], burst: [3], err: [0] });
   });
 });

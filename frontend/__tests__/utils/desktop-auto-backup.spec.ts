@@ -134,7 +134,7 @@ describe("DesktopAutoBackup (KI-02)", () => {
       '"unlockedGroups":4',
     );
     //the backup is re-anchored to the current app data dir
-    expect(fake.file()).toContain('"schemaVersion":2');
+    expect(fake.file()).toContain('"schemaVersion":3'); //idea #11 bump
   });
 
   it("does nothing when there is no backup file", async () => {
@@ -155,7 +155,7 @@ describe("DesktopAutoBackup (KI-02)", () => {
     AutoBackup.queueAutoBackup();
     AutoBackup.queueAutoBackup(); //bursts collapse
     await new Promise((resolve) => setTimeout(resolve, 120));
-    expect(fake.file()).toContain('"schemaVersion":2'); //one write, immediately
+    expect(fake.file()).toContain('"schemaVersion":3'); //idea #11 bump //one write, immediately
 
     //new data after the write: the next queue is throttled, then the
     //trailing write captures the latest data
