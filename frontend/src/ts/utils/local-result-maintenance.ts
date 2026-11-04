@@ -3,6 +3,7 @@ import type { Mode, PersonalBest } from "@monkeytype/schemas/shared";
 
 import type { Snapshot, SnapshotResult } from "../constants/default-snapshot";
 import { computeStreakFromResults } from "./local-streak";
+import { Config } from "../config/store";
 
 /**
  * Pure maintenance computations for deleting one local result (desktop
@@ -97,6 +98,7 @@ function matchesPbIdentity(
     difficulty: string;
     language: string;
     lazyMode?: boolean;
+    customPunctuation?: string;
   },
   result: SnapshotResult<Mode>,
 ): boolean {
@@ -105,7 +107,10 @@ function matchesPbIdentity(
     (pb.numbers ?? false) === (result.numbers ?? false) &&
     pb.difficulty === result.difficulty &&
     pb.language === result.language &&
-    (pb.lazyMode ?? false) === (result.lazyMode ?? false)
+    (pb.lazyMode ?? false) === (result.lazyMode ?? false) &&
+    //PB entries are per punctuation set (idea #4): only the current set's
+    //entry is maintained — other sets' entries belong to their own buckets
+    (pb.customPunctuation ?? "") === Config.customPunctuation
   );
 }
 

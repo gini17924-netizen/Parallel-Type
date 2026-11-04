@@ -21,6 +21,7 @@ import {
   PersonalBests,
 } from "@monkeytype/schemas/shared";
 import { Difficulty } from "@monkeytype/schemas/configs";
+import { Config } from "../config/store";
 import { Language } from "@monkeytype/schemas/languages";
 import { applyIdWorkaround, isTempId, tempId } from "./utils/misc";
 import { fetchUserFromApi } from "../ape/user";
@@ -376,7 +377,9 @@ export function getLocalTagPB<M extends Mode>(
         (pb.numbers ?? false) === numbers &&
         pb.difficulty === difficulty &&
         pb.language === language &&
-        (pb.lazyMode === lazyMode || (pb.lazyMode === undefined && !lazyMode)),
+        (pb.lazyMode === lazyMode ||
+          (pb.lazyMode === undefined && !lazyMode)) &&
+        (pb.customPunctuation ?? "") === Config.customPunctuation,
     )?.wpm ?? 0
   );
 }
@@ -426,7 +429,9 @@ export function saveLocalTagPB<M extends Mode>(
           (pb.numbers ?? false) === numbers &&
           pb.difficulty === difficulty &&
           pb.language === language &&
-          (pb.lazyMode === lazyMode || (pb.lazyMode === undefined && !lazyMode))
+          (pb.lazyMode === lazyMode ||
+            (pb.lazyMode === undefined && !lazyMode)) &&
+          (pb.customPunctuation ?? "") === Config.customPunctuation
         ) {
           found = true;
           pb.wpm = wpm;
@@ -435,6 +440,7 @@ export function saveLocalTagPB<M extends Mode>(
           pb.timestamp = Date.now();
           pb.consistency = consistency;
           pb.lazyMode = lazyMode;
+          pb.customPunctuation = Config.customPunctuation;
         }
       },
     );
@@ -450,6 +456,7 @@ export function saveLocalTagPB<M extends Mode>(
         raw,
         timestamp: Date.now(),
         consistency,
+        customPunctuation: Config.customPunctuation,
       });
     }
   } catch {

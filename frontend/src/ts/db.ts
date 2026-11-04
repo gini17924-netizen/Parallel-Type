@@ -39,6 +39,7 @@ import { FunboxMetadata } from "@monkeytype/funbox";
 import { __nonReactive } from "./collections/tags";
 import { fetchUserFromApi } from "./ape/user";
 import { SnapshotInitError } from "./utils/snapshot-init-error";
+import { Config } from "./config/store";
 import { updateTagsInFilterStorage } from "./states/result-filters";
 import * as DesktopAutoBackup from "./utils/desktop-auto-backup";
 import { applyDeleteSnapshotSideEffects } from "./utils/local-result-maintenance";
@@ -197,7 +198,8 @@ export function getLocalPB<M extends Mode>(
       (pb.numbers ?? false) === numbers &&
       pb.difficulty === difficulty &&
       pb.language === language &&
-      (pb.lazyMode ?? false) === lazyMode,
+      (pb.lazyMode ?? false) === lazyMode &&
+      (pb.customPunctuation ?? "") === Config.customPunctuation,
   );
 }
 
@@ -252,6 +254,7 @@ function saveLocalPB<M extends Mode>(
         pb.timestamp = Date.now();
         pb.consistency = consistency;
         pb.lazyMode = lazyMode;
+        pb.customPunctuation = Config.customPunctuation;
       }
     });
     if (!found) {
@@ -268,6 +271,7 @@ function saveLocalPB<M extends Mode>(
           raw,
           timestamp: Date.now(),
           consistency,
+          customPunctuation: Config.customPunctuation,
         },
       );
     }

@@ -402,10 +402,18 @@ export const PlayTimeWarningSchema = z
   );
 export type PlayTimeWarning = z.infer<typeof PlayTimeWarningSchema>;
 
+export const CustomPunctuationStyleSchema = z.enum(["default", "custom"]);
+export type PunctuationStyle = z.infer<typeof CustomPunctuationStyleSchema>;
+export const CustomPunctuationSchema = z.string().max(32);
+export type CustomPunctuation = z.infer<typeof CustomPunctuationSchema>;
+
 export const ConfigSchema = z
   .object({
     // test
     punctuation: z.boolean(),
+    punctuationStyle: CustomPunctuationStyleSchema.default("default"),
+    customPunctuation: CustomPunctuationSchema.default(""),
+    customPunctuationZwnj: z.boolean().default(false),
     numbers: z.boolean(),
     words: WordCountSchema,
     time: TimeConfigSchema,

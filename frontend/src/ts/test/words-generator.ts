@@ -9,6 +9,7 @@ import QuotesController, {
 import * as BritishEnglish from "./british-english";
 import * as LazyMode from "./lazy-mode";
 import * as EnglishPunctuation from "./english-punctuation";
+import { resolvePunctuationSet } from "./custom-punctuation";
 import * as PractiseWords from "./practise-words";
 import * as Misc from "../utils/misc";
 import * as Strings from "../utils/strings";
@@ -75,10 +76,18 @@ export async function punctuateWord(
 
     if (currentLanguage === "spanish") {
       const rand = random();
-      if (rand > 0.9) {
+      const punctuationSet = resolvePunctuationSet();
+      if (
+        rand > 0.9 &&
+        (!punctuationSet.custom || punctuationSet.chars.includes("¿"))
+      ) {
         word = `¿${word}`;
         spanishSentenceTracker = "?";
-      } else if (rand > 0.8) {
+      } else if (
+        rand > 0.8 &&
+        rand <= 0.9 &&
+        (!punctuationSet.custom || punctuationSet.chars.includes("¡"))
+      ) {
         word = `¡${word}`;
         spanishSentenceTracker = "!";
       }
@@ -90,11 +99,22 @@ export async function punctuateWord(
       index !== maxindex - 2) ||
     index === maxindex - 1
   ) {
+    const punctuationSet = resolvePunctuationSet();
     if (currentLanguage === "spanish") {
-      if (spanishSentenceTracker === "?" || spanishSentenceTracker === "!") {
+      if (
+        (spanishSentenceTracker === "?" || spanishSentenceTracker === "!") &&
+        (!punctuationSet.custom ||
+          punctuationSet.chars.includes(spanishSentenceTracker))
+      ) {
         word += spanishSentenceTracker;
         spanishSentenceTracker = "";
       }
+    } else if (punctuationSet.custom) {
+      //custom style: any character of the user's set, branch rates unchanged
+      const picked = punctuationSet.chars[
+        Math.floor(random() * punctuationSet.chars.length)
+      ] as string;
+      word += picked;
     } else {
       const rand = random();
       if (rand <= 0.8) {
@@ -153,7 +173,13 @@ export async function punctuateWord(
     lastChar !== "." &&
     currentLanguage !== "russian"
   ) {
-    word = `"${word}"`;
+    const punctuationSet = resolvePunctuationSet();
+    if (punctuationSet.custom && punctuationSet.wrapperPair !== undefined) {
+      const pair = punctuationSet.wrapperPair;
+      word = `${pair[0]}${word}${pair[1]}`;
+    } else if (!punctuationSet.custom) {
+      word = `"${word}"`;
+    }
   } else if (
     random() < 0.011 &&
     lastChar !== "," &&
@@ -162,7 +188,12 @@ export async function punctuateWord(
     currentLanguage !== "ukrainian" &&
     currentLanguage !== "slovak"
   ) {
-    word = `'${word}'`;
+    const punctuationSet = resolvePunctuationSet();
+    if (punctuationSet.custom) {
+      if (punctuationSet.chars.includes("'")) word = `'${word}'`;
+    } else {
+      word = `'${word}'`;
+    }
   } else if (random() < 0.012 && lastChar !== "," && lastChar !== ".") {
     if (currentLanguage === "code") {
       const r = random();
@@ -183,7 +214,16 @@ export async function punctuateWord(
     ) {
       word = `（${word}）`;
     } else {
-      word = `(${word})`;
+      const punctuationSet = resolvePunctuationSet();
+      if (
+        punctuationSet.custom &&
+        punctuationSet.chars.includes("(") &&
+        punctuationSet.chars.includes(")")
+      ) {
+        word = `(${word})`;
+      } else if (!punctuationSet.custom) {
+        word = `(${word})`;
+      }
     }
   } else if (
     random() < 0.013 &&
@@ -195,7 +235,12 @@ export async function punctuateWord(
     lastChar !== "；" &&
     lastChar !== "："
   ) {
-    if (currentLanguage === "french") {
+    const punctuationSet = resolvePunctuationSet();
+    if (punctuationSet.custom) {
+      word += punctuationSet.chars[
+        Math.floor(random() * punctuationSet.chars.length)
+      ] as string;
+    } else if (currentLanguage === "french") {
       word = ":";
     } else if (currentLanguage === "chinese") {
       word += "：";
@@ -208,7 +253,14 @@ export async function punctuateWord(
     lastChar !== "." &&
     previousWord !== "-"
   ) {
-    word = "-";
+    const punctuationSet = resolvePunctuationSet();
+    if (punctuationSet.custom) {
+      word = punctuationSet.chars[
+        Math.floor(random() * punctuationSet.chars.length)
+      ] as string;
+    } else {
+      word = "-";
+    }
   } else if (
     random() < 0.015 &&
     lastChar !== "," &&
@@ -218,7 +270,12 @@ export async function punctuateWord(
     lastChar !== "；" &&
     lastChar !== "："
   ) {
-    if (currentLanguage === "french") {
+    const punctuationSet = resolvePunctuationSet();
+    if (punctuationSet.custom) {
+      word += punctuationSet.chars[
+        Math.floor(random() * punctuationSet.chars.length)
+      ] as string;
+    } else if (currentLanguage === "french") {
       word = ";";
     } else if (currentLanguage === "greek") {
       // Normally U+00B7 ('middle dot' or 'ano teleia') would be used here.
@@ -233,7 +290,12 @@ export async function punctuateWord(
       word += ";";
     }
   } else if (random() < 0.2 && lastChar !== ",") {
-    if (
+    const punctuationSet = resolvePunctuationSet();
+    if (punctuationSet.custom) {
+      word += punctuationSet.chars[
+        Math.floor(random() * punctuationSet.chars.length)
+      ] as string;
+    } else if (
       currentLanguage === "arabic" ||
       currentLanguage === "urdu" ||
       currentLanguage === "persian" ||
@@ -303,6 +365,19 @@ export async function punctuateWord(
     (await EnglishPunctuation.check(word))
   ) {
     word = await applyEnglishPunctuationToWord(word);
+  }
+
+  //desktop fork: internal ZWNJ joiner for joining-script languages
+  //(persian*.json carry joiningScript) — never a suffix, always inside
+  const punctuationSet = resolvePunctuationSet();
+  if (
+    punctuationSet.joiner !== "" &&
+    currentLanguage === "persian" &&
+    word.length >= 2
+  ) {
+    const position = 1 + Math.floor(random() * (word.length - 1));
+    word =
+      word.slice(0, position) + punctuationSet.joiner + word.slice(position);
   }
 
   if (word.includes("\t")) {

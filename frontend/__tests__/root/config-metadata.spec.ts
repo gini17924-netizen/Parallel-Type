@@ -24,6 +24,9 @@ describe("ConfigMeta", () => {
     expect(configsRequiringRestarts).toEqual(
       [
         "punctuation",
+        "punctuationStyle",
+        "customPunctuation",
+        "customPunctuationZwnj",
         "numbers",
         "words",
         "time",

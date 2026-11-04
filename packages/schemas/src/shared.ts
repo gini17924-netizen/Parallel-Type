@@ -18,6 +18,8 @@ export const PersonalBestSchema = z.object({
   raw: z.number().nonnegative(),
   wpm: z.number().nonnegative(),
   timestamp: z.number().nonnegative(),
+  /** the custom punctuation set active when this PB was set ("" = none) */
+  customPunctuation: z.string().optional(),
 });
 export type PersonalBest = z.infer<typeof PersonalBestSchema>;
 

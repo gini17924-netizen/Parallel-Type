@@ -279,6 +279,30 @@ export const commandlineConfigMetadata: CommandlineConfigMetadataObject = {
         val.trim().split(" ") as ConfigSchemas.CustomLayoutFluid,
     },
   },
+  punctuationStyle: {
+    input: {
+      defaultValue: () => {
+        return Config.punctuationStyle;
+      },
+      inputValueConvert: (val) => val.trim() as ConfigSchemas.PunctuationStyle,
+    },
+  },
+  customPunctuation: {
+    input: {
+      defaultValue: () => {
+        return Config.customPunctuation;
+      },
+      inputValueConvert: (val) => val.trim(),
+    },
+  },
+  customPunctuationZwnj: {
+    input: {
+      defaultValue: () => {
+        return String(Config.customPunctuationZwnj);
+      },
+      inputValueConvert: (val) => String(val.trim().length > 0),
+    },
+  },
   customPolyglot: {
     input: {
       defaultValue: () => {

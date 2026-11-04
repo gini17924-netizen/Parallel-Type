@@ -27,6 +27,7 @@ import { CustomBackground } from "./custom-setting/CustomBackground";
 import { CustomBackgroundFilters } from "./custom-setting/CustomBackgroundFilters";
 import { CustomLayoutfluid } from "./custom-setting/CustomLayoutfluid";
 import { CustomPolyglot } from "./custom-setting/CustomPolyglot";
+import { CustomPunctuation } from "./custom-setting/CustomPunctuation";
 import { FontFamily } from "./custom-setting/FontFamily";
 import { Funbox } from "./custom-setting/Funbox";
 import { ImportExport } from "./custom-setting/ImportExport";
@@ -87,6 +88,7 @@ export function SettingsPage(): JSXElement {
           <MinBurst />
           <SearchableAutoSetting key="britishEnglish" />
           <Language />
+          <CustomPunctuation />
           <Funbox />
           <CustomLayoutfluid />
           <CustomPolyglot />
