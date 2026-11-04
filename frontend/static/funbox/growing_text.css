@@ -1,0 +1,12 @@
+/* growing_text: committed mistyped words grow. Words-level CSS only. */
+#words:not(.blind) .word.error {
+  transform: scale(1.25);
+  position: relative;
+  z-index: 5;
+}
+
+@media (prefers-reduced-motion: no-preference) {
+  #words:not(.blind) .word.error {
+    transition: transform 0.15s ease-out;
+  }
+}

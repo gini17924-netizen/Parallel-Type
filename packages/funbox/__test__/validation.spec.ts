@@ -8,7 +8,10 @@ describe("validation", () => {
     const getFunboxMock = vi.spyOn(List, "getFunbox");
 
     beforeEach(() => {
-      getFunboxMock.mockClear();
+      //mockReset (not mockClear): clears calls AND the implementation, so a
+      //persistent mockReturnValue from an earlier test cannot poison later
+      //ones — every test here starts from the real funbox list
+      getFunboxMock.mockReset();
     });
 
     it("should pass without funboxNames", () => {
@@ -93,6 +96,32 @@ describe("validation", () => {
 
       //WHEN / THEN
       expect(Validation.checkCompatibility(["plus_one", "plus_two"])).toBe(
+        false,
+      );
+    });
+
+    it("should allow growing_text with funboxes modifying other css elements", () => {
+      //GIVEN (real list entries: growing_text claims "words", nausea claims "body")
+      //WHEN / THEN
+      expect(Validation.checkCompatibility(["growing_text", "nausea"])).toBe(
+        true,
+      );
+      expect(Validation.checkCompatibility(["growing_text", "crt"])).toBe(true);
+    });
+
+    it("should reject growing_text with funboxes also modifying words", () => {
+      //GIVEN (real list entries: earthquake/tts/backwards/asl claim "words")
+      //WHEN / THEN
+      expect(
+        Validation.checkCompatibility(["growing_text", "earthquake"]),
+      ).toBe(false);
+      expect(Validation.checkCompatibility(["growing_text", "tts"])).toBe(
+        false,
+      );
+      expect(Validation.checkCompatibility(["growing_text", "backwards"])).toBe(
+        false,
+      );
+      expect(Validation.checkCompatibility(["growing_text", "asl"])).toBe(
         false,
       );
     });

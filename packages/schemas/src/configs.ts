@@ -337,6 +337,7 @@ export const FunboxNameSchema = z.enum([
   "crt",
   "backwards",
   "ddoouubblleedd",
+  "growing_text",
   "instant_messaging",
   "underscore_spaces",
   "ALL_CAPS",

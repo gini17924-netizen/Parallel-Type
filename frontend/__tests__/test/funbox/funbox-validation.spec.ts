@@ -61,6 +61,27 @@ describe("funbox-validation", () => {
         funbox: ["space_balls"],
         expected: true,
       },
+
+      //growing_text is css-only: no forced config, works with any mode
+      { key: "mode", value: "zen", funbox: ["growing_text"], expected: true },
+      {
+        key: "mode",
+        value: "quote",
+        funbox: ["growing_text"],
+        expected: true,
+      },
+      {
+        key: "mode",
+        value: "custom",
+        funbox: ["growing_text"],
+        expected: true,
+      },
+      {
+        key: "mode",
+        value: "words",
+        funbox: ["growing_text"],
+        expected: true,
+      },
     ];
     it.for(testCases)(
       `check $funbox with $key=$value`,

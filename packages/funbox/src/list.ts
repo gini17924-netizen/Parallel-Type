@@ -161,6 +161,14 @@ const list: Record<FunboxName, FunboxMetadata> = {
     name: "earthquake",
     cssModifications: ["words"],
   },
+  growing_text: {
+    description: "Words you mistyped grow. Own your typos.",
+    canGetPb: true,
+    difficultyLevel: 1,
+    properties: ["hasCssFile"],
+    name: "growing_text",
+    cssModifications: ["words"],
+  },
   space_balls: {
     description: "In a galaxy far far away.",
     canGetPb: true,
