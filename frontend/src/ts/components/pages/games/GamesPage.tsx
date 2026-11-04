@@ -19,6 +19,10 @@ import {
   spawnSpeed,
   type WordPools,
 } from "../../../utils/word-blast";
+import {
+  getWordBlastBest,
+  recordWordBlastGame,
+} from "../../../utils/word-blast-scores";
 import { Button } from "../../common/Button";
 import { H2 } from "../../common/Headers";
 
@@ -50,6 +54,16 @@ export function GamesPage(): JSXElement {
   const [running, setRunning] = createSignal(false);
   const [over, setOver] = createSignal(false);
   const [wpm, setWpm] = createSignal(0);
+  const [bestScore, setBestScore] = createSignal<number | undefined>(
+    getWordBlastBest(loadDifficulty())?.score,
+  );
+  const [recordInfo, setRecordInfo] = createSignal<
+    | {
+        isNewRecord: boolean;
+        best: number | undefined;
+      }
+    | undefined
+  >(undefined);
 
   let pools: WordPools = { wordPool: [], phrasePool: [] };
   let nextId = 1;
@@ -61,6 +75,8 @@ export function GamesPage(): JSXElement {
   const selectDifficulty = (value: Difficulty): void => {
     setDifficulty(value);
     window.localStorage.setItem(DIFFICULTY_KEY, value);
+    setRecordInfo(undefined);
+    setBestScore(getWordBlastBest(value)?.score);
   };
 
   const stopTimers = (): void => {
@@ -92,6 +108,21 @@ export function GamesPage(): JSXElement {
     setRunning(false);
     setOver(true);
     stopTimers();
+    //scores are best-effort: the game itself must never fail on storage
+    try {
+      const result = recordWordBlastGame({
+        difficulty: difficulty(),
+        score: score(),
+        wpm: wpm(),
+      });
+      setRecordInfo({
+        isNewRecord: result.isNewRecord,
+        best: result.best?.score,
+      });
+      setBestScore(result.best?.score);
+    } catch {
+      setRecordInfo(undefined);
+    }
   };
 
   const tick = (): void => {
@@ -186,7 +217,7 @@ export function GamesPage(): JSXElement {
     if (typed >= target.text.length) {
       setWords((current) => current.filter((word) => word.id !== targetId));
       setScore((score) => score + targetPoints);
-      if (score() > 0 && (score() / 500) % 1 === 0 && score() % 500 === 0) {
+      if (score() > 0 && score() % 500 === 0) {
         setLevel((level) => level + 1);
         restartTimers();
       }
@@ -216,7 +247,12 @@ export function GamesPage(): JSXElement {
       </section>
 
       <section class="grid gap-2">
-        <div class="text-sub">difficulty</div>
+        <div class="flex items-baseline justify-between">
+          <div class="text-sub">difficulty</div>
+          <div class="text-sub">
+            best ({DIFFICULTY_LABELS[difficulty()]}): {bestScore() ?? "—"}
+          </div>
+        </div>
         <div class="grid grid-cols-3 gap-2">
           <For each={["easy", "normal", "hard"] as Difficulty[]}>
             {(value) => (
@@ -284,6 +320,12 @@ export function GamesPage(): JSXElement {
             <div class="text-center">
               <div class="text-4xl text-error">game over</div>
               <div class="pt-4 text-2xl">score: {score()}</div>
+              <Show when={recordInfo()?.isNewRecord === true}>
+                <div class="pt-1 text-main">new record!</div>
+              </Show>
+              <Show when={recordInfo()?.best !== undefined}>
+                <div class="pt-1 text-sub">best: {recordInfo()?.best}</div>
+              </Show>
             </div>
           </div>
         </Show>

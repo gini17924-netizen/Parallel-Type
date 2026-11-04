@@ -270,7 +270,9 @@ export function saveLocalSnapshotFields(fields: PersistedSnapshotFields): void {
 // ---------------------------------------------------------------------------
 
 const DAILY_GOAL_KEY = "mtDesktopDailyGoalMinutes"; //owner: utils/daily-goal.ts
-const WORD_BLAST_DIFFICULTY_KEY = "mtDesktopWordBlastDifficulty"; //owner: utils/word-blast.ts
+//owner: components/pages/games/GamesPage.tsx (the difficulty picker writes it)
+const WORD_BLAST_DIFFICULTY_KEY = "mtDesktopWordBlastDifficulty";
+const WORD_BLAST_SCORES_KEY = "mtDesktopWordBlastScores"; //owner: utils/word-blast-scores.ts
 
 /** transient runtime state that must never be carried across restores */
 const KEYBR_STATE_EXCLUDED = new Set(["mtKeybrBootError"]);
@@ -343,6 +345,8 @@ export type LocalBackup = {
   dailyGoal?: number | undefined;
   /** schema v2: word blast difficulty (mtDesktopWordBlastDifficulty) */
   wordBlast?: string | undefined;
+  /** schema v2: word blast bests + recent history (mtDesktopWordBlastScores) */
+  wordBlastScores?: Record<string, unknown> | undefined;
 };
 
 /** Exports all local data (results + snapshot fields) as a backup object. */
@@ -357,6 +361,7 @@ export async function exportBackup(): Promise<LocalBackup> {
     dailyGoal: loadDailyGoal(),
     wordBlast:
       window.localStorage.getItem(WORD_BLAST_DIFFICULTY_KEY) ?? undefined,
+    wordBlastScores: readJsonSafe(WORD_BLAST_SCORES_KEY),
   };
 }
 
@@ -443,6 +448,12 @@ export async function importBackup(backup: LocalBackup): Promise<number> {
   }
   if (backup.wordBlast !== undefined && backup.wordBlast !== null) {
     window.localStorage.setItem(WORD_BLAST_DIFFICULTY_KEY, backup.wordBlast);
+  }
+  if (backup.wordBlastScores !== undefined && backup.wordBlastScores !== null) {
+    window.localStorage.setItem(
+      WORD_BLAST_SCORES_KEY,
+      JSON.stringify(backup.wordBlastScores),
+    );
   }
   return validResults.length;
 }

@@ -366,6 +366,10 @@ describe("LocalPersistence (desktop offline, IndexedDB)", () => {
       window.localStorage.setItem("mtKeybrBootError", "transient"); //never backed up
       window.localStorage.setItem("mtDesktopDailyGoalMinutes", "45");
       window.localStorage.setItem("mtDesktopWordBlastDifficulty", "hard");
+      window.localStorage.setItem(
+        "mtDesktopWordBlastScores",
+        '{"best":{"hard":{"at":1,"difficulty":"hard","score":500,"wpm":90}},"history":[{"at":1,"difficulty":"hard","score":500,"wpm":90}]}',
+      );
 
       const backup = await LocalPersistence.exportBackup();
       expect(backup.keybrState).toEqual({
@@ -375,6 +379,10 @@ describe("LocalPersistence (desktop offline, IndexedDB)", () => {
       });
       expect(backup.dailyGoal).toBe(45);
       expect(backup.wordBlast).toBe("hard");
+      expect(backup.wordBlastScores).toEqual({
+        best: { hard: { at: 1, difficulty: "hard", score: 500, wpm: 90 } },
+        history: [{ at: 1, difficulty: "hard", score: 500, wpm: 90 }],
+      });
 
       window.localStorage.clear();
       //the shared fake-indexeddb store may carry leftover results from other
@@ -391,11 +399,18 @@ describe("LocalPersistence (desktop offline, IndexedDB)", () => {
       expect(window.localStorage.getItem("mtDesktopWordBlastDifficulty")).toBe(
         "hard",
       );
+      expect(window.localStorage.getItem("mtDesktopWordBlastScores")).toBe(
+        '{"best":{"hard":{"at":1,"difficulty":"hard","score":500,"wpm":90}},"history":[{"at":1,"difficulty":"hard","score":500,"wpm":90}]}',
+      );
     });
 
     it("v1 backups import fine and keep current desktop state", async () => {
       window.localStorage.setItem("mtDesktopDailyGoalMinutes", "60");
       window.localStorage.setItem("mtKeybrResults:fa", '[{"kept":true}]');
+      window.localStorage.setItem(
+        "mtDesktopWordBlastScores",
+        '{"best":{},"history":[]}',
+      );
       const v1Backup = {
         schemaVersion: 1,
         exportedAt: "2026-10-01T00:00:00.000Z",
@@ -411,6 +426,9 @@ describe("LocalPersistence (desktop offline, IndexedDB)", () => {
       );
       expect(window.localStorage.getItem("mtKeybrResults:fa")).toBe(
         '[{"kept":true}]',
+      );
+      expect(window.localStorage.getItem("mtDesktopWordBlastScores")).toBe(
+        '{"best":{},"history":[]}',
       );
     });
 
