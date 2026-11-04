@@ -1,5 +1,5 @@
 import type { Layout } from "@keybr/keyboard";
-import { Result } from "@keybr/result";
+import { Result, TextType } from "@keybr/result";
 import { Histogram } from "@keybr/textinput";
 
 /**
@@ -65,7 +65,9 @@ export function storedRowsToResults(layout: Layout, rows: unknown[]): Result[] {
       results.push(
         new Result(
           layout,
-          0, //TextType.TEXT
+          //guided lessons produce GENERATED text upstream (LessonType.GUIDED);
+          //the old session.ts passed a literal 0 - a type hole @ts-nocheck hid
+          TextType.GENERATED,
           row.timeStamp ?? Date.now(),
           row.length,
           row.time,
