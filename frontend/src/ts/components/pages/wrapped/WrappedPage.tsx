@@ -8,7 +8,11 @@ import {
   onMount,
 } from "solid-js";
 
-import { loadLocalResults } from "../../../utils/local-persistence";
+import {
+  isResultsCapped,
+  loadLocalResults,
+  MAX_RESULTS,
+} from "../../../utils/local-persistence";
 import {
   computeWrappedStats,
   type WrappedStats,
@@ -411,10 +415,14 @@ function Stat(props: { label: string; value: string }): JSXElement {
 export function WrappedPage(): JSXElement {
   const [stats, setStats] = createSignal<WrappedStats | undefined>(undefined);
   const [loaded, setLoaded] = createSignal(false);
+  const [resultsCapped, setResultsCapped] = createSignal(false);
   const [slide, setSlide] = createSignal(0);
 
   onMount(async () => {
     const results = await loadLocalResults();
+    //disclose the storage cap (audit Y4): with 1000+ results the recap
+    //silently covers only the newest slice of the year
+    setResultsCapped(isResultsCapped(results.length));
     setStats(computeWrappedStats(results));
     setLoaded(true);
   });
@@ -465,6 +473,13 @@ export function WrappedPage(): JSXElement {
           device&apos;s local results. use the arrow keys to move between
           slides.
         </p>
+        <Show when={resultsCapped()}>
+          <p class="text-xs text-sub">
+            based on your most recent {MAX_RESULTS} tests (the local storage
+            cap) — older results are hidden, so the totals may undercount your
+            full year.
+          </p>
+        </Show>
       </section>
 
       <Show

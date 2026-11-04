@@ -28,7 +28,13 @@ const LEGACY_RESULTS_KEY = "mtDesktopLocalResults";
 const RESULTS_DB_NAME = "mtDesktopResults";
 const RESULTS_STORE = "results";
 const RESULTS_TIMESTAMP_INDEX = "by_timestamp";
-const MAX_RESULTS = 1000;
+export const MAX_RESULTS = 1000;
+
+/** whether a results collection is at the storage cap (its owner should
+ * disclose that older rows are hidden) */
+export function isResultsCapped(count: number): boolean {
+  return count >= MAX_RESULTS;
+}
 
 /** fields too heavy (or not needed) to keep in local storage */
 const STRIPPED_RESULT_FIELDS = [
