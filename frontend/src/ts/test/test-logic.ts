@@ -394,6 +394,9 @@ export async function restart(options = {} as RestartOptions): Promise<void> {
       CustomText.setText(savedWords);
       CustomText.setLimitValue(savedWords.length);
       setCustomTextIndicator({ name: pick.name, isLong: false });
+      //audit L8: the cursor advances only after a successful apply, so a
+      //failed rotation never silently skips a text
+      CustomText.commitRotationCursor(pick.name);
     }
   } catch {
     //rotation is optional; a failure leaves the current custom text in place

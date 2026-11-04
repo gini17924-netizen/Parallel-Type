@@ -319,20 +319,28 @@ describe("test/custom-text.ts — saved-text rotation", () => {
     expect(CustomText.rotateCustomText()).toBeNull();
   });
 
-  it("round-robins deterministically and wraps around", () => {
+  it("peeks deterministically and advances only on commit (audit L8)", () => {
     seedTexts();
     enablePool(["alpha", "beta", "gamma"]);
+    //a peek never moves the cursor: repeated picks are stable
     expect(CustomText.rotateCustomText()?.name).toBe("alpha");
+    expect(CustomText.rotateCustomText()?.name).toBe("alpha");
+    expect(CustomText.getRotationState().last).toBeNull();
+    CustomText.commitRotationCursor("alpha");
     expect(CustomText.rotateCustomText()?.name).toBe("beta");
+    CustomText.commitRotationCursor("beta");
     expect(CustomText.rotateCustomText()?.name).toBe("gamma");
-    expect(CustomText.rotateCustomText()?.name).toBe("alpha");
-    expect(CustomText.getRotationState().last).toBe("alpha");
+    CustomText.commitRotationCursor("gamma");
+    expect(CustomText.rotateCustomText()?.name).toBe("alpha"); //wrap
+    //the wrap-peek itself did not advance the cursor
+    expect(CustomText.getRotationState().last).toBe("gamma");
   });
 
   it("starts from the persisted cursor after a module reset", async () => {
     seedTexts();
     enablePool(["alpha", "beta", "gamma"]);
     expect(CustomText.rotateCustomText()?.name).toBe("alpha");
+    CustomText.commitRotationCursor("alpha");
     vi.resetModules();
     CustomText = await import("../../src/ts/test/custom-text");
     //cursor persisted in localStorage: next pick continues, not restarts
@@ -343,8 +351,10 @@ describe("test/custom-text.ts — saved-text rotation", () => {
     seedTexts();
     enablePool(["alpha", "beta", "gamma"]);
     expect(CustomText.rotateCustomText()?.name).toBe("alpha");
+    CustomText.commitRotationCursor("alpha");
     CustomText.deleteCustomText("beta", false);
     expect(CustomText.rotateCustomText()?.name).toBe("gamma");
+    CustomText.commitRotationCursor("gamma");
     expect(CustomText.rotateCustomText()?.name).toBe("alpha");
   });
 

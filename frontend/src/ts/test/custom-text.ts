@@ -281,8 +281,10 @@ export function setRotationState(state: CustomTextRotation): void {
 
 /**
  * Picks the next saved SHORT text from the rotation pool in deterministic
- * round-robin order. Skips pool entries whose saved text was deleted;
- * persists the cursor () so the cycle survives app restarts.
+ * round-robin order. Skips pool entries whose saved text was deleted. The
+ * cursor is NOT advanced here (audit L8): callers commit it via
+ * commitRotationCursor only after the picked text was actually applied, so
+ * a failed apply never skips a text.
  *
  * Returns null when rotation is disabled, the pool is empty, or no valid
  * entry remains — callers must no-op on null and never throw.
@@ -321,6 +323,8 @@ export function pickRotationForRestart(
   return rotateCustomText();
 }
 
+/** the next pool entry in round-robin order, WITHOUT advancing the cursor
+ * (audit L8); null when rotation is disabled or no valid entry remains */
 export function rotateCustomText(): { name: string; long: boolean } | null {
   const state = customTextRotation.get();
   if (!state.enabled) return null;
@@ -332,6 +336,13 @@ export function rotateCustomText(): { name: string; long: boolean } | null {
   const nextIndex = lastIndex === -1 ? 0 : (lastIndex + 1) % valid.length;
   const next = valid[nextIndex];
   if (next === undefined) return null;
-  customTextRotation.set({ ...state, last: next.name });
   return { name: next.name, long: next.long };
+}
+
+/** advances the round-robin cursor to `name` (audit L8) — call only after
+ * the picked text was successfully applied; the cursor surviving app
+ * restarts is what keeps the cycle deterministic */
+export function commitRotationCursor(name: string): void {
+  const state = customTextRotation.get();
+  customTextRotation.set({ ...state, last: name });
 }

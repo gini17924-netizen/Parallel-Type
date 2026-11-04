@@ -53,7 +53,8 @@ describe("pickRotationForRestart (restart funnel gates, idea #5)", () => {
       ],
       last: null,
     });
-    //apply exactly like TestLogic.restart does after the pick
+    //apply exactly like TestLogic.restart does after the pick - including
+    //the commit (audit L8): the cursor advances only after a successful apply
     const apply = (pick: { name: string; long: boolean } | null): string[] => {
       if (pick === null) return CustomText.getText();
       const words = CustomText.getCustomText(pick.name, pick.long);
@@ -62,6 +63,7 @@ describe("pickRotationForRestart (restart funnel gates, idea #5)", () => {
       );
       CustomText.setText(words);
       CustomText.setLimitValue(words.length);
+      CustomText.commitRotationCursor(pick.name);
       return CustomText.getText();
     };
 
