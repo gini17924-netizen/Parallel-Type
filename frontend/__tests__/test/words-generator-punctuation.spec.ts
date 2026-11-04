@@ -217,7 +217,11 @@ describe("PB identity with customPunctuation (idea #4)", () => {
 
   it("separates PBs typed with different custom punctuation sets", () => {
     //bootstrap a local snapshot with a PB typed under set "A" via the real
-    //save path (saveLocalPB is private; saveLocalResult is its entry point)
+    //save path (saveLocalPB is private; saveLocalResult is its entry point).
+    //audit Y5b: separation requires the CUSTOM style - with the default
+    //style the effective identity is "" no matter what raw string is
+    //configured, because the generator uses the built-in tables
+    setConfig("punctuationStyle", "custom");
     setConfig("customPunctuation", "A");
     DB.initLocalSnapshot();
     DB.saveLocalResult({

@@ -42,6 +42,9 @@ export type SnapshotResult<M extends Mode> = Omit<
   words: number;
   timeTyping: number;
   dayTimestamp: number;
+  //desktop fork (audit Y5): the effective punctuation set at save time,
+  //recorded by the offline save path; legacy rows lack the field
+  customPunctuation?: string;
 };
 
 export type Snapshot = Omit<

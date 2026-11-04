@@ -91,6 +91,13 @@ function canBePersonalBest(result: SnapshotResult<Mode>): boolean {
   return getFunbox(result.funbox ?? []).every((f) => f.canGetPb);
 }
 
+/** the punctuation identity a stored result belongs to: new rows record the
+ * effective set at save time (audit Y5); legacy rows without the field fall
+ * back to the raw live config - the pre-Y5 matching key */
+function resultPunctuationIdentity(result: SnapshotResult<Mode>): string {
+  return result.customPunctuation ?? Config.customPunctuation;
+}
+
 function matchesPbIdentity(
   pb: {
     punctuation?: boolean;
@@ -108,9 +115,9 @@ function matchesPbIdentity(
     pb.difficulty === result.difficulty &&
     pb.language === result.language &&
     (pb.lazyMode ?? false) === (result.lazyMode ?? false) &&
-    //PB entries are per punctuation set (idea #4): only the current set's
+    //PB entries are per punctuation set (idea #4): only the matching set's
     //entry is maintained — other sets' entries belong to their own buckets
-    (pb.customPunctuation ?? "") === Config.customPunctuation
+    (pb.customPunctuation ?? "") === resultPunctuationIdentity(result)
   );
 }
 

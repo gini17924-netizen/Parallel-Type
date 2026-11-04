@@ -1,4 +1,4 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, afterEach } from "vitest";
 
 import type { Mode } from "@monkeytype/schemas/shared";
 
@@ -6,6 +6,7 @@ import type {
   Snapshot,
   SnapshotResult,
 } from "../../src/ts/constants/default-snapshot";
+import { setConfig } from "../../src/ts/config/setters";
 import {
   applyDeleteSnapshotSideEffects,
   recomputePersonalBestsAfterDelete,
@@ -252,5 +253,112 @@ describe("applyDeleteSnapshotSideEffects", () => {
     expect(snapshot.streak).toBe(1); //remaining result is one day back
     expect(snapshot.maxStreak).toBe(7); //historical record untouched
     expect(snapshot.streakLastResultTimestamp).toBe(DAY(8));
+  });
+});
+
+describe("recomputePersonalBestsAfterDelete punctuation identity (audit Y5)", () => {
+  afterEach(() => {
+    //these tests mutate the live config store: restore the defaults the
+    //other suites in this file assume
+    setConfig("punctuationStyle", "default");
+    setConfig("customPunctuation", "");
+  });
+
+  function pbEntryWith(set: string | undefined): Record<string, unknown> {
+    return {
+      language: "english",
+      difficulty: "normal",
+      lazyMode: false,
+      punctuation: true,
+      numbers: false,
+      wpm: 120,
+      acc: 98,
+      raw: 130,
+      timestamp: DAY(2),
+      consistency: 90,
+      ...(set === undefined ? {} : { customPunctuation: set }),
+    };
+  }
+
+  function pbsWithEntry(
+    entry: Record<string, unknown>,
+  ): Snapshot["personalBests"] {
+    return {
+      time: { "30": [entry] },
+      words: {},
+      quote: {},
+      zen: {},
+      custom: {},
+    } as unknown as Snapshot["personalBests"];
+  }
+
+  function resultWithPb(set: string | undefined): SnapshotResult<Mode> {
+    return makeResult({
+      _id: "pb_row",
+      wpm: 120,
+      isPb: true,
+      punctuation: true,
+      ...(set === undefined ? {} : { customPunctuation: set }),
+    });
+  }
+
+  it("matches the bucket via the row's stored set, not the live config", () => {
+    setConfig("customPunctuation", "different");
+    const pbs = pbsWithEntry(pbEntryWith("«»"));
+    const remaining = [
+      makeResult({
+        _id: "next_best",
+        wpm: 100,
+        punctuation: true,
+        customPunctuation: "«»",
+      }),
+    ];
+
+    const { promotedId } = recomputePersonalBestsAfterDelete(
+      pbs,
+      resultWithPb("«»"),
+      remaining,
+    );
+
+    expect(promotedId).toBe("next_best");
+    expect(entriesOf(pbs)[0]?.wpm).toBe(100); //promoted replacement
+  });
+
+  it("legacy rows without the stored set fall back to the live config", () => {
+    setConfig("customPunctuation", "old-set");
+    const pbs = pbsWithEntry(pbEntryWith("old-set"));
+    const remaining = [
+      makeResult({ _id: "next_best", wpm: 100, punctuation: true }),
+    ];
+
+    const { promotedId } = recomputePersonalBestsAfterDelete(
+      pbs,
+      resultWithPb(undefined),
+      remaining,
+    );
+
+    expect(promotedId).toBe("next_best");
+  });
+
+  it("a stored-set mismatch keeps the entry untouched", () => {
+    setConfig("customPunctuation", "different");
+    const pbs = pbsWithEntry(pbEntryWith("«»"));
+    const remaining = [
+      makeResult({
+        _id: "next_best",
+        wpm: 100,
+        punctuation: true,
+        customPunctuation: "«»",
+      }),
+    ];
+
+    const { promotedId } = recomputePersonalBestsAfterDelete(
+      pbs,
+      resultWithPb("other"),
+      remaining,
+    );
+
+    expect(promotedId).toBeUndefined();
+    expect(entriesOf(pbs)[0]?.wpm).toBe(120); //stale entry survives untouched
   });
 });

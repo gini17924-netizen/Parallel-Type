@@ -40,7 +40,7 @@ import { FunboxMetadata } from "@monkeytype/funbox";
 import { __nonReactive } from "./collections/tags";
 import { fetchUserFromApi } from "./ape/user";
 import { SnapshotInitError } from "./utils/snapshot-init-error";
-import { Config } from "./config/store";
+import { effectiveCustomPunctuation } from "./test/custom-punctuation";
 import { updateTagsInFilterStorage } from "./states/result-filters";
 import * as DesktopAutoBackup from "./utils/desktop-auto-backup";
 import { applyDeleteSnapshotSideEffects } from "./utils/local-result-maintenance";
@@ -202,7 +202,11 @@ export function getLocalPB<M extends Mode>(
       pb.difficulty === difficulty &&
       pb.language === language &&
       (pb.lazyMode ?? false) === lazyMode &&
-      (pb.customPunctuation ?? "") === Config.customPunctuation,
+      //PB entries are per punctuation set, keyed by the EFFECTIVE set
+      //(audit Y5b): with the default style the generator uses the built-in
+      //per-language tables, so those PBs share the "" identity - a raw
+      //non-empty Config.customPunctuation string must not leak in here
+      (pb.customPunctuation ?? "") === effectiveCustomPunctuation(),
   );
 }
 
@@ -248,7 +252,11 @@ function saveLocalPB<M extends Mode>(
         (pb.numbers ?? false) === numbers &&
         pb.difficulty === difficulty &&
         pb.language === language &&
-        (pb.lazyMode ?? false) === lazyMode
+        (pb.lazyMode ?? false) === lazyMode &&
+        //per punctuation set (idea #4, effective identity per audit Y5b):
+        //a save under a different set must create its own entry, never
+        //overwrite another set's PB
+        (pb.customPunctuation ?? "") === effectiveCustomPunctuation()
       ) {
         found = true;
         pb.wpm = wpm;
@@ -257,7 +265,7 @@ function saveLocalPB<M extends Mode>(
         pb.timestamp = Date.now();
         pb.consistency = consistency;
         pb.lazyMode = lazyMode;
-        pb.customPunctuation = Config.customPunctuation;
+        pb.customPunctuation = effectiveCustomPunctuation();
       }
     });
     if (!found) {
@@ -274,7 +282,7 @@ function saveLocalPB<M extends Mode>(
           raw,
           timestamp: Date.now(),
           consistency,
-          customPunctuation: Config.customPunctuation,
+          customPunctuation: effectiveCustomPunctuation(),
         },
       );
     }
@@ -402,6 +410,11 @@ export function saveLocalResult(data: SaveLocalResultData): void {
   let xp = data.xp;
 
   if (data.result !== undefined) {
+    if (DESKTOP_OFFLINE) {
+      //record the effective punctuation identity on the persisted row
+      //(audit Y5): PB buckets and the delete-path matching key off it
+      data.result.customPunctuation = effectiveCustomPunctuation();
+    }
     //desktop offline build: mirror the backend order (dal/user.ts
     //updateStreak → result.ts calculateXp) — the streak updates first, then
     //XP is computed with the POST-update streak. Signed-in and modal paths

@@ -66,3 +66,14 @@ export function resolvePunctuationSet(): ResolvedPunctuationSet {
     joiner: Config.customPunctuationZwnj ? ZWNJ : "",
   };
 }
+
+/**
+ * The punctuation identity for PB buckets (audit Y5b): the user's set only
+ * counts when the custom style is actually active. With the default style
+ * (or an empty usable set - both fall back to the built-in per-language
+ * tables) results share the "" identity, so a PB earned under one style can
+ * never be confused with a PB earned under the other.
+ */
+export function effectiveCustomPunctuation(): string {
+  return resolvePunctuationSet().custom ? Config.customPunctuation : "";
+}
