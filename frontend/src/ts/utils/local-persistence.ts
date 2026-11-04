@@ -562,9 +562,13 @@ export async function importBackup(backup: LocalBackup): Promise<number> {
     window.localStorage.setItem(WORD_BLAST_DIFFICULTY_KEY, backup.wordBlast);
   }
   if (backup.wordBlastScores !== undefined && backup.wordBlastScores !== null) {
+    //audit L4: an out-of-schema payload would be wiped to the empty fallback
+    //by the store's next read - coerce it into a valid shape instead
+    const { sanitizeImportedWordBlastScores } =
+      await import("./word-blast-scores");
     window.localStorage.setItem(
       WORD_BLAST_SCORES_KEY,
-      JSON.stringify(backup.wordBlastScores),
+      JSON.stringify(sanitizeImportedWordBlastScores(backup.wordBlastScores)),
     );
   }
   const jsonBackedKeys: [string, Record<string, unknown> | undefined][] = [

@@ -107,3 +107,42 @@ function isDifficultyRecord(
 export function _resetWordBlastScoresForTests(): void {
   store.remove();
 }
+
+/**
+ * Coerces an imported (possibly hand-edited or from an older build) payload
+ * into a schema-valid shape (audit L4): unknown/garbage entries are dropped
+ * and the history is trimmed to the newest 10. Without this, a payload that
+ * fails the store's schema would be wiped to the empty fallback by the next
+ * get() - silently losing every best score.
+ */
+export function sanitizeImportedWordBlastScores(
+  value: unknown,
+): Record<string, unknown> {
+  const sanitized: {
+    best: Record<string, WordBlastGameRecord>;
+    history: WordBlastGameRecord[];
+  } = {
+    best: {},
+    history: [],
+  };
+  if (typeof value !== "object" || value === null) return sanitized;
+  const raw = value as { best?: unknown; history?: unknown };
+  if (typeof raw.best === "object" && raw.best !== null) {
+    for (const [difficulty, record] of Object.entries(
+      raw.best as Record<string, unknown>,
+    )) {
+      const parsed = GameRecordSchema.safeParse(record);
+      if (parsed.success && DifficultySchema.safeParse(difficulty).success) {
+        sanitized.best[difficulty] = parsed.data;
+      }
+    }
+  }
+  if (Array.isArray(raw.history)) {
+    sanitized.history = raw.history
+      .map((it) => GameRecordSchema.safeParse(it))
+      .filter((it) => it.success)
+      .map((it) => it.data)
+      .slice(0, HISTORY_LIMIT);
+  }
+  return sanitized;
+}

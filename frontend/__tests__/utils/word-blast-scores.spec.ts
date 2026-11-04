@@ -80,3 +80,68 @@ describe("word-blast-scores (KI-21)", () => {
     expect(result.isNewRecord).toBe(true);
   });
 });
+
+describe("sanitizeImportedWordBlastScores (audit L4)", () => {
+  beforeEach(async () => {
+    window.localStorage.clear();
+    await freshModule();
+  });
+
+  it("keeps a valid payload as-is", () => {
+    const payload = {
+      best: { hard: { at: 1, difficulty: "hard", score: 900, wpm: 80 } },
+      history: [{ at: 2, difficulty: "hard", score: 400, wpm: 70 }],
+    };
+    expect(Scores.sanitizeImportedWordBlastScores(payload)).toEqual(payload);
+  });
+
+  it("trims an oversized history and drops garbage entries", () => {
+    const history = Array.from({ length: 15 }, (_, i) => ({
+      at: i,
+      difficulty: "normal",
+      score: 100 + i,
+      wpm: 50,
+    }));
+    history[3] = "garbage" as never;
+    const sanitized = Scores.sanitizeImportedWordBlastScores({
+      best: {
+        easy: "oops",
+        hard: { at: 1, difficulty: "hard", score: 900, wpm: 80 },
+      },
+      history,
+    });
+    expect(sanitized["history"]).toHaveLength(10);
+    expect(sanitized["best"]).toEqual({
+      hard: { at: 1, difficulty: "hard", score: 900, wpm: 80 },
+    });
+  });
+
+  it("returns a valid empty shape for a non-object payload", () => {
+    expect(Scores.sanitizeImportedWordBlastScores("nope")).toEqual({
+      best: {},
+      history: [],
+    });
+  });
+
+  it("integration: an oversized imported history survives the next store read", async () => {
+    //write an out-of-schema payload the way importBackup would (audit L4:
+    //without sanitizing, the next get() wiped EVERYTHING to the fallback)
+    const history = Array.from({ length: 12 }, (_, i) => ({
+      at: i,
+      difficulty: "normal",
+      score: 100 + i,
+      wpm: 50,
+    }));
+    const sanitized = Scores.sanitizeImportedWordBlastScores({
+      best: { normal: { at: 1, difficulty: "normal", score: 250, wpm: 60 } },
+      history,
+    });
+    window.localStorage.setItem(
+      Scores.WORD_BLAST_SCORES_KEY,
+      JSON.stringify(sanitized),
+    );
+    await freshModule();
+    expect(Scores.getWordBlastBest("normal")?.score).toBe(250);
+    expect(Scores.getWordBlastHistory()).toHaveLength(10);
+  });
+});
