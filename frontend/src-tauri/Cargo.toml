@@ -1,6 +1,6 @@
 [package]
 name = "paralleltype"
-version = "0.13.2"
+version = "0.14.0"
 description = "The most customizable typing test website with a minimal design - desktop build"
 edition = "2021"
 
