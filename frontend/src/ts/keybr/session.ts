@@ -99,6 +99,24 @@ export async function loadPhoneticModel(
   return censor(makePhoneticModel(language.language, body));
 }
 
+//idea #7: consumers outside /keybr (the smart drill) share one lazy model
+//per language - the ~69KB asset loads at most once per session. A failed
+//load clears the slot so a later call can retry.
+const sharedModels: Partial<Record<KeybrLanguageId, Promise<PhoneticModel>>> =
+  {};
+
+export function loadSharedPhoneticModel(
+  id: KeybrLanguageId,
+): Promise<PhoneticModel> {
+  sharedModels[id] ??= loadPhoneticModel(keybrLanguageById(id)).catch(
+    (error: unknown) => {
+      sharedModels[id] = undefined;
+      throw error;
+    },
+  );
+  return sharedModels[id] as Promise<PhoneticModel>;
+}
+
 /** builds the guided lesson for a language */
 export async function makeLesson(
   language: KeybrLanguage,

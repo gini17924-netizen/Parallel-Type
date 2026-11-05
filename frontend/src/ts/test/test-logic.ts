@@ -1201,12 +1201,16 @@ export async function finish(difficultyFailed = false): Promise<void> {
           result: snapshotResult,
           isPb,
         });
-        //learning drill: register per-letter stats and evaluate the unlock
+        //learning drill: register per-letter stats and evaluate the unlock.
+        //idea #7 (owner decision): the smart drill registers too - row/hand
+        //drills stay unregistered (repetitive drills would pollute SM-2)
         const drillWords = takeActiveDrillWords();
         if (
           drillWords !== undefined &&
           completedEvent.mode === "custom" &&
-          getCustomTextIndicator()?.name === "learning drill"
+          ["learning drill", "smart drill"].includes(
+            getCustomTextIndicator()?.name ?? "",
+          )
         ) {
           registerDrillResult(
             drillWords,

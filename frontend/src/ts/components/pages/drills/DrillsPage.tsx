@@ -3,6 +3,7 @@ import { JSXElement, For, Show, createSignal, onMount } from "solid-js";
 import { setConfig } from "../../../config/setters";
 import { Config } from "../../../config/store";
 import { restartTestEvent } from "../../../events/test";
+import { loadSharedPhoneticModel } from "../../../keybr/session";
 import { navigate } from "../../../router/navigate";
 import { setCustomTextIndicator } from "../../../states/core";
 import * as CustomText from "../../../test/custom-text";
@@ -14,7 +15,12 @@ import {
   unlockedLetters,
   weakLetterDrillWords,
   weakLetters,
+  weakLettersDetailed,
 } from "../../../utils/learn-stats";
+import {
+  buildCurrentWeakness,
+  generateSmartDrillWords,
+} from "../../../utils/smart-drill";
 import { Button } from "../../common/Button";
 import { H2 } from "../../common/Headers";
 
@@ -43,6 +49,16 @@ export function DrillsPage(): JSXElement {
   const [wordList, setWordList] = createSignal<string[]>([]);
   const [weak, setWeak] = createSignal<{ letter: string; acc: number }[]>([]);
   const [rusty, setRusty] = createSignal<{ letter: string; acc: number }[]>([]);
+  //idea #7: per-letter evidence sources for the problem-keys grid
+  const [detailed, setDetailed] = createSignal<
+    {
+      letter: string;
+      acc: number;
+      evidence: { source: "drill" | "keybr"; n: number }[];
+    }[]
+  >([]);
+  const [smartLoading, setSmartLoading] = createSignal(false);
+  const [smartFallback, setSmartFallback] = createSignal(false);
 
   onMount(async () => {
     try {
@@ -51,6 +67,7 @@ export function DrillsPage(): JSXElement {
       setWordList([]);
     }
     setWeak(weakLetters(8));
+    setDetailed(weakLettersDetailed(8));
     setRusty(rustyLetters(8));
   });
 
@@ -88,7 +105,9 @@ export function DrillsPage(): JSXElement {
       </section>
 
       <section class="grid gap-4 rounded bg-sub-alt p-4">
-        <div class="text-sub">my problem keys (from your drill history)</div>
+        <div class="text-sub">
+          my problem keys (drill history + keybr engine, merged per source)
+        </div>
         <Show
           when={weak().length > 0}
           fallback={
@@ -98,7 +117,7 @@ export function DrillsPage(): JSXElement {
           }
         >
           <div class="grid grid-cols-8 gap-2 sm:grid-cols-8">
-            <For each={weak()}>
+            <For each={detailed()}>
               {(it) => (
                 <div class="text-center">
                   <div class="text-2xl">{it.letter}</div>
@@ -113,9 +132,19 @@ export function DrillsPage(): JSXElement {
                   >
                     {Math.round(it.acc * 100)}%
                   </div>
+                  <Show when={it.evidence.length > 0}>
+                    <div class="text-xs text-sub">
+                      {it.evidence
+                        .map((e) => (e.source === "drill" ? "d" : "k"))
+                        .join("+")}
+                    </div>
+                  </Show>
                 </div>
               )}
             </For>
+          </div>
+          <div class="text-xs text-sub">
+            d = drills · k = keybr engine (read-only)
           </div>
           <Button
             text="drill my problem keys"
@@ -129,6 +158,67 @@ export function DrillsPage(): JSXElement {
             }}
           />
         </Show>
+      </section>
+
+      <section class="grid gap-4 rounded bg-sub-alt p-4">
+        <div class="text-sub">smart drill (adaptive phonetic generator)</div>
+        <p class="text-xs text-sub">
+          Real words and pronounceable pseudo-words weighted towards your
+          weakest unlocked letters. Registered in your review schedule.
+        </p>
+        <Show when={smartFallback()}>
+          <div class="text-xs text-sub">
+            phonetic engine unavailable — this drill used the fallback generator
+          </div>
+        </Show>
+        <Button
+          text={smartLoading() ? "loading engine…" : "start smart drill"}
+          fa={{ icon: "fa-brain" }}
+          class="w-full"
+          disabled={smartLoading()}
+          onClick={() => {
+            void (async () => {
+              setSmartLoading(true);
+              const seed = Date.now();
+              const inputs = {
+                allowedLetters: unlockedLetters(language()),
+                wordList: wordList(),
+                weakness: buildCurrentWeakness(),
+              };
+              if (inputs.allowedLetters === "") {
+                setSmartLoading(false);
+                return;
+              }
+              try {
+                const model = await loadSharedPhoneticModel(
+                  language().startsWith("persian") ? "fa" : "en",
+                );
+                const plan = generateSmartDrillWords({
+                  model,
+                  ...inputs,
+                  seed,
+                });
+                setSmartFallback(plan.usedFallback);
+                if (plan.words.length > 0) {
+                  startDrill(plan.words, "smart drill");
+                }
+              } catch {
+                //model load failed: the bigram fallback still fills the drill
+                const plan = generateSmartDrillWords({
+                  model: undefined,
+                  ...inputs,
+                  seed,
+                });
+                setSmartFallback(true);
+                if (plan.words.length > 0) {
+                  startDrill(plan.words, "smart drill");
+                }
+              } finally {
+                setSmartLoading(false);
+              }
+            })();
+          }}
+        />
       </section>
 
       <section class="grid gap-4 rounded bg-sub-alt p-4">

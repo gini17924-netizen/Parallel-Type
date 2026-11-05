@@ -209,9 +209,11 @@ export function generatePseudoWords(
   count: number,
   referenceWords: string[] = [],
   emphasizeLetters = "",
+  /** idea #7: explicit seed makes generation deterministic; default keeps
+   * the old time-seeded behavior for the legacy call sites */
+  seed = Date.now() % 2147483647,
 ): string[] {
   const words: string[] = [];
-  let seed = Date.now() % 2147483647;
   const rand = (): number => {
     seed = (seed * 16807) % 2147483647;
     return (seed - 1) / 2147483646;
@@ -351,6 +353,9 @@ export function filterRealWords(
   wordList: string[],
   letters: string,
   count: number,
+  /** idea #7: injectable randomness (deterministic smart drills); default
+   * keeps the old behavior for the legacy call sites */
+  rng: () => number = Math.random,
 ): string[] {
   const allowed = new Set(letters.split(""));
   // a character counts as a "letter" if it is Latin or Arabic-script
@@ -365,12 +370,12 @@ export function filterRealWords(
         .every((ch) => allowed.has(ch.toLowerCase()) || !isLetterChar(ch)),
   );
   const out: string[] = [];
-  let i = Math.floor(Math.random() * Math.max(1, matches.length));
+  let i = Math.floor(rng() * Math.max(1, matches.length));
   while (out.length < count && matches.length > 0) {
     const word = matches[i % matches.length];
     if (word === undefined) break;
     out.push(word);
-    i += Math.floor(1 + Math.random() * 7);
+    i += Math.floor(1 + rng() * 7);
   }
   return out;
 }
