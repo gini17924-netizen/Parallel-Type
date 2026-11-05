@@ -2,6 +2,7 @@ import { Language } from "@monkeytype/schemas/languages";
 import { LEARN_STATE_KEY } from "./local-persistence";
 import { loadKeybrLetterStats } from "./keybr-letter-stats";
 import { buildWeaknessMap } from "./weakness-model";
+import { normalizeEnterStatKey } from "./enter-drill";
 
 /**
  * Learning/progressive-mode engine (Keybr-style, fully offline).
@@ -548,7 +549,11 @@ export function registerDrillResult(
   language: string,
 ): LearnState {
   const state = getLearnState();
-  const newStats = computeLetterStats(drillWords, typedWords);
+  //idea #9: the enter drill's newline stat is stored under the friendly
+  //"enter" key (raw "\n" would print as an invisible glyph in the grids)
+  const newStats = normalizeEnterStatKey(
+    computeLetterStats(drillWords, typedWords),
+  );
   mergeKeyStats(state, newStats);
   updateReviewSchedule(state, newStats);
   state.unlockedGroups = evaluateUnlock(state, language);

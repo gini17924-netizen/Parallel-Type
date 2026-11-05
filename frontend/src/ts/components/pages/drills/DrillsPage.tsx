@@ -6,12 +6,20 @@ import { restartTestEvent } from "../../../events/test";
 import { loadSharedPhoneticModel } from "../../../keybr/session";
 import { navigate } from "../../../router/navigate";
 import { setCustomTextIndicator } from "../../../states/core";
+import { showNoticeNotification } from "../../../states/notifications";
 import * as CustomText from "../../../test/custom-text";
+import {
+  ENTER_STAT_KEY,
+  generateEnterDrillWords,
+  type EnterDrillStyle,
+} from "../../../utils/enter-drill";
 import {
   fetchWordList,
   generateDrillWords,
+  getLearnState,
   rowDrillsForLanguage,
   rustyLetters,
+  setActiveDrillWords,
   unlockedLetters,
   weakLetterDrillWords,
   weakLetters,
@@ -59,6 +67,20 @@ export function DrillsPage(): JSXElement {
   >([]);
   const [smartLoading, setSmartLoading] = createSignal(false);
   const [smartFallback, setSmartFallback] = createSignal(false);
+  //idea #9: enter-key accuracy from the learn state (undefined = never drilled)
+  const [enterAccuracy, setEnterAccuracy] = createSignal<number | undefined>(
+    undefined,
+  );
+
+  const refreshEnterAccuracy = (): void => {
+    const stat = getLearnState().keyStats[ENTER_STAT_KEY];
+    if (stat === undefined) {
+      setEnterAccuracy(undefined);
+      return;
+    }
+    const total = stat.correct + stat.incorrect;
+    setEnterAccuracy(total > 0 ? stat.correct / total : undefined);
+  };
 
   onMount(async () => {
     try {
@@ -69,6 +91,7 @@ export function DrillsPage(): JSXElement {
     setWeak(weakLetters(8));
     setDetailed(weakLettersDetailed(8));
     setRusty(rustyLetters(8));
+    refreshEnterAccuracy();
   });
 
   return (
@@ -273,6 +296,69 @@ export function DrillsPage(): JSXElement {
             }}
           />
         </Show>
+      </section>
+
+      <section class="grid gap-4 rounded bg-sub-alt p-4">
+        <div class="text-sub">enter key practice (multiline muscle memory)</div>
+        <p class="text-xs text-sub">
+          Short lines that end with the Enter key — prose, code and chat shapes.
+          Enter hits register in your review schedule like any letter.
+        </p>
+        <Show when={enterAccuracy() !== undefined}>
+          <div class="text-sub">
+            enter accuracy so far:{" "}
+            <span
+              class={
+                (enterAccuracy() ?? 0) >= 0.95
+                  ? "text-main"
+                  : (enterAccuracy() ?? 0) >= 0.8
+                    ? "text-text"
+                    : "text-error"
+              }
+            >
+              {Math.round((enterAccuracy() ?? 0) * 100)}%
+            </span>
+          </div>
+        </Show>
+        <div class="grid grid-cols-3 gap-2">
+          <For
+            each={
+              [
+                { style: "prose", label: "prose" },
+                { style: "code", label: "code" },
+                { style: "chat", label: "chat" },
+              ] as { style: EnterDrillStyle; label: string }[]
+            }
+          >
+            {({ style, label }) => (
+              <Button
+                text={label}
+                class="w-full"
+                onClick={() => {
+                  //funbox guard: a funbox may redefine Enter (58008 turns it
+                  //into a space) and would silently break the drill
+                  if (Config.funbox.length > 0) {
+                    showNoticeNotification(
+                      "turn off funboxes to run the enter drill",
+                    );
+                    return;
+                  }
+                  const words = generateEnterDrillWords(
+                    style,
+                    wordList(),
+                    25,
+                    Date.now(),
+                  );
+                  if (words.length === 0) return;
+                  //1:1 with the generated tokens: the stats diff is
+                  //token-by-token against the input history
+                  setActiveDrillWords(words);
+                  startDrill(words, "enter drill");
+                }}
+              />
+            )}
+          </For>
+        </div>
       </section>
     </div>
   );

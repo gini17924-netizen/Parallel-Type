@@ -1203,12 +1203,14 @@ export async function finish(difficultyFailed = false): Promise<void> {
         });
         //learning drill: register per-letter stats and evaluate the unlock.
         //idea #7 (owner decision): the smart drill registers too - row/hand
-        //drills stay unregistered (repetitive drills would pollute SM-2)
+        //drills stay unregistered (repetitive drills would pollute SM-2).
+        //idea #9: the enter drill registers (Enter is a real key with a
+        //review schedule)
         const drillWords = takeActiveDrillWords();
         if (
           drillWords !== undefined &&
           completedEvent.mode === "custom" &&
-          ["learning drill", "smart drill"].includes(
+          ["learning drill", "smart drill", "enter drill"].includes(
             getCustomTextIndicator()?.name ?? "",
           )
         ) {
