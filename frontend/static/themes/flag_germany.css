@@ -1,0 +1,14 @@
+/* flag_germany (idea #13): stripes live ONLY on the chrome logo via
+   background-clip on the text — the page background stays flat (#0d0d0d)
+   because text would cross stripe borders and custom backgrounds would
+   cover them (golden rule of the flag themes) */
+[data-ui-element="logoText"] {
+  background: linear-gradient(
+    90deg,
+    #dd0000 0 33.4%,
+    #ffce00 33.4% 66.7%,
+    #f2f2f2 66.7% 100%
+  );
+  background-clip: text;
+  color: transparent;
+}

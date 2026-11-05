@@ -1,0 +1,12 @@
+/* flag_france (idea #13): tricolor on the chrome logo only — the page
+   background stays flat (see the flag themes' golden rule) */
+[data-ui-element="logoText"] {
+  background: linear-gradient(
+    90deg,
+    #0055a4 0 33.4%,
+    #ffffff 33.4% 66.7%,
+    #ef4135 66.7% 100%
+  );
+  background-clip: text;
+  color: transparent;
+}

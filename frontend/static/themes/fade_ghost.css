@@ -1,0 +1,25 @@
+/* fade_ghost (idea #13): typed words remain as a 25% ghost — a persistent
+   fade, NOT the typedEffect:fade disappear animation. opacity-based so it
+   also fades over custom background images. Applies to .word (not letter)
+   so highlightMode/colorfulMode/flipped/error borders stay untouched. */
+#words .word.typed {
+  opacity: 0.25;
+  transition: opacity 0.35s ease;
+}
+#words .word.active {
+  opacity: 1;
+}
+/* the theme <link> loads after the base <style>: these win the cascade and
+   neutralize a user-set typedEffect so the two fades never fight */
+#words.typed-effect-fade .word.typed {
+  animation: none;
+  opacity: 0.25;
+}
+#words.typed-effect-hide .word.typed {
+  opacity: 0.25;
+}
+@media (prefers-reduced-motion: reduce) {
+  #words .word.typed {
+    transition: none;
+  }
+}
