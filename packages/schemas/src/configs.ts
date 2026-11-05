@@ -303,6 +303,7 @@ export const FunboxNameSchema = z.enum([
   "round_round_baby",
   "simon_says",
   "tts",
+  "tts_seen",
   "choo_choo",
   "arrows",
   "rAnDoMcAsE",

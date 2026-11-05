@@ -8,6 +8,7 @@ import { randomIntFromRange } from "@monkeytype/util/numbers";
 import * as Arrays from "../../utils/arrays";
 import { save } from "./funbox-memory";
 import * as TTS from "../tts";
+import * as TtsSpeech from "../../utils/tts-speech";
 import {
   showNoticeNotification,
   showErrorNotification,
@@ -248,6 +249,14 @@ const list: Partial<Record<FunboxName, FunboxFunctions>> = {
         return;
       }
       if (params[0] !== undefined) void TTS.speak(params[0]);
+    },
+  },
+  tts_seen: {
+    rememberSettings(): void {
+      save("highlightMode", Config.highlightMode);
+    },
+    toggleScript(params: string[]): void {
+      if (params[0] !== undefined) void TtsSpeech.speakWord(params[0]);
     },
   },
   arrows: {

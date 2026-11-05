@@ -25,6 +25,7 @@ describe("funbox-validation", () => {
         "plus_one", //toPush:
         "read_ahead_easy", //changesWordVisibility
         "tts", //speaks
+        "tts_seen", //speaks
         "layout_mirror", //changesLayout
         "zipf", //changesWordsFrequency
       ].map((funbox) => ({

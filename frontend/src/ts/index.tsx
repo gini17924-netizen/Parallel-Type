@@ -39,6 +39,7 @@ import "./input/hotkeys";
 import { showModal } from "./states/modals";
 import { getLastEventLog } from "./states/test";
 import { buildEventLog } from "./test/events/data";
+import { installDrillSpeech } from "./utils/drill-speech";
 
 // Lock Math.random
 Object.defineProperty(Math, "random", {
@@ -78,6 +79,8 @@ if (
 
 // render before anything that might touch component-rendered DOM (eg. test page).
 // Renders after the static markup in <body> (index.html)
+installDrillSpeech();
+
 render(() => <App />, document.body);
 
 applyEngineSettings();

@@ -75,6 +75,17 @@ const list: Record<FunboxName, FunboxMetadata> = {
     description: "Listen closely.",
     cssModifications: ["words"],
   },
+  tts_seen: {
+    canGetPb: true,
+    difficultyLevel: 1,
+    properties: ["speaks"],
+    frontendForcedConfig: {
+      highlightMode: ["letter", "off"],
+    },
+    frontendFunctions: ["rememberSettings", "toggleScript"],
+    name: "tts_seen",
+    description: "Read along - words are spoken aloud and stay visible.",
+  },
   choo_choo: {
     canGetPb: true,
     difficultyLevel: 2,

@@ -9,6 +9,10 @@ import { setCustomTextIndicator } from "../../../states/core";
 import { showNoticeNotification } from "../../../states/notifications";
 import * as CustomText from "../../../test/custom-text";
 import {
+  isDrillSpeechEnabled,
+  setDrillSpeechEnabled,
+} from "../../../utils/drill-speech";
+import {
   ENTER_STAT_KEY,
   generateEnterDrillWords,
   type EnterDrillStyle,
@@ -67,6 +71,8 @@ export function DrillsPage(): JSXElement {
   >([]);
   const [smartLoading, setSmartLoading] = createSignal(false);
   const [smartFallback, setSmartFallback] = createSignal(false);
+  //idea #12: speak-words toggle for drills (persisted, boot-installed effect)
+  const [speechOn, setSpeechOn] = createSignal(isDrillSpeechEnabled());
   //idea #9: enter-key accuracy from the learn state (undefined = never drilled)
   const [enterAccuracy, setEnterAccuracy] = createSignal<number | undefined>(
     undefined,
@@ -194,6 +200,16 @@ export function DrillsPage(): JSXElement {
             phonetic engine unavailable — this drill used the fallback generator
           </div>
         </Show>
+        <Button
+          text={speechOn() ? "speak words: on" : "speak words: off"}
+          fa={{ icon: speechOn() ? "fa-volume-up" : "fa-volume-mute" }}
+          class="w-full"
+          onClick={() => {
+            const next = !speechOn();
+            setDrillSpeechEnabled(next);
+            setSpeechOn(next);
+          }}
+        />
         <Button
           text={smartLoading() ? "loading engine…" : "start smart drill"}
           fa={{ icon: "fa-brain" }}

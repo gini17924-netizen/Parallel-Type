@@ -118,6 +118,12 @@ describe("validation", () => {
       );
     });
 
+    it("should reject two speaking funboxes together", () => {
+      //GIVEN (real list entries: tts and tts_seen both claim "speaks")
+      //WHEN / THEN
+      expect(Validation.checkCompatibility(["tts_seen", "tts"])).toBe(false);
+    });
+
     it("should reject weak_letters with other word-frequency funboxes", () => {
       //GIVEN (real list entries: zipf also changes frequency; weakspot and
       //pseudolang are word modifiers of the same class)

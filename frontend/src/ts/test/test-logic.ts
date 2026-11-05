@@ -121,6 +121,7 @@ import {
 } from "../utils/learn-stats";
 import * as DesktopAutoBackup from "../utils/desktop-auto-backup";
 import * as DesktopDailyGoal from "../utils/daily-goal";
+import * as DrillSpeech from "../utils/drill-speech";
 
 import { WordGenError } from "../utils/word-gen-error";
 import { tryCatch } from "@monkeytype/util/trycatch";
@@ -651,6 +652,9 @@ async function init(): Promise<boolean> {
   }
 
   Funbox.toggleScript(TestWords.words.getCurrent()?.text ?? "");
+  //idea #12: the drill speak toggle speaks the first word here (init runs
+  //after the words are set; a speaks-funbox already spoke via toggleScript)
+  DrillSpeech.speakCurrentWordIfEnabled();
   setJoiningScript(
     (allJoiningScript ?? language.joiningScript ?? false) ||
       Config.mode === "custom" ||
