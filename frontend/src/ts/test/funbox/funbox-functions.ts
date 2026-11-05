@@ -19,6 +19,7 @@ import { getPoem } from "../poetry";
 import * as JSONData from "../../utils/json-data";
 import { getSection } from "../wikipedia";
 import * as WeakSpot from "../weak-spot";
+import * as WeakLettersFunbox from "../../utils/weak-letters-funbox";
 import * as IPAddresses from "../../utils/ip-addresses";
 import {
   getActiveWordIndex,
@@ -506,6 +507,11 @@ const list: Partial<Record<FunboxName, FunboxFunctions>> = {
     getWord(wordset?: Wordset): string {
       if (wordset !== undefined) return WeakSpot.getWord(wordset);
       else return "";
+    },
+  },
+  weak_letters: {
+    getWord(wordset?: Wordset): string {
+      return WeakLettersFunbox.pickWord(wordset);
     },
   },
   pseudolang: {

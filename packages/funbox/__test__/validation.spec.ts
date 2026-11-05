@@ -109,6 +109,30 @@ describe("validation", () => {
       expect(Validation.checkCompatibility(["growing_text", "crt"])).toBe(true);
     });
 
+    it("should allow weak_letters with funboxes without word-frequency changes", () => {
+      //GIVEN (real list entries: weak_letters changes word frequency,
+      //capitals changes nothing frequency-related)
+      //WHEN / THEN
+      expect(Validation.checkCompatibility(["weak_letters", "capitals"])).toBe(
+        true,
+      );
+    });
+
+    it("should reject weak_letters with other word-frequency funboxes", () => {
+      //GIVEN (real list entries: zipf also changes frequency; weakspot and
+      //pseudolang are word modifiers of the same class)
+      //WHEN / THEN
+      expect(Validation.checkCompatibility(["weak_letters", "zipf"])).toBe(
+        false,
+      );
+      expect(Validation.checkCompatibility(["weak_letters", "weakspot"])).toBe(
+        false,
+      );
+      expect(
+        Validation.checkCompatibility(["weak_letters", "pseudolang"]),
+      ).toBe(false);
+    });
+
     it("should reject growing_text with funboxes also modifying words", () => {
       //GIVEN (real list entries: earthquake/tts/backwards/asl claim "words")
       //WHEN / THEN

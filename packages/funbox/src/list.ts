@@ -324,6 +324,15 @@ const list: Record<FunboxName, FunboxMetadata> = {
     frontendFunctions: ["getWord"],
     name: "weakspot",
   },
+  weak_letters: {
+    description:
+      "Real words weighted towards your weakest letters (persistent: uses your drill and keybr stats).",
+    canGetPb: false,
+    difficultyLevel: 0,
+    properties: ["changesWordsFrequency"],
+    frontendFunctions: ["getWord"],
+    name: "weak_letters",
+  },
   pseudolang: {
     description: "Nonsense words that look like the current language.",
     canGetPb: false,
