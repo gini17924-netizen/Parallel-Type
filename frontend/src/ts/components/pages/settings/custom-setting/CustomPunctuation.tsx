@@ -18,7 +18,7 @@ const CustomPunctuationInputSchema = z.string().max(32);
 /** preset rows: label → characters + zwnj default */
 const PRESETS: { label: string; chars: string; zwnj: boolean }[] = [
   { label: "english", chars: "", zwnj: false },
-  { label: "fa-standard", chars: "،؟؛«»", zwnj: false },
+  { label: "fa standard", chars: "،؟؛«»", zwnj: false },
 ];
 
 /**
@@ -75,7 +75,7 @@ export function CustomPunctuation(): JSXElement {
       fa={configMetadata.punctuationStyle.fa}
       description={
         "Which punctuation characters the generator uses. Presets: english " +
-        "(built-in table) and fa-standard (،؟؛«» as paired wrappers). An " +
+        "(built-in table) and fa standard (،؟؛«» as paired wrappers). An " +
         "empty custom set falls back to the built-in table. Note: the " +
         "persian_standard keyboard layout has no Persian question-mark key, " +
         "and ZWNJ support differs by layout."

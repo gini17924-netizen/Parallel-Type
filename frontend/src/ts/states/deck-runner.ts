@@ -95,7 +95,7 @@ type SourceSpec = {
 export function sourceOptions(): SourceSpec[] {
   const options: SourceSpec[] = [
     { id: "en-1k", label: "english 1k", kind: "zipf", base: "en-1k" },
-    { id: "fa-1k", label: "persian 1k", kind: "zipf", base: "fa-1k" },
+    { id: "fa_1k", label: "persian 1k", kind: "zipf", base: "fa_1k" },
     {
       id: "weakness:en-1k",
       label: "english — weak letters",
@@ -103,10 +103,10 @@ export function sourceOptions(): SourceSpec[] {
       base: "en-1k",
     },
     {
-      id: "weakness:fa-1k",
+      id: "weakness:fa_1k",
       label: "فارسی — weak letters",
       kind: "weakness",
-      base: "fa-1k",
+      base: "fa_1k",
     },
   ];
   for (const name of CustomText.getCustomTextNames(false)) {
@@ -130,9 +130,9 @@ async function poolFor(wordSourceId: string): Promise<string[]> {
     pool = CustomText.getCustomText(name, false);
   } else if (wordSourceId.startsWith("weakness:")) {
     pool = await fetchWordList(
-      wordSourceId.endsWith("fa-1k") ? "persian" : "english",
+      wordSourceId.endsWith("fa_1k") ? "persian" : "english",
     );
-  } else if (wordSourceId === "fa-1k") {
+  } else if (wordSourceId === "fa_1k") {
     pool = await fetchWordList("persian");
   } else {
     pool = await fetchWordList("english");
