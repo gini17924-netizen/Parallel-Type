@@ -228,7 +228,17 @@ describe("app shell routing", () => {
       });
 
       app.blockingData.loadResults();
-      await flush();
+      //poll instead of a single flush: the completion signal lands a few
+      //microtask/rAF hops after loadResults, which is load-sensitive in a
+      //full-suite run (KI-28 class - surfaced when the file set grew)
+      const loadingBarDone = async (): Promise<void> => {
+        const deadline = Date.now() + 2000;
+        while (Date.now() < deadline) {
+          await flush();
+          if (app.loadingBar()?.text === "Done") return;
+        }
+      };
+      await loadingBarDone();
       expect(app.loadingBar()).toEqual({ width: "100%", text: "Done" });
 
       await app.settle();
@@ -272,7 +282,17 @@ describe("app shell routing", () => {
       });
 
       app.blockingData.loadResults();
-      await flush();
+      //poll instead of a single flush: the completion signal lands a few
+      //microtask/rAF hops after loadResults, which is load-sensitive in a
+      //full-suite run (KI-28 class - surfaced when the file set grew)
+      const loadingBarDone = async (): Promise<void> => {
+        const deadline = Date.now() + 2000;
+        while (Date.now() < deadline) {
+          await flush();
+          if (app.loadingBar()?.text === "Done") return;
+        }
+      };
+      await loadingBarDone();
       expect(app.loadingBar()).toEqual({ width: "100%", text: "Done" });
 
       await app.settle();
@@ -286,7 +306,17 @@ describe("app shell routing", () => {
       await app.settle({ waitForRouter: false });
 
       app.blockingData.loadResults();
-      await flush();
+      //poll instead of a single flush: the completion signal lands a few
+      //microtask/rAF hops after loadResults, which is load-sensitive in a
+      //full-suite run (KI-28 class - surfaced when the file set grew)
+      const loadingBarDone = async (): Promise<void> => {
+        const deadline = Date.now() + 2000;
+        while (Date.now() < deadline) {
+          await flush();
+          if (app.loadingBar()?.text === "Done") return;
+        }
+      };
+      await loadingBarDone();
       expect(app.loadingBar()).toEqual({ width: "100%", text: "Done" });
       // the bar takes 125ms to fill up from the last step
       await flush();
@@ -597,7 +627,17 @@ describe("app shell routing", () => {
       await app.settle({ waitForRouter: false });
 
       app.blockingData.loadResults();
-      await flush();
+      //poll instead of a single flush: the completion signal lands a few
+      //microtask/rAF hops after loadResults, which is load-sensitive in a
+      //full-suite run (KI-28 class - surfaced when the file set grew)
+      const loadingBarDone = async (): Promise<void> => {
+        const deadline = Date.now() + 2000;
+        while (Date.now() < deadline) {
+          await flush();
+          if (app.loadingBar()?.text === "Done") return;
+        }
+      };
+      await loadingBarDone();
       expect(app.loadingBar()).toEqual({ width: "100%", text: "Done" });
       await app.settle();
       expect(app.shownPage()).toBe("account");
