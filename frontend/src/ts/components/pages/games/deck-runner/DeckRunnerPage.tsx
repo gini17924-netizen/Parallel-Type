@@ -188,6 +188,28 @@ function Menu(props: {
           onClick={() => abandonRun()}
         />
       </section>
+
+      <Show when={(deckStats()?.history.length ?? 0) > 0}>
+        <div class="text-xs font-bold tracking-widest text-sub uppercase">
+          recent runs
+        </div>
+        <For each={deckStats()?.history ?? []}>
+          {(summary) => (
+            <div class="flex items-baseline justify-between rounded bg-bg p-2 text-sm">
+              <span>
+                ante {summary.ante} ·{" "}
+                <span class={summary.won ? "text-main" : "text-error"}>
+                  {summary.won ? "won" : "lost"}
+                </span>
+              </span>
+              <span class="text-sub">
+                {new Date(summary.date).toLocaleDateString()} · {summary.score}{" "}
+                pts
+              </span>
+            </div>
+          )}
+        </For>
+      </Show>
     </>
   );
 }

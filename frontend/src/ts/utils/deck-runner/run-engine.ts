@@ -8,6 +8,18 @@ import {
   type JokerRuntime,
 } from "./cards";
 import { GOLD_BASE, GOLD_BOSS } from "./round-engine";
+import {
+  BASE_QUOTA,
+  BLIND_BUDGET,
+  BLIND_QUOTA_MULT,
+  BLINDS_PER_ANTE,
+  MAX_JOKER_SLOTS,
+  QUOTA_GROWTH,
+  REROLL_COST,
+  START_GOLD,
+} from "./balance";
+
+export { BLINDS_PER_ANTE, MAX_JOKER_SLOTS, REROLL_COST, START_GOLD };
 
 /**
  * Deck Runner run state machine (idea G24, phase 2): blind -> reward ->
@@ -21,15 +33,6 @@ import { GOLD_BASE, GOLD_BOSS } from "./round-engine";
  */
 
 export type DeckPhase = "blind" | "reward" | "shop" | "gameover";
-
-export const BLINDS_PER_ANTE = 3;
-export const MAX_JOKER_SLOTS = 5;
-export const START_GOLD = 4;
-export const REROLL_COST = 2;
-const BASE_QUOTA = 250;
-const QUOTA_GROWTH = 1.6;
-const BLIND_QUOTA_MULT = [1, 1.5, 2.5] as const;
-const BLIND_BUDGET = [25, 25, 30] as const;
 
 export const DeckRunStateSchema = z.object({
   seed: z.number(),

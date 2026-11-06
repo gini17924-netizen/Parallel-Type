@@ -1,6 +1,7 @@
 import { createSignal } from "solid-js";
 
 import { playClick, playError } from "../controllers/sound-controller";
+import * as DB from "../db";
 import { createRng, deriveSeed } from "../utils/deck-runner/rng";
 import {
   createWordSource,
@@ -40,6 +41,11 @@ import {
   saveActiveRun,
   type DeckRunnerStats,
 } from "../utils/deck-runner/run-store";
+/** idea G24 §7: games do NOT grant XP by default (matches the no-XP status
+ * of every game). Flip this fork constant when the council decides on G28. */
+const DECK_RUNNER_XP_CREDIT = false;
+/** flat XP per cleared blind when the credit is enabled */
+const DECK_RUNNER_XP_PER_BLIND = 20;
 
 /**
  * Solid state layer for Deck Runner (idea G24, phase 3): thin reactive
@@ -262,6 +268,10 @@ function finishBlindIfDone(): void {
     setHasSave(false);
   } else {
     saveActiveRun(next);
+    //idea G24 §7 XP hook: off by default (G28 council decision pending)
+    if (DECK_RUNNER_XP_CREDIT && next.phase === "shop") {
+      DB.addXp(DECK_RUNNER_XP_PER_BLIND);
+    }
   }
 }
 

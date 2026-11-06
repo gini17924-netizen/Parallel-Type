@@ -28,24 +28,37 @@ export type ScoreContext = {
 };
 
 /** per-language rare character tables (M4/balance.ts may tune) */
+import {
+  CHIPS_PER_CHAR,
+  CODE_WORD_BONUS,
+  COMBO_TIERS,
+  LONG_WORD_BONUS,
+  LONG_WORD_MIN,
+  RARE_CHAR_BONUS,
+} from "./balance";
+
+export {
+  RARE_CHAR_BONUS,
+  CODE_WORD_BONUS,
+  LONG_WORD_BONUS,
+  LONG_WORD_MIN,
+  CHIPS_PER_CHAR,
+} from "./balance";
+
 export const RARE_CHARS: Record<string, string[]> = {
   fa: ["ظ", "ض", "ژ", "ث", "ذ", "غ", "ع", "ح", "ص", "ط"],
   en: ["q", "x", "z", "j", "k", "v"],
 };
 
-export const RARE_CHAR_BONUS = 10;
-export const CODE_WORD_BONUS = 15;
-export const LONG_WORD_BONUS = 20;
-export const LONG_WORD_MIN = 8;
-export const CHIPS_PER_CHAR = 5;
-
 export function comboMultiplier(combo: number): number {
-  if (combo >= 100) return 5;
-  if (combo >= 50) return 3;
-  if (combo >= 30) return 2;
-  if (combo >= 15) return 1.5;
-  if (combo >= 5) return 1.2;
-  return 1;
+  let mult = 1;
+  for (const [threshold, tierMult] of COMBO_TIERS) {
+    if (combo >= threshold) {
+      mult = tierMult;
+      break; //tiers are sorted high -> low
+    }
+  }
+  return mult;
 }
 
 function rareBonus(word: string, sourceId: string): number {

@@ -5,6 +5,7 @@ import {
   JOKER_REGISTRY,
   type Rarity,
 } from "./cards";
+import { RARITY_WEIGHT as RARITY_WEIGHTS } from "./balance";
 import { createRng, deriveSeed } from "./rng";
 import type { DeckRunState } from "./run-engine";
 
@@ -18,12 +19,7 @@ import type { DeckRunState } from "./run-engine";
  * guarantees exactly one common.
  */
 
-const RARITY_WEIGHT: Record<Rarity, [number, number]> = {
-  //[ante 1 weight, ante >= 2 weight]
-  common: [62, 46],
-  rare: [28, 36],
-  legendary: [10, 18],
-};
+const RARITY_WEIGHT: Record<Rarity, readonly [number, number]> = RARITY_WEIGHTS;
 
 export type ShopOffer = { jokerId: string; cost: number };
 

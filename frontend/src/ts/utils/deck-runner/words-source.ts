@@ -24,10 +24,14 @@ export type WordSource = {
   nextWord(): string;
 };
 
-export const DEFAULT_MIN_LENGTH = 3;
-export const DEFAULT_MAX_LENGTH = 10;
-const RECENT_WINDOW = 10;
-const ARGMAX_SAMPLES = 20;
+import {
+  ARGMAX_SAMPLES,
+  DEFAULT_MAX_LENGTH,
+  DEFAULT_MIN_LENGTH,
+  RECENT_WINDOW,
+} from "./balance";
+
+export { ARGMAX_SAMPLES, DEFAULT_MAX_LENGTH, DEFAULT_MIN_LENGTH };
 
 export type WordSourceConfig = {
   id: string;

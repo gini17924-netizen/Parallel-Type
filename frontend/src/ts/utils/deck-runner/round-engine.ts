@@ -1,4 +1,7 @@
 import { wordScore } from "./scoring";
+import { GOLD_BASE, GOLD_BOSS } from "./balance";
+
+export { GOLD_BASE, GOLD_BOSS };
 import type { WordSource } from "./words-source";
 
 /**
@@ -58,9 +61,6 @@ export type RoundState = {
   /** mistyped keystrokes on the current word (combo breaks happen per key) */
   errorsThisWord: number;
 };
-
-export const GOLD_BASE = 3;
-export const GOLD_BOSS = 5;
 
 export function effectiveWordLengths(config: BlindConfig): {
   minLength: number;
