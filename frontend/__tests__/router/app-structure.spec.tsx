@@ -52,15 +52,22 @@ describe("app structure (home hub sections)", () => {
     expect(sectionHasPicker(practice)).toBe(true);
   });
 
-  it("games is a single destination (word blast), no picker", () => {
-    expect(must("games").route).toBe("/games");
-    expect(sectionHasPicker(must("games"))).toBe(false);
+  it("games has word blast and deck runner behind a picker (idea G24)", () => {
+    const games = must("games");
+    expect(games.route).toBeUndefined();
+    expect(games.subSections?.map((sub) => sub.id)).toEqual([
+      "word-blast",
+      "deck-runner",
+    ]);
+    expect(sectionHasPicker(games)).toBe(true);
+    expect(games.subSections?.[0]?.route).toBe("/games/word-blast");
+    expect(games.subSections?.[1]?.route).toBe("/games/deck-runner");
   });
 
   it("picker sections link to /sections/<id>, direct ones to their route", () => {
     expect(sectionDestination(must("learning"))).toBe("/sections/learning");
     expect(sectionDestination(must("practice"))).toBe("/sections/practice");
-    expect(sectionDestination(must("games"))).toBe("/games");
+    expect(sectionDestination(must("games"))).toBe("/sections/games");
   });
 });
 
@@ -96,6 +103,21 @@ describe("home hub routing", () => {
     const text = pageText(app);
     expect(text).toContain("progressive learning");
     expect(text).toContain("keybr engine");
+    expect(text).toContain("back to home");
+  });
+
+  it("the games picker renders word blast and deck runner (idea G24)", async () => {
+    const app = renderApp();
+    await app.settle();
+    await app.router.navigate({
+      to: "/sections/$sectionId",
+      params: { sectionId: "games" },
+    });
+    await app.settle();
+    expect(getRoutePage()).toBe("sections");
+    const text = pageText(app);
+    expect(text).toContain("word blast");
+    expect(text).toContain("deck runner");
     expect(text).toContain("back to home");
   });
 

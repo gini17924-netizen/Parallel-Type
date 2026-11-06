@@ -53,6 +53,10 @@ export type RoundState = {
   won: boolean;
   /** the word awaiting input (unchanged once finished) */
   currentWord: string;
+  /** correctly typed characters of the current word (idea G24 phase 3) */
+  buffer: string;
+  /** mistyped keystrokes on the current word (combo breaks happen per key) */
+  errorsThisWord: number;
 };
 
 export const GOLD_BASE = 3;
@@ -79,6 +83,8 @@ export function startRound(
     finished: false,
     won: false,
     currentWord: source.nextWord(),
+    buffer: "",
+    errorsThisWord: 0,
   };
 }
 
@@ -181,11 +187,111 @@ export function submitWord(
     finished,
     won,
     currentWord: finished ? state.currentWord : source.nextWord(),
+    buffer: "",
+    errorsThisWord: 0,
   };
+}
+
+/**
+ * One keystroke against the current word (idea G24 phase 3): the matching
+ * character grows the buffer (auto-committing the word when complete); a
+ * mismatch breaks the combo immediately (accuracyShield/comboFloor honored)
+ * and counts toward the word's errors. The word is scored on completion.
+ */
+export function typeChar(
+  state: RoundState,
+  config: BlindConfig,
+  source: WordSource,
+  char: string,
+  runtime: {
+    comboFloor: number;
+    accuracyShield: boolean;
+    goldPerWord: number;
+    rewardMult: number;
+  } = { comboFloor: 0, accuracyShield: false, goldPerWord: 0, rewardMult: 1 },
+): RoundState {
+  if (state.finished) return state;
+  const expected = state.currentWord[state.buffer.length];
+  if (char === expected) {
+    const buffer = state.buffer + char;
+    if (buffer === state.currentWord) {
+      //word complete: score it (errors already broke the combo mid-word)
+      const attempts = buffer.length + state.errorsThisWord;
+      const evt: WordEvent = {
+        word: state.currentWord,
+        typed: buffer,
+        correct: true,
+        accuracy: attempts > 0 ? buffer.length / attempts : 1,
+        chars: state.currentWord.length,
+        errors: state.errorsThisWord,
+        skipped: false,
+        elapsedMs: 0,
+        comboBefore: state.combo,
+      };
+      const comboAfter = state.combo + 1;
+      const { total } = wordScore(evt, {
+        combo: comboAfter,
+        sourceId: config.wordSourceId,
+      });
+      let score = state.score + total;
+      if (
+        state.errorsThisWord > 0 &&
+        config.bossRule?.kind === "errorPenalty"
+      ) {
+        score = Math.max(0, score - config.bossRule.chips);
+      }
+      const wordsLeft = state.wordsLeft - 1;
+      const won = score >= config.quota;
+      const finished = won || wordsLeft <= 0;
+      return {
+        score,
+        wordsLeft,
+        combo: comboAfter,
+        events: [...state.events, evt],
+        finished,
+        won,
+        currentWord: finished ? state.currentWord : source.nextWord(),
+        buffer: "",
+        errorsThisWord: 0,
+      };
+    }
+    return { ...state, buffer };
+  }
+  //mismatch: combo breaks (shield keeps it), floor lifts it back up
+  const combo = runtime.accuracyShield
+    ? Math.max(state.combo, runtime.comboFloor)
+    : Math.max(runtime.comboFloor, 0);
+  return { ...state, combo, errorsThisWord: state.errorsThisWord + 1 };
+}
+
+/** removes the last typed character (no combo effect) */
+export function backspace(state: RoundState): RoundState {
+  if (state.finished || state.buffer === "") return state;
+  return { ...state, buffer: state.buffer.slice(0, -1) };
 }
 
 /** gold payout for a finished round (shop economy input) */
 export function goldEarned(config: BlindConfig, state: RoundState): number {
   if (!state.won) return 0;
   return config.isBoss ? GOLD_BOSS : GOLD_BASE;
+}
+
+/** skips the current word: burns budget (with a ruleSkipRefund giving some
+ * back), spares the combo, pulls the next word (idea G24 phase 3) */
+export function skipWord(
+  state: RoundState,
+  config: BlindConfig,
+  source: WordSource,
+  runtime: { skipRefundRatio: number } = { skipRefundRatio: 0 },
+): RoundState {
+  if (state.finished) return state;
+  const skippedState = submitWord(state, config, source, {
+    typed: "",
+    skipped: true,
+  });
+  const refund = runtime.skipRefundRatio;
+  return {
+    ...skippedState,
+    wordsLeft: Math.min(config.wordBudget, skippedState.wordsLeft + refund),
+  };
 }

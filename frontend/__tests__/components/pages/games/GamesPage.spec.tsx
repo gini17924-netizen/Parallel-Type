@@ -15,7 +15,7 @@ function pageText(app: App): string {
 async function openGames(): Promise<App> {
   const app = renderApp();
   await app.settle();
-  await app.router.navigate({ to: "/games" });
+  await app.router.navigate({ to: "/games/word-blast" }); //moved to a sub-route when the games hub became a picker (idea G24)
   await app.settle();
   return app;
 }

@@ -1,10 +1,13 @@
 import { describe, it, expect } from "vitest";
 
 import {
+  backspace,
   effectiveWordLengths,
   goldEarned,
+  skipWord,
   startRound,
   submitWord,
+  typeChar,
 } from "../../../src/ts/utils/deck-runner/round-engine";
 import type {
   BlindConfig,
@@ -151,6 +154,8 @@ describe("deck-runner round engine (G24)", () => {
       finished: true,
       won: true,
       currentWord: "",
+      buffer: "",
+      errorsThisWord: 0,
     };
     const lostState = { ...wonState, won: false };
     expect(goldEarned(config(), wonState)).toBe(3);
@@ -168,5 +173,105 @@ describe("deck-runner round engine (G24)", () => {
       minLength: 3,
       maxLength: 10,
     });
+  });
+});
+
+describe("deck-runner typing buffer (G24 phase 3)", () => {
+  it("typeChar grows the buffer on a match and auto-commits the word", () => {
+    const src = sourceFrom(["abc", "def", "ghi"]);
+    const cfg = config({ quota: 999999 });
+    let state = startRound(cfg, src);
+    state = typeChar(state, cfg, src, "a");
+    state = typeChar(state, cfg, src, "b");
+    expect(state.buffer).toBe("ab");
+    expect(state.combo).toBe(0); //grows on completion, not per char
+    state = typeChar(state, cfg, src, "c");
+    expect(state.buffer).toBe(""); //committed
+    expect(state.events[0]?.typed).toBe("abc");
+    expect(state.combo).toBe(1);
+    expect(state.currentWord).toBe("def");
+  });
+
+  it("a mismatch breaks the combo immediately and counts the error", () => {
+    const src = sourceFrom(["abc", "def", "ghi"]);
+    const cfg = config({ quota: 999999 });
+    let state = startRound(cfg, src);
+    state = typeChar(state, cfg, src, "a");
+    state = typeChar(state, cfg, src, "x"); //wrong
+    expect(state.buffer).toBe("a"); //wrong char does not advance
+    expect(state.combo).toBe(0); //broken immediately
+    expect(state.errorsThisWord).toBe(1);
+    state = typeChar(state, cfg, src, "b");
+    state = typeChar(state, cfg, src, "c");
+    expect(state.events[0]?.errors).toBe(1); //carried into the word event
+    expect(state.events[0]?.accuracy).toBeCloseTo(3 / 4, 6);
+  });
+
+  it("accuracyShield keeps the combo through a mismatch", () => {
+    const src = sourceFrom(["abc", "def", "ghi"]);
+    const cfg = config({ quota: 999999 });
+    let state = startRound(cfg, src);
+    const runtime = {
+      comboFloor: 0,
+      accuracyShield: true,
+      goldPerWord: 0,
+      rewardMult: 1,
+    };
+    state = typeChar(state, cfg, src, "a", runtime);
+    state = typeChar(state, cfg, src, "x", runtime);
+    expect(state.combo).toBe(0); //was 0 anyway
+    state = typeChar(state, cfg, src, "b", runtime);
+    state = typeChar(state, cfg, src, "c", runtime); //committed, combo 1
+    state = typeChar(state, cfg, src, "d", runtime);
+    state = typeChar(state, cfg, src, "x", runtime); //wrong with combo 1
+    expect(state.combo).toBe(1); //shield kept it
+    expect(state.errorsThisWord).toBe(1);
+  });
+
+  it("comboFloor lifts the combo after a break", () => {
+    const src = sourceFrom(["abc", "def", "ghi"]);
+    const cfg = config({ quota: 999999 });
+    let state = startRound(cfg, src);
+    const runtime = {
+      comboFloor: 10,
+      accuracyShield: false,
+      goldPerWord: 0,
+      rewardMult: 1,
+    };
+    state = typeChar(state, cfg, src, "a", runtime);
+    state = typeChar(state, cfg, src, "x", runtime); //break -> floor 10
+    expect(state.combo).toBe(10);
+  });
+
+  it("backspace shrinks the buffer without touching the combo", () => {
+    const src = sourceFrom(["abc", "def", "ghi"]);
+    const cfg = config({ quota: 999999 });
+    let state = startRound(cfg, src);
+    state = typeChar(state, cfg, src, "a");
+    state = backspace(state);
+    expect(state.buffer).toBe("");
+    state = typeChar(state, cfg, src, "a");
+    state = typeChar(state, cfg, src, "b");
+    state = backspace(state);
+    expect(state.buffer).toBe("a");
+    expect(state.combo).toBe(0);
+  });
+
+  it("skipWord refunds budget with ruleSkipRefund and spares the combo", () => {
+    const src = sourceFrom(["abc", "skipme", "def", "ghi"]);
+    const cfg = config({ quota: 999999, wordBudget: 10 });
+    let state = startRound(cfg, src);
+    const runtime = {
+      comboFloor: 0,
+      accuracyShield: false,
+      skipRefundRatio: 0.5,
+      goldPerWord: 0,
+      rewardMult: 1,
+    };
+    state = typeChar(state, cfg, src, "a", runtime);
+    state = skipWord(state, cfg, src, runtime);
+    expect(state.combo).toBe(0); //no word completed yet
+    expect(state.wordsLeft).toBe(10 - 1 + 0.5); //one burned, half refunded
+    expect(state.events[0]?.skipped).toBe(true);
   });
 });

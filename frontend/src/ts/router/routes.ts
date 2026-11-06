@@ -20,6 +20,7 @@ import { LearnPage } from "../components/pages/learn/LearnPage";
 import { KeybrPage } from "../components/pages/keybr/KeybrPage";
 import { DrillsPage } from "../components/pages/drills/DrillsPage";
 import { GamesPage } from "../components/pages/games/GamesPage";
+import { DeckRunnerPage } from "../components/pages/games/deck-runner/DeckRunnerPage";
 import { HomePage } from "../components/pages/home/HomePage";
 import { SectionsPage } from "../components/pages/sections/SectionsPage";
 import { WrappedPage } from "../components/pages/wrapped/WrappedPage";
@@ -86,6 +87,7 @@ export type PageName =
   | "keybr"
   | "drills"
   | "games"
+  | "deck-runner"
   | "wrapped";
 
 declare module "@tanstack/solid-router" {
@@ -315,9 +317,16 @@ const drills = createRoute({
 
 const games = createRoute({
   getParentRoute: () => userDataRoute,
-  path: "/games",
+  path: "/games/word-blast",
   staticData: { page: "games" },
   component: createRouterPage(GamesPage),
+});
+
+const deckRunner = createRoute({
+  getParentRoute: () => userDataRoute,
+  path: "/games/deck-runner",
+  staticData: { page: "deck-runner" },
+  component: createRouterPage(DeckRunnerPage),
 });
 
 const wrapped = createRoute({
@@ -471,6 +480,7 @@ export const routeTree = root.addChildren([
     keybr,
     drills,
     games,
+    deckRunner,
     wrapped,
     login,
     account,
