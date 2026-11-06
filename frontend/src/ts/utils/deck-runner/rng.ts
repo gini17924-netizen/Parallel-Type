@@ -14,3 +14,15 @@ export function createRng(seed: number): () => number {
     return (x - 1) / 2147483646;
   };
 }
+
+/** derives an independent seed from a base seed and a positional salt, so
+ * each game position (shop/reward per ante+blind) has its own reproducible
+ * stream without persisting rng state */
+export function deriveSeed(base: number, salt: string): number {
+  let hash = base ^ 0x9e3779b9;
+  for (const ch of salt) {
+    hash = (hash * 31 + ch.charCodeAt(0)) % 2147483647;
+  }
+  if (hash <= 0) hash += 2147483646;
+  return hash;
+}

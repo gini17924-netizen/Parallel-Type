@@ -1,3 +1,4 @@
+import type { WeaknessMap } from "../weakness-model";
 import type { WordEvent } from "./round-engine";
 
 /**
@@ -16,8 +17,14 @@ export type ScoreContext = {
   /** streak before this word's growth (engine passes post-update streak) */
   combo: number;
   sourceId: string;
-  /** Joker pipeline from phase 2; empty in phase 1 */
-  jokers?: ((acc: ScoreAcc, evt: WordEvent) => ScoreAcc)[];
+  /** for languageIs triggers */
+  language?: string;
+  /** 0-based index of this word in the test (everyNthWord trigger) */
+  wordIndex?: number;
+  /** for ruleWeakLetters (idea #7 map, injected) */
+  weakness?: WeaknessMap;
+  /** Joker pipeline; applied in slot order, receiving the full ctx */
+  jokers?: ((acc: ScoreAcc, evt: WordEvent, ctx: ScoreContext) => ScoreAcc)[];
 };
 
 /** per-language rare character tables (M4/balance.ts may tune) */
@@ -67,7 +74,7 @@ export function wordScore(
     mult: comboMultiplier(ctx.combo),
   };
   for (const joker of ctx.jokers ?? []) {
-    acc = joker(acc, evt);
+    acc = joker(acc, evt, ctx);
   }
   return {
     chips: acc.chips,

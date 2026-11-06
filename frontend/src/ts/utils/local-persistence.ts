@@ -387,6 +387,9 @@ const CUSTOM_TEXT_KEY = "customText"; //owner: test/custom-text.ts
 const CUSTOM_TEXT_LONG_KEY = "customTextLong"; //owner: test/custom-text.ts
 const CUSTOM_TEXT_SETTINGS_KEY = "customTextSettings"; //owner: test/custom-text.ts
 const CUSTOM_TEXT_ROTATION_KEY = "customTextRotation"; //owner: test/custom-text.ts
+//owner: utils/deck-runner/run-store.ts (idea G24)
+const DECK_RUNNER_RUN_KEY = "mtDesktopDeckRunnerRun";
+const DECK_RUNNER_STATS_KEY = "mtDesktopDeckRunnerStats";
 
 /** transient runtime state that must never be carried across restores */
 const KEYBR_STATE_EXCLUDED = new Set(["mtKeybrBootError"]);
@@ -461,6 +464,10 @@ export type LocalBackup = {
   wordBlast?: string | undefined;
   /** schema v2: word blast bests + recent history (mtDesktopWordBlastScores) */
   wordBlastScores?: Record<string, unknown> | undefined;
+  /** schema v3 (idea G24): resumable deck-runner run */
+  deckRunnerRun?: Record<string, unknown> | undefined;
+  /** schema v3 (idea G24): deck-runner records + run history */
+  deckRunnerStats?: Record<string, unknown> | undefined;
   /** schema v2: saved custom texts, their settings and the rotation state */
   customTexts?: Record<string, unknown> | undefined;
   customTextsLong?: Record<string, unknown> | undefined;
@@ -487,6 +494,8 @@ export async function exportBackup(): Promise<LocalBackup> {
     wordBlast:
       window.localStorage.getItem(WORD_BLAST_DIFFICULTY_KEY) ?? undefined,
     wordBlastScores: readJsonSafe(WORD_BLAST_SCORES_KEY),
+    deckRunnerRun: readJsonSafe(DECK_RUNNER_RUN_KEY),
+    deckRunnerStats: readJsonSafe(DECK_RUNNER_STATS_KEY),
     customTexts: readJsonSafe(CUSTOM_TEXT_KEY),
     customTextsLong: readJsonSafe(CUSTOM_TEXT_LONG_KEY),
     customTextSettings: readJsonSafe(CUSTOM_TEXT_SETTINGS_KEY),
@@ -690,6 +699,18 @@ export async function importBackup(backup: LocalBackup): Promise<number> {
     window.localStorage.setItem(
       WORD_BLAST_SCORES_KEY,
       JSON.stringify(sanitizeImportedWordBlastScores(backup.wordBlastScores)),
+    );
+  }
+  if (backup.deckRunnerRun !== undefined && backup.deckRunnerRun !== null) {
+    window.localStorage.setItem(
+      DECK_RUNNER_RUN_KEY,
+      JSON.stringify(backup.deckRunnerRun),
+    );
+  }
+  if (backup.deckRunnerStats !== undefined && backup.deckRunnerStats !== null) {
+    window.localStorage.setItem(
+      DECK_RUNNER_STATS_KEY,
+      JSON.stringify(backup.deckRunnerStats),
     );
   }
   const jsonBackedKeys: [string, Record<string, unknown> | undefined][] = [

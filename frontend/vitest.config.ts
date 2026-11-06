@@ -60,6 +60,10 @@ export const projects: UserWorkspaceConfig[] = [
       include: ["__tests__/**/*.spec.ts"],
       exclude: ["__tests__/**/*.jsdom-spec.ts"],
       environment: "happy-dom",
+      //KI-28: heavy app-graph specs (vi.resetModules + full re-import) can
+      //exceed the 5s default under parallel-suite load - 15s keeps the gate
+      //green without masking real hangs (failures still fail, just later)
+      testTimeout: 15000,
       globalSetup: "__tests__/global-setup.ts",
       setupFiles: [
         "__tests__/__harness__/mock-dom.ts",
@@ -80,6 +84,7 @@ export const projects: UserWorkspaceConfig[] = [
       name: { label: "jsdom", color: "yellow" },
       include: ["__tests__/**/*.jsdom-spec.ts"],
       environment: "jsdom",
+      testTimeout: 15000, //KI-28
       globalSetup: "__tests__/global-setup.ts",
     },
     plugins,
@@ -94,6 +99,7 @@ export const projects: UserWorkspaceConfig[] = [
       name: { label: "jsx", color: "green" },
       include: ["__tests__/**/*.spec.tsx"],
       environment: "jsdom",
+      testTimeout: 15000, //KI-28
       globalSetup: "__tests__/global-setup.ts",
       setupFiles: [
         "__tests__/__harness__/setup-jsx.ts",
