@@ -212,9 +212,11 @@ export function WordlePage(): JSXElement {
       finished: won ? ("won" as const) : lost ? ("lost" as const) : null,
     };
     saveWordleState(lang(), nextState);
-    setPuzzleState(nextState);
-    setBuffer("");
     if (nextState.finished !== null) {
+      //KI-29: record BEFORE revealing the result — a raw window keydown
+      //renders synchronously (no Solid batching), so the result section
+      //would otherwise read the stats store before the record and show
+      //stale zeros with no reactive dependency to refresh it
       recordWordleGame({
         lang: lang(),
         dayKey: todayKey(),
@@ -222,6 +224,8 @@ export function WordlePage(): JSXElement {
         guessCount: guesses.length,
       });
     }
+    setPuzzleState(nextState);
+    setBuffer("");
   };
 
   const handleKey = (event: KeyboardEvent): void => {

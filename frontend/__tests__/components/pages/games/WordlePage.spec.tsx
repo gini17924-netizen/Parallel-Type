@@ -81,6 +81,10 @@ describe("wordle page (idea G4 phase 2)", () => {
     const text = pageText(app);
     expect(text).toContain("solved!");
     expect(text).toContain("share result");
+    //KI-29: the stats line must reflect the just-recorded win immediately —
+    //the raw keydown listener renders synchronously, so the record has to
+    //land before the result section reads the store
+    expect(text).toMatch(/played 1 · won 1 · streak 1 \(max 1\)/);
 
     const raw = JSON.parse(
       window.localStorage.getItem(wordleStateKey("en")) ?? "{}",
