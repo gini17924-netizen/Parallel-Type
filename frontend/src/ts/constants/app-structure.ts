@@ -76,7 +76,7 @@ export const APP_SECTIONS: readonly AppSection[] = [
   {
     id: "games",
     title: "games",
-    description: "typing, but playful — word blast & deck runner",
+    description: "typing, but playful — word blast, bot duel & deck runner",
     icon: "fa-gamepad",
     subSections: [
       {
@@ -85,6 +85,13 @@ export const APP_SECTIONS: readonly AppSection[] = [
         description: "falling words, three lives, high scores",
         icon: "fa-bomb",
         route: "/games/word-blast",
+      },
+      {
+        id: "bot-duel",
+        title: "bot duel",
+        description: "race a bot with a fixed wpm over one word stream",
+        icon: "fa-robot",
+        route: "/games/bot-duel",
       },
       {
         id: "deck-runner",

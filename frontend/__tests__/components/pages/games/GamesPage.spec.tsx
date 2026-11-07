@@ -36,6 +36,49 @@ function spawnedWord(app: App): string | undefined {
   );
 }
 
+/**
+ * The word the game's handler would actually target: a started word first,
+ * else the bottom-most one (largest top). Typing anything else desyncs from
+ * the handler's selection once two words share the field.
+ */
+function handlerTarget(app: App): string | undefined {
+  const words = [
+    ...app.container.querySelectorAll(
+      '[aria-label="word blast arena"] .absolute.font-mono',
+    ),
+  ];
+  if (words.length === 0) return undefined;
+  const started = words.find(
+    (el) => (el.querySelector(".text-main")?.textContent ?? "") !== "",
+  );
+  if (started !== undefined) return started.textContent ?? undefined;
+  let best: Element | undefined;
+  let bestTop = -1;
+  for (const el of words) {
+    const top = parseFloat((el as HTMLElement).style.top);
+    if (top > bestTop) {
+      bestTop = top;
+      best = el;
+    }
+  }
+  return best?.textContent ?? undefined;
+}
+
+/** types one keystroke at the handler's target word's next position */
+function typeHandlerTarget(app: App): void {
+  const target = handlerTarget(app);
+  if (target === undefined) return;
+  const el = [
+    ...app.container.querySelectorAll(
+      '[aria-label="word blast arena"] .absolute.font-mono',
+    ),
+  ].find((candidate) => candidate.textContent === target);
+  const done = el?.querySelector(".text-main")?.textContent?.length ?? 0;
+  if (done < target.length) {
+    fireEvent.keyDown(window, { key: target[done] });
+  }
+}
+
 function typeText(app: App, text: string): void {
   for (const ch of text) {
     fireEvent.keyDown(window, { key: ch });
@@ -178,15 +221,14 @@ describe("word blast v2 wiring (idea G1)", () => {
     const app = await openGames();
     await startGame(app);
 
-    //type whatever spawns until the score crosses the levelStep (500): the
-    //level-up must materialize as the guaranteed boss word on the field
-    for (let guard = 0; guard < 80; guard++) {
+    //type the handler's own target until the score crosses the levelStep
+    //(500): the level-up must materialize as the guaranteed boss word
+    for (let guard = 0; guard < 160; guard++) {
       if (app.container.querySelector('[data-testid="wb-boss"]') !== null) {
         break;
       }
-      const word = spawnedWord(app);
-      if (word !== undefined && word !== "") {
-        typeText(app, word);
+      if (handlerTarget(app) !== undefined) {
+        typeHandlerTarget(app);
       } else {
         await vi.advanceTimersByTimeAsync(300);
       }
