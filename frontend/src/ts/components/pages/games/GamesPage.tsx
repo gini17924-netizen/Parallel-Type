@@ -86,6 +86,13 @@ export function GamesPage(): JSXElement {
     return attempts === 0 ? 0 : Math.round((correctKeys() / attempts) * 100);
   };
 
+  /** the doc's HUD v2 "heart word in the queue": while a glowing heart word
+   * is on the field, name it here (the spawn is probabilistic per the doc's
+   * own BALANCE — heartEveryNSpawns/heartChance — so there is no future
+   * heart word to preview, only the live one) */
+  const heartWord = (): string | undefined =>
+    words().find((word) => word.isHeart === true)?.text;
+
   let pools: WordPools = { wordPool: [], phrasePool: [] };
   let nextId = 1;
   let typedTotal = 0;
@@ -397,6 +404,11 @@ export function GamesPage(): JSXElement {
           testId="wb-lives"
         />
       </div>
+      <Show when={heartWord() !== undefined}>
+        <div class="text-center text-sm text-main" data-testid="wb-heart-next">
+          ❤ heart word: {heartWord()}
+        </div>
+      </Show>
 
       <div
         class="relative w-full overflow-hidden rounded bg-sub-alt"

@@ -240,6 +240,44 @@ describe("word blast v2 wiring (idea G1)", () => {
     expect(boss?.textContent).toContain(" ");
   });
 
+  it("the HUD names the heart word while one is in the queue (KI-32)", async () => {
+    //pin the rng to 0: every 40th-spawn window (the doc's
+    //heartEveryNSpawns) then rolls a guaranteed heart; easy difficulty
+    //keeps bosses single-word and the falls slow while the loop types
+    const randomSpy = vi.spyOn(Math, "random").mockReturnValue(0);
+    try {
+      const app = await openGames();
+      const easy = [...app.container.querySelectorAll("button")].find((b) =>
+        b.textContent?.includes("easy"),
+      );
+      easy?.click();
+      await startGame(app);
+
+      //keep the field clear by typing the handler's target AND advance the
+      //clock every guard: the spawn windows live on the spawn timer's own
+      //schedule (>=900ms apart), so typing alone never reaches the 40th
+      for (let guard = 0; guard < 800; guard++) {
+        if (
+          app.container.querySelector('[data-testid="wb-heart-next"]') !== null
+        ) {
+          break;
+        }
+        if (handlerTarget(app) !== undefined) {
+          typeHandlerTarget(app);
+        }
+        await vi.advanceTimersByTimeAsync(300);
+        await vi.advanceTimersByTimeAsync(0);
+      }
+      const heart = app.container.querySelector(
+        '[data-testid="wb-heart-next"]',
+      );
+      expect(heart, `diag: ${pageText(app).slice(0, 240)}`).not.toBeNull();
+      expect(heart?.textContent).toContain("heart word:");
+    } finally {
+      randomSpy.mockRestore();
+    }
+  });
+
   it("records maxCombo and accuracy with the game (v2 history)", async () => {
     const app = await openGames();
     await startGame(app);
