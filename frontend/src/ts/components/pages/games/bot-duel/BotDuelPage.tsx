@@ -9,6 +9,8 @@ import {
 
 import { Config } from "../../../../config/store";
 import { playTimeWarning } from "../../../../controllers/sound-controller";
+import { navigate } from "../../../../router/navigate";
+import { completeDailyBotDuel } from "../../../../utils/bot-duel/daily";
 import {
   createDuelEngine,
   type DuelEngine,
@@ -176,6 +178,11 @@ export function BotDuelPage(): JSXElement {
       finishMs: state.phase === "botWon" ? null : (state.finishedAtMs ?? null),
       accuracy: accuracy(state),
     });
+    //the daily gauntlet: a pending stage resolves here and returns to it
+    if (completeDailyBotDuel({ result, accuracy: accuracy(state) })) {
+      void navigate({ to: "/games/daily-gauntlet" });
+      return;
+    }
     setPagePhase("result");
   };
 

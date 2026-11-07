@@ -241,6 +241,13 @@ export const APP_SECTIONS: readonly AppSection[] = [
         icon: "fa-music",
         route: "/games/lyric-line",
       },
+      {
+        id: "daily-gauntlet",
+        title: "daily gauntlet",
+        description: "one composite challenge a day — 3 games, a streak",
+        icon: "fa-shield-alt",
+        route: "/games/daily-gauntlet",
+      },
     ],
   },
 ];

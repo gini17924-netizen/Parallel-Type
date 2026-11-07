@@ -4,6 +4,7 @@ import {
   resolveDailyStage,
   takePendingDailyStage,
 } from "../daily-gauntlet/stage-bridge";
+import { completeDailyStageForGame } from "../daily-gauntlet/complete";
 import {
   registerDailyPlayable,
   type DailyPlayable,
@@ -43,6 +44,20 @@ export function registerDailyWordBlast(): void {
     },
   };
   registerDailyPlayable(impl);
+}
+
+/** the game page's one-call completion (resolves + advances the day) */
+export function completeDailyWordBlast(raw: {
+  score: number;
+  difficulty: string;
+}): boolean {
+  return completeDailyStageForGame({
+    gameId: "word-blast",
+    normalize: (r) =>
+      normalizeWordBlastDaily({ score: Number(r["score"] ?? 0) }),
+    raw: { score: raw.score, difficulty: raw.difficulty },
+    won: normalizeWordBlastDaily({ score: raw.score }) >= 500,
+  });
 }
 
 export { resolveDailyStage, takePendingDailyStage };

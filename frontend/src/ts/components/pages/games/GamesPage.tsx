@@ -9,6 +9,7 @@ import {
 
 import { Config } from "../../../config/store";
 import { playClick, playError } from "../../../controllers/sound-controller";
+import { navigate } from "../../../router/navigate";
 import { cn } from "../../../utils/cn";
 import { cachedFetchJson } from "../../../utils/json-data";
 import {
@@ -30,6 +31,7 @@ import {
   getWordBlastBest,
   recordWordBlastGame,
 } from "../../../utils/word-blast-scores";
+import { completeDailyWordBlast } from "../../../utils/word-blast/daily";
 import { Button } from "../../common/Button";
 import { H2 } from "../../common/Headers";
 
@@ -167,6 +169,10 @@ export function GamesPage(): JSXElement {
       setBestScore(result.best?.score);
     } catch {
       setRecordInfo(undefined);
+    }
+    //the daily gauntlet: a pending stage resolves here and returns to it
+    if (completeDailyWordBlast({ score: score(), difficulty: difficulty() })) {
+      void navigate({ to: "/games/daily-gauntlet" });
     }
   };
 

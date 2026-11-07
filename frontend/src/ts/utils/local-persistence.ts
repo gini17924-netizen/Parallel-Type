@@ -428,6 +428,9 @@ const MAZE_SCORES_KEY = "mtDesktopMazeScores";
 const SKY_SCORES_KEY = "mtDesktopSkyScores";
 //owner: utils/lyric-line/store.ts (idea G20) — metadata only, no media
 const LYRIC_SESSIONS_KEY = "mtDesktopLyricSessions";
+//owner: utils/daily-gauntlet/store.ts (idea G22) — two keys
+const GAUNTLET_STATE_KEY = "mtDesktopGauntletState";
+const GAUNTLET_STATS_KEY = "mtDesktopGauntletStats";
 //owner: utils/wordle/wordle-store.ts (idea G4) — per-language keys
 const WORDLE_LANGS = ["fa", "en"] as const;
 const wordleStateKey = (lang: string): string => `mtDesktopWordleState_${lang}`;
@@ -548,6 +551,10 @@ export type LocalBackup = {
   skyScores?: Record<string, unknown> | undefined;
   /** schema v3 (idea G20): lyric-line session metadata (never the media) */
   lyricSessions?: Record<string, unknown> | undefined;
+  /** schema v3 (idea G22): the resumable gauntlet day state */
+  gauntletState?: Record<string, unknown> | undefined;
+  /** schema v3 (idea G22): the gauntlet streak/calendar/bests */
+  gauntletStats?: Record<string, unknown> | undefined;
   /** schema v3 (idea G4): wordle puzzle state, keyed by language */
   wordleState?: Record<string, unknown> | undefined;
   /** schema v3 (idea G4): wordle career stats, keyed by language */
@@ -599,6 +606,8 @@ export async function exportBackup(): Promise<LocalBackup> {
     mazeScores: readJsonSafe(MAZE_SCORES_KEY),
     skyScores: readJsonSafe(SKY_SCORES_KEY),
     lyricSessions: readJsonSafe(LYRIC_SESSIONS_KEY),
+    gauntletState: readJsonSafe(GAUNTLET_STATE_KEY),
+    gauntletStats: readJsonSafe(GAUNTLET_STATS_KEY),
     wordleState: Object.fromEntries(
       WORDLE_LANGS.map((lang) => [lang, readJsonSafe(wordleStateKey(lang))]),
     ),
@@ -1007,6 +1016,27 @@ export async function importBackup(backup: LocalBackup): Promise<number> {
     window.localStorage.setItem(
       LYRIC_SESSIONS_KEY,
       JSON.stringify(sanitizeImportedLyricSessions(backup.lyricSessions)),
+    );
+  }
+  if (backup.gauntletState !== undefined && backup.gauntletState !== null) {
+    //audit L4 pattern, same as above (an invalid state drops to undefined)
+    const { sanitizeImportedGauntletState } =
+      await import("./daily-gauntlet/store");
+    const sanitized = sanitizeImportedGauntletState(backup.gauntletState);
+    if (sanitized !== undefined) {
+      window.localStorage.setItem(
+        GAUNTLET_STATE_KEY,
+        JSON.stringify(sanitized),
+      );
+    }
+  }
+  if (backup.gauntletStats !== undefined && backup.gauntletStats !== null) {
+    //audit L4 pattern, same as above
+    const { sanitizeImportedGauntletStats } =
+      await import("./daily-gauntlet/store");
+    window.localStorage.setItem(
+      GAUNTLET_STATS_KEY,
+      JSON.stringify(sanitizeImportedGauntletStats(backup.gauntletStats)),
     );
   }
   if (backup.wordleState !== undefined && backup.wordleState !== null) {

@@ -3,6 +3,7 @@ import {
   resolveDailyStage,
   takePendingDailyStage,
 } from "../daily-gauntlet/stage-bridge";
+import { completeDailyStageForGame } from "../daily-gauntlet/complete";
 import {
   registerDailyPlayable,
   type DailyPlayable,
@@ -51,6 +52,23 @@ export function registerDailyBotDuel(): void {
     },
   };
   registerDailyPlayable(impl);
+}
+
+/** the game page's one-call completion (resolves + advances the day) */
+export function completeDailyBotDuel(raw: {
+  result: string;
+  accuracy: number;
+}): boolean {
+  return completeDailyStageForGame({
+    gameId: "bot-duel",
+    normalize: (r) =>
+      normalizeBotDuelDaily({
+        result: String(r["result"] ?? "lost"),
+        accuracy: Number(r["accuracy"] ?? 0),
+      }),
+    raw: { result: raw.result, accuracy: raw.accuracy },
+    won: raw.result === "won",
+  });
 }
 
 export { resolveDailyStage, takePendingDailyStage };

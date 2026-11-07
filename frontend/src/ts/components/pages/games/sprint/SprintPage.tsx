@@ -5,8 +5,10 @@ import {
   playClick,
   playTimeWarning,
 } from "../../../../controllers/sound-controller";
+import { navigate } from "../../../../router/navigate";
 import { cn } from "../../../../utils/cn";
 import { cachedFetchJson } from "../../../../utils/json-data";
+import { completeDailySprint } from "../../../../utils/sprint/daily";
 import {
   BALANCE,
   createSprintEngine,
@@ -128,6 +130,11 @@ export function SprintPage(): JSXElement {
       daily: mode() === "daily",
     });
     setBest(stats.bestByLang[Config.language]?.wpm);
+    //the daily gauntlet: a pending stage resolves here and returns to it
+    if (completeDailySprint({ wpm: result.wpm })) {
+      void navigate({ to: "/games/daily-gauntlet" });
+      return;
+    }
     setPagePhase("result");
   };
 

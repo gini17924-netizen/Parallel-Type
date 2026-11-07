@@ -4,6 +4,7 @@ import {
   resolveDailyStage,
   takePendingDailyStage,
 } from "../daily-gauntlet/stage-bridge";
+import { completeDailyStageForGame } from "../daily-gauntlet/complete";
 import {
   registerDailyPlayable,
   type DailyPlayable,
@@ -41,6 +42,16 @@ export function registerDailySprint(): void {
     },
   };
   registerDailyPlayable(impl);
+}
+
+/** the game page's one-call completion (resolves + advances the day) */
+export function completeDailySprint(raw: { wpm: number }): boolean {
+  return completeDailyStageForGame({
+    gameId: "sprint",
+    normalize: (r) => normalizeSprintDaily({ wpm: Number(r["wpm"] ?? 0) }),
+    raw: { wpm: raw.wpm },
+    won: normalizeSprintDaily({ wpm: raw.wpm }) >= 500,
+  });
 }
 
 export { resolveDailyStage, takePendingDailyStage };
