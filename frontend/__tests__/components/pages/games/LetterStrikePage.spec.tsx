@@ -18,9 +18,12 @@ function button(app: App, label: string): HTMLButtonElement | undefined {
   );
 }
 
-function ships(app: App): string[] {
+function ships(app: App): { text: string; typed: string }[] {
   return [...app.container.querySelectorAll('[data-testid="ls-ship"]')].map(
-    (el) => el.textContent ?? "",
+    (el) => ({
+      text: el.textContent ?? "",
+      typed: el.querySelector(".text-main")?.textContent ?? "",
+    }),
   );
 }
 
@@ -68,7 +71,7 @@ describe("letter strike page (idea G8 phase 2)", () => {
     expect(pageText(app)).toContain("❤❤❤");
 
     //type the first ship's word: the prefix grows then the ship explodes
-    const target = field[0] ?? "";
+    const target = field[0]?.text ?? "";
     for (const ch of target) {
       window.dispatchEvent(new KeyboardEvent("keydown", { key: ch }));
       await vi.advanceTimersByTimeAsync(20);
@@ -76,9 +79,10 @@ describe("letter strike page (idea G8 phase 2)", () => {
     await vi.advanceTimersByTimeAsync(60);
     const text = pageText(app);
     expect(text).toMatch(/x1/); //the combo moved
-    expect(text).not.toContain(`❤❤❤❤`); //sanity: no extra hearts cell
-    //the destroyed ship is gone; the next wave replaced the screen
-    expect(ships(app).every((s) => !s.startsWith(target))).toBe(true);
+    //the destroyed ship is gone; the next wave replaced the screen with
+    //fresh untyped ships (a repeat of the same word is possible, so the
+    //typed prefixes are what prove the destruction)
+    expect(ships(app).every((s) => s.typed === "")).toBe(true);
   });
 
   it("Space fires the EMP only when charged; Escape is swallowed", async () => {
