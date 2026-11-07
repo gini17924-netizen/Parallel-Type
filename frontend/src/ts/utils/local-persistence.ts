@@ -424,6 +424,8 @@ const PAIR_KEYS_STATS_KEY = "mtDesktopPairKeysStats";
 const DUEL_LOCAL_STATS_KEY = "mtDesktopDuelLocalStats";
 //owner: utils/maze-runner/store.ts (idea G14)
 const MAZE_SCORES_KEY = "mtDesktopMazeScores";
+//owner: utils/climber/store.ts (idea G15) — climber + runner namespaces
+const SKY_SCORES_KEY = "mtDesktopSkyScores";
 //owner: utils/wordle/wordle-store.ts (idea G4) — per-language keys
 const WORDLE_LANGS = ["fa", "en"] as const;
 const wordleStateKey = (lang: string): string => `mtDesktopWordleState_${lang}`;
@@ -540,6 +542,8 @@ export type LocalBackup = {
   duelLocalStats?: Record<string, unknown> | undefined;
   /** schema v3 (idea G14): maze-runner per-level best times + history */
   mazeScores?: Record<string, unknown> | undefined;
+  /** schema v3 (idea G15): sky scores — the climber + runner namespaces */
+  skyScores?: Record<string, unknown> | undefined;
   /** schema v3 (idea G4): wordle puzzle state, keyed by language */
   wordleState?: Record<string, unknown> | undefined;
   /** schema v3 (idea G4): wordle career stats, keyed by language */
@@ -589,6 +593,7 @@ export async function exportBackup(): Promise<LocalBackup> {
     pairKeysStats: readJsonSafe(PAIR_KEYS_STATS_KEY),
     duelLocalStats: readJsonSafe(DUEL_LOCAL_STATS_KEY),
     mazeScores: readJsonSafe(MAZE_SCORES_KEY),
+    skyScores: readJsonSafe(SKY_SCORES_KEY),
     wordleState: Object.fromEntries(
       WORDLE_LANGS.map((lang) => [lang, readJsonSafe(wordleStateKey(lang))]),
     ),
@@ -980,6 +985,14 @@ export async function importBackup(backup: LocalBackup): Promise<number> {
     window.localStorage.setItem(
       MAZE_SCORES_KEY,
       JSON.stringify(sanitizeImportedMazeScores(backup.mazeScores)),
+    );
+  }
+  if (backup.skyScores !== undefined && backup.skyScores !== null) {
+    //audit L4 pattern, same as above
+    const { sanitizeImportedSkyScores } = await import("./climber/store");
+    window.localStorage.setItem(
+      SKY_SCORES_KEY,
+      JSON.stringify(sanitizeImportedSkyScores(backup.skyScores)),
     );
   }
   if (backup.wordleState !== undefined && backup.wordleState !== null) {

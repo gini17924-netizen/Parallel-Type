@@ -220,6 +220,13 @@ export const APP_SECTIONS: readonly AppSection[] = [
         icon: "fa-dungeon",
         route: "/games/maze-runner",
       },
+      {
+        id: "climber",
+        title: "sky climber",
+        description: "type to jump — the shrinking timers push you down",
+        icon: "fa-arrow-up",
+        route: "/games/climber",
+      },
     ],
   },
 ];
