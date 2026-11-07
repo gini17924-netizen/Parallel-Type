@@ -1,5 +1,7 @@
 import { describe, it, expect } from "vitest";
 
+import { QUOTA_GROWTH } from "../../../src/ts/utils/deck-runner/balance";
+
 import {
   currentBlindConfig,
   endBlind,
@@ -38,7 +40,7 @@ describe("deck-runner run state machine (G24 phase 2)", () => {
     const base = mk(1, 0);
     expect(mk(1, 1)).toBe(Math.round(base * 1.5));
     expect(mk(1, 2)).toBe(Math.round(base * 2.5));
-    expect(mk(2, 0)).toBe(Math.round(base * 1.6));
+    expect(mk(2, 0)).toBe(Math.round(base * QUOTA_GROWTH));
     //riskQuota joker multiplies the quota
     const roller = jokerRuntime(["high_roller"]);
     expect(

@@ -40,7 +40,7 @@ describe("deck-runner cards (G24 phase 2)", () => {
       sourceId: "en-1k",
       jokers: runtime.scorePipeline,
     });
-    expect(result.chips).toBe(15 + 25);
+    expect(result.chips).toBe(15 + 150);
   });
 
   it("chipsPer perfectWord: pays on perfect, nothing on errors", () => {
@@ -58,7 +58,7 @@ describe("deck-runner cards (G24 phase 2)", () => {
         jokers: runtime.scorePipeline,
       },
     );
-    expect(perfect.chips).toBe(15 + 30);
+    expect(perfect.chips).toBe(15 + 150);
     expect(flawed.chips).toBe(15);
   });
 
@@ -109,7 +109,7 @@ describe("deck-runner cards (G24 phase 2)", () => {
       sourceId: "en-1k",
       jokers: runtime.scorePipeline,
     });
-    expect(result.chips).toBe(15 + 50);
+    expect(result.chips).toBe(15 + 300);
   });
 
   it("ruleWeakLetters doubles chips on words with weak chars", () => {
@@ -217,15 +217,15 @@ describe("the 30-joker deck (G24 M4)", () => {
     }[] = [
       //flat chips add AFTER the mult applies to base? no: pipeline order is
       //chips then mult — the +N chips land inside the multiplier window
-      { id: "greedy_fox", word: "abc", combo: 0, expectTotal: (b) => b + 25 },
-      { id: "bookworm", word: "abc", combo: 0, expectTotal: (b) => b + 30 },
+      { id: "greedy_fox", word: "abc", combo: 0, expectTotal: (b) => b + 150 },
+      { id: "bookworm", word: "abc", combo: 0, expectTotal: (b) => b + 150 },
       //baseline already includes the +15 code bonus; the joker adds +15 more
       {
         id: "code_monkey",
         word: "abc",
         combo: 0,
         sourceId: "code-python",
-        expectTotal: (b) => b + 15,
+        expectTotal: (b) => b + 100,
       },
       {
         id: "persian_charm",
@@ -252,12 +252,12 @@ describe("the 30-joker deck (G24 M4)", () => {
         combo: 5,
         expectTotal: (b) => Math.round(b * 1.5),
       },
-      { id: "sprinter", word: "abc", combo: 0, expectTotal: (b) => b + 40 },
+      { id: "sprinter", word: "abc", combo: 0, expectTotal: (b) => b + 200 },
       {
         id: "quick_fingers",
         word: "abc",
         combo: 0,
-        expectTotal: (b) => b + 15,
+        expectTotal: (b) => b + 75,
       },
       {
         id: "wordsmith",
@@ -280,8 +280,13 @@ describe("the 30-joker deck (G24 M4)", () => {
       //15 chips x 1.5 tier x 2 joker = 45 (the baseline total is pre-rounded,
       //so the multiplicative expectation is computed from the raw chips)
       { id: "combo_king", word: "abc", combo: 15, expectTotal: () => 45 },
-      { id: "heavy_hitter", word: "abc", combo: 0, expectTotal: (b) => b + 60 },
-      { id: "long_haul", word: "abc", combo: 0, expectTotal: (b) => b + 80 },
+      {
+        id: "heavy_hitter",
+        word: "abc",
+        combo: 0,
+        expectTotal: (b) => b + 300,
+      },
+      { id: "long_haul", word: "abc", combo: 0, expectTotal: (b) => b + 400 },
       {
         id: "rhythm_master",
         word: "abc",
@@ -294,7 +299,7 @@ describe("the 30-joker deck (G24 M4)", () => {
         word: "abc",
         combo: 0,
         sourceId: "code-python",
-        expectTotal: (b) => b + 40,
+        expectTotal: (b) => b + 250,
       },
     ];
     for (const testCase of cases) {

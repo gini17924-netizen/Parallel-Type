@@ -7,8 +7,8 @@
 // --- run structure ----------------------------------------------------------
 
 export const BLINDS_PER_ANTE = 3;
-export const BASE_QUOTA = 250;
-export const QUOTA_GROWTH = 1.6; //quota multiplier per ante
+export const BASE_QUOTA = 800;
+export const QUOTA_GROWTH = 1.75; //quota multiplier per ante
 /** quota multiplier per blind slot within an ante (small / big / boss) */
 export const BLIND_QUOTA_MULT: readonly [number, number, number] = [
   1, 1.5, 2.5,
