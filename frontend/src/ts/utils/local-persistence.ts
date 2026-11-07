@@ -400,6 +400,8 @@ const SPRINT_STATS_KEY = "mtDesktopSprintStats";
 const BALLOON_POP_SCORES_KEY = "mtDesktopBalloonPopScores";
 //owner: utils/letter-strike/store.ts (idea G8)
 const LETTER_STRIKE_SCORES_KEY = "mtDesktopLetterStrikeScores";
+//owner: utils/lane-defense/store.ts (idea G9)
+const LANE_DEFENSE_SCORES_KEY = "mtDesktopLaneDefenseScores";
 //owner: utils/wordle/wordle-store.ts (idea G4) — per-language keys
 const WORDLE_LANGS = ["fa", "en"] as const;
 const wordleStateKey = (lang: string): string => `mtDesktopWordleState_${lang}`;
@@ -492,6 +494,8 @@ export type LocalBackup = {
   balloonPopScores?: Record<string, unknown> | undefined;
   /** schema v3 (idea G8): letter-strike bests + run history */
   letterStrikeScores?: Record<string, unknown> | undefined;
+  /** schema v3 (idea G9): lane-defense bests, per-zone bests + history */
+  laneDefenseScores?: Record<string, unknown> | undefined;
   /** schema v3 (idea G4): wordle puzzle state, keyed by language */
   wordleState?: Record<string, unknown> | undefined;
   /** schema v3 (idea G4): wordle career stats, keyed by language */
@@ -529,6 +533,7 @@ export async function exportBackup(): Promise<LocalBackup> {
     sprintStats: readJsonSafe(SPRINT_STATS_KEY),
     balloonPopScores: readJsonSafe(BALLOON_POP_SCORES_KEY),
     letterStrikeScores: readJsonSafe(LETTER_STRIKE_SCORES_KEY),
+    laneDefenseScores: readJsonSafe(LANE_DEFENSE_SCORES_KEY),
     wordleState: Object.fromEntries(
       WORDLE_LANGS.map((lang) => [lang, readJsonSafe(wordleStateKey(lang))]),
     ),
@@ -803,6 +808,20 @@ export async function importBackup(backup: LocalBackup): Promise<number> {
       LETTER_STRIKE_SCORES_KEY,
       JSON.stringify(
         sanitizeImportedLetterStrikeScores(backup.letterStrikeScores),
+      ),
+    );
+  }
+  if (
+    backup.laneDefenseScores !== undefined &&
+    backup.laneDefenseScores !== null
+  ) {
+    //audit L4 pattern, same as above
+    const { sanitizeImportedLaneDefenseScores } =
+      await import("./lane-defense/store");
+    window.localStorage.setItem(
+      LANE_DEFENSE_SCORES_KEY,
+      JSON.stringify(
+        sanitizeImportedLaneDefenseScores(backup.laneDefenseScores),
       ),
     );
   }

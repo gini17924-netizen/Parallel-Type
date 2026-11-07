@@ -136,6 +136,13 @@ export const APP_SECTIONS: readonly AppSection[] = [
         icon: "fa-rocket",
         route: "/games/letter-strike",
       },
+      {
+        id: "lane-defense",
+        title: "lane defense",
+        description: "walkers in five lanes — defend the wall, zone by zone",
+        icon: "fa-shield-alt",
+        route: "/games/lane-defense",
+      },
     ],
   },
 ];
