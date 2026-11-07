@@ -103,6 +103,7 @@ function Menu(props: {
   selectedSource: () => string;
   setSelectedSource: (id: string) => void;
 }): JSXElement {
+  const [confirmAbandon, setConfirmAbandon] = createSignal(false);
   return (
     <>
       <section class="grid gap-4 rounded bg-sub-alt p-4">
@@ -182,10 +183,23 @@ function Menu(props: {
           />
         </div>
         <Button
-          text="abandon resumable run"
+          text={
+            confirmAbandon()
+              ? "tap again to abandon (deletes the run)"
+              : "abandon resumable run"
+          }
           fa={{ icon: "fa-trash" }}
           class="w-full"
-          onClick={() => abandonRun()}
+          onClick={() => {
+            //two-step confirm: an accidental click must not delete a live run
+            if (confirmAbandon()) {
+              abandonRun();
+              setConfirmAbandon(false);
+            } else {
+              setConfirmAbandon(true);
+              window.setTimeout(() => setConfirmAbandon(false), 3000);
+            }
+          }}
         />
       </section>
 

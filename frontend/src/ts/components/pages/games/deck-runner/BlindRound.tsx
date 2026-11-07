@@ -80,7 +80,7 @@ export function BlindRound(): JSXElement {
             </div>
             <div
               class="mt-2 font-mono text-lg tracking-widest text-sub"
-              dir="ltr"
+              dir="auto"
             >
               <span class="text-text">{roundState()?.buffer}</span>
               <span>

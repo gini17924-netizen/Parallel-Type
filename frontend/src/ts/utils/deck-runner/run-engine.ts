@@ -66,14 +66,8 @@ export const DeckRunStateSchema = z.object({
 
 export type DeckRunState = z.infer<typeof DeckRunStateSchema>;
 
-export function deriveSeed(base: number, salt: string): number {
-  let hash = base ^ 0x9e3779b9;
-  for (const ch of salt) {
-    hash = (hash * 31 + ch.charCodeAt(0)) % 2147483647;
-  }
-  if (hash <= 0) hash += 2147483646;
-  return hash;
-}
+//single source of truth for seed derivation (was duplicated here, phase 6)
+export { deriveSeed } from "./rng";
 
 export function startRun(options: {
   seed: number;
