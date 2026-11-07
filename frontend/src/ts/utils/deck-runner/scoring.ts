@@ -50,6 +50,11 @@ export const RARE_CHARS: Record<string, string[]> = {
   en: ["q", "x", "z", "j", "k", "v"],
 };
 
+const RARE_SETS: Record<"fa" | "en", Set<string>> = {
+  fa: new Set(RARE_CHARS["fa"] ?? []),
+  en: new Set(RARE_CHARS["en"] ?? []),
+};
+
 export function comboMultiplier(combo: number): number {
   let mult = 1;
   for (const [threshold, tierMult] of COMBO_TIERS) {
@@ -61,14 +66,19 @@ export function comboMultiplier(combo: number): number {
   return mult;
 }
 
-function rareBonus(word: string, sourceId: string): number {
-  const table = sourceId.startsWith("fa")
-    ? (RARE_CHARS["fa"] ?? [])
-    : sourceId.startsWith("en")
-      ? (RARE_CHARS["en"] ?? [])
-      : (RARE_CHARS["default"] ?? []);
-  if (table.length === 0) return 0;
-  const set = new Set(table);
+/** rare-char table by run language, falling back to the sourceId prefix for
+ * direct scoring callers that never pass language (sourceId prefixes alone
+ * missed weakness:/custom:/code: ids) */
+function rareBonus(word: string, sourceId: string, language?: string): number {
+  const set =
+    language === "persian" ||
+    (language === undefined && sourceId.startsWith("fa"))
+      ? RARE_SETS.fa
+      : language === "english" ||
+          (language === undefined && sourceId.startsWith("en"))
+        ? RARE_SETS.en
+        : new Set<string>();
+  if (set.size === 0) return 0;
   return (
     [...word.toLowerCase()].filter((ch) => set.has(ch)).length * RARE_CHAR_BONUS
   );
@@ -81,7 +91,7 @@ export function wordScore(
   let acc: ScoreAcc = {
     chips:
       CHIPS_PER_CHAR * evt.chars +
-      rareBonus(evt.word, ctx.sourceId) +
+      rareBonus(evt.word, ctx.sourceId, ctx.language) +
       (ctx.sourceId.startsWith("code") ? CODE_WORD_BONUS : 0) +
       (evt.word.length >= LONG_WORD_MIN ? LONG_WORD_BONUS : 0),
     mult: comboMultiplier(ctx.combo),

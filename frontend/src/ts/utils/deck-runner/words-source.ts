@@ -121,11 +121,10 @@ export function createWordSource(config: WordSourceConfig): WordSource {
     if (Object.keys(weakness).length === 0) return pickUniform();
     let best = "";
     let bestScore = -1;
-    let sampledAny = false;
     for (let i = 0; i < ARGMAX_SAMPLES; i++) {
       const word =
         pool[Math.floor(config.rng() * pool.length) % pool.length] ?? "";
-      sampledAny = true;
+      if (isRecent(word)) continue;
       const known = [...word.toLowerCase()].filter(
         (ch) => weakness[ch] !== undefined,
       );
@@ -134,13 +133,13 @@ export function createWordSource(config: WordSourceConfig): WordSource {
           ? 0
           : known.reduce((sum, ch) => sum + (weakness[ch]?.score ?? 0), 0) /
             known.length;
-      if (score > bestScore && !(isRecent(word) && sampledAny)) {
+      if (score > bestScore) {
         best = word;
         bestScore = score;
       }
-      void known;
     }
-    if (best === "" && pool.length > 0) best = pool[0] ?? "";
+    //every sample was inside the recent window: fall back to a uniform pick
+    if (best === "") return pickUniform();
     remember(best);
     return best;
   };

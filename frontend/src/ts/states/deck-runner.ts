@@ -92,11 +92,19 @@ type SourceSpec = {
   base?: string;
 };
 
-/** the menu's word-source options (fixed languages + weakness + custom texts) */
+/** the menu's word-source options (fixed languages + code + weakness + custom
+ * texts); ids ending in _1k load the real 1k lists (phase 6: the old mapping
+ * fetched the 200-word english/persian lists against a "1k" label) */
 export function sourceOptions(): SourceSpec[] {
   const options: SourceSpec[] = [
     { id: "en-1k", label: "english 1k", kind: "zipf", base: "en-1k" },
     { id: "fa_1k", label: "persian 1k", kind: "zipf", base: "fa_1k" },
+    {
+      id: "code:python",
+      label: "code — python",
+      kind: "zipf",
+      base: "code_python",
+    },
     {
       id: "weakness:en-1k",
       label: "english — weak letters",
@@ -129,14 +137,16 @@ async function poolFor(wordSourceId: string): Promise<string[]> {
   if (wordSourceId.startsWith("custom:")) {
     const name = wordSourceId.slice("custom:".length);
     pool = CustomText.getCustomText(name, false);
+  } else if (wordSourceId.startsWith("code:")) {
+    pool = await fetchWordList("code_python");
   } else if (wordSourceId.startsWith("weakness:")) {
     pool = await fetchWordList(
-      wordSourceId.endsWith("fa_1k") ? "persian" : "english",
+      wordSourceId.endsWith("fa_1k") ? "persian_1k" : "english_1k",
     );
   } else if (wordSourceId === "fa_1k") {
-    pool = await fetchWordList("persian");
+    pool = await fetchWordList("persian_1k");
   } else {
-    pool = await fetchWordList("english");
+    pool = await fetchWordList("english_1k");
   }
   poolCache.set(wordSourceId, pool);
   return pool;
@@ -181,9 +191,10 @@ export async function beginBlind(): Promise<void> {
       weakness: kind === "weakness" ? weakness : undefined,
     };
     source = createWordSource(cfg);
-    //mirror stream (same seed/config) for the upcoming-words display
+    //mirror stream (same seed/config) for the upcoming-words display; 2x the
+    //budget so skip refunds never run the queue dry (phase 6)
     const mirrorSource = createWordSource(cfg);
-    mirror = Array.from({ length: blindCfg.wordBudget }, () =>
+    mirror = Array.from({ length: blindCfg.wordBudget * 2 }, () =>
       mirrorSource.nextWord(),
     );
     const roundState = startRound(blindCfg, source);

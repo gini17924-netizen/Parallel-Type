@@ -30,16 +30,15 @@ describe("deck-runner scoring (G24)", () => {
     });
   });
 
-  it("combo tiers: 1 / 1.2 / 1.5 / 2 / 3 / 5", () => {
+  it("combo tiers: 1 / 1.2 / 1.5 / 2 / 3 (within a blind's reach)", () => {
     expect(comboMultiplier(0)).toBe(1);
     expect(comboMultiplier(5)).toBe(1.2);
-    expect(comboMultiplier(15)).toBe(1.5);
-    expect(comboMultiplier(30)).toBe(2);
-    expect(comboMultiplier(50)).toBe(3);
-    expect(comboMultiplier(100)).toBe(5);
-    //a 2-char word at combo 30: chips 10 × 2 = 20
+    expect(comboMultiplier(10)).toBe(1.5);
+    expect(comboMultiplier(20)).toBe(2);
+    expect(comboMultiplier(30)).toBe(3);
+    //a 2-char word at combo 30: chips 10 × 3 = 30
     expect(wordScore(evt("ab"), { combo: 30, sourceId: "en-1k" }).total).toBe(
-      20,
+      30,
     );
   });
 
@@ -50,6 +49,14 @@ describe("deck-runner scoring (G24)", () => {
     //same char with a non-fa source: no table
     const en = wordScore(evt("ظب"), { combo: 0, sourceId: "en-1k" });
     expect(en.chips).toBe(10);
+    //language wins over the sourceId prefix (weakness:/custom: ids have no
+    //usable prefix): a persian run on a weakness source still gets the table
+    const byLanguage = wordScore(evt("ظب"), {
+      combo: 0,
+      sourceId: "weakness:en-1k",
+      language: "persian",
+    });
+    expect(byLanguage.chips).toBe(5 * 2 + 10);
   });
 
   it("code words get +15 (sourceId starts with code)", () => {
