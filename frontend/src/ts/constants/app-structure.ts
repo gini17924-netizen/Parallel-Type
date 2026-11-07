@@ -227,6 +227,13 @@ export const APP_SECTIONS: readonly AppSection[] = [
         icon: "fa-arrow-up",
         route: "/games/climber",
       },
+      {
+        id: "runner",
+        title: "endless runner",
+        description: "type the obstacles clear — jump, slide, destroy",
+        icon: "fa-person-running",
+        route: "/games/runner",
+      },
     ],
   },
 ];
