@@ -392,6 +392,8 @@ const DECK_RUNNER_RUN_KEY = "mtDesktopDeckRunnerRun";
 const DECK_RUNNER_STATS_KEY = "mtDesktopDeckRunnerStats";
 //owner: utils/bot-duel/duel-store.ts (idea G2)
 const BOT_DUEL_STATS_KEY = "mtDesktopBotDuelStats";
+//owner: utils/ghost-gp/gp-store.ts (idea G3)
+const GHOST_GP_STATS_KEY = "mtDesktopGhostGpStats";
 
 /** transient runtime state that must never be carried across restores */
 const KEYBR_STATE_EXCLUDED = new Set(["mtKeybrBootError"]);
@@ -472,6 +474,8 @@ export type LocalBackup = {
   deckRunnerStats?: Record<string, unknown> | undefined;
   /** schema v3 (idea G2): bot-duel per-tier records + race history */
   botDuelStats?: Record<string, unknown> | undefined;
+  /** schema v3 (idea G3): ghost-gp race counters + recently raced ghosts */
+  ghostGpStats?: Record<string, unknown> | undefined;
   /** schema v2: saved custom texts, their settings and the rotation state */
   customTexts?: Record<string, unknown> | undefined;
   customTextsLong?: Record<string, unknown> | undefined;
@@ -501,6 +505,7 @@ export async function exportBackup(): Promise<LocalBackup> {
     deckRunnerRun: readJsonSafe(DECK_RUNNER_RUN_KEY),
     deckRunnerStats: readJsonSafe(DECK_RUNNER_STATS_KEY),
     botDuelStats: readJsonSafe(BOT_DUEL_STATS_KEY),
+    ghostGpStats: readJsonSafe(GHOST_GP_STATS_KEY),
     customTexts: readJsonSafe(CUSTOM_TEXT_KEY),
     customTextsLong: readJsonSafe(CUSTOM_TEXT_LONG_KEY),
     customTextSettings: readJsonSafe(CUSTOM_TEXT_SETTINGS_KEY),
@@ -726,6 +731,15 @@ export async function importBackup(backup: LocalBackup): Promise<number> {
     window.localStorage.setItem(
       BOT_DUEL_STATS_KEY,
       JSON.stringify(sanitizeImportedBotDuelStats(backup.botDuelStats)),
+    );
+  }
+  if (backup.ghostGpStats !== undefined && backup.ghostGpStats !== null) {
+    //audit L4 pattern, same as above
+    const { sanitizeImportedGhostGpStats } =
+      await import("./ghost-gp/gp-store");
+    window.localStorage.setItem(
+      GHOST_GP_STATS_KEY,
+      JSON.stringify(sanitizeImportedGhostGpStats(backup.ghostGpStats)),
     );
   }
   const jsonBackedKeys: [string, Record<string, unknown> | undefined][] = [
