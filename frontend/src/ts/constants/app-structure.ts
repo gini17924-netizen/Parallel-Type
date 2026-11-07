@@ -102,6 +102,13 @@ export const APP_SECTIONS: readonly AppSection[] = [
         route: "/games/ghost-gp",
       },
       {
+        id: "sprint",
+        title: "ten-second sprint",
+        description: "maximum wpm in a ten-second burst — wait for GO",
+        icon: "fa-bolt",
+        route: "/games/sprint",
+      },
+      {
         id: "deck-runner",
         title: "deck runner",
         description: "a typing roguelite — quotas, gold, jokers",

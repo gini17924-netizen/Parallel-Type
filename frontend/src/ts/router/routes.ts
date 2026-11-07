@@ -23,6 +23,7 @@ import { GamesPage } from "../components/pages/games/GamesPage";
 import { DeckRunnerPage } from "../components/pages/games/deck-runner/DeckRunnerPage";
 import { BotDuelPage } from "../components/pages/games/bot-duel/BotDuelPage";
 import { GhostGpPage } from "../components/pages/games/ghost-gp/GhostGpPage";
+import { SprintPage } from "../components/pages/games/sprint/SprintPage";
 import { HomePage } from "../components/pages/home/HomePage";
 import { SectionsPage } from "../components/pages/sections/SectionsPage";
 import { WrappedPage } from "../components/pages/wrapped/WrappedPage";
@@ -92,6 +93,7 @@ export type PageName =
   | "deck-runner"
   | "bot-duel"
   | "ghost-gp"
+  | "sprint"
   | "wrapped";
 
 declare module "@tanstack/solid-router" {
@@ -347,6 +349,13 @@ const ghostGp = createRoute({
   component: createRouterPage(GhostGpPage),
 });
 
+const sprint = createRoute({
+  getParentRoute: () => userDataRoute,
+  path: "/games/sprint",
+  staticData: { page: "sprint" },
+  component: createRouterPage(SprintPage),
+});
+
 const wrapped = createRoute({
   getParentRoute: () => userDataRoute,
   path: "/wrapped",
@@ -501,6 +510,7 @@ export const routeTree = root.addChildren([
     deckRunner,
     botDuel,
     ghostGp,
+    sprint,
     wrapped,
     login,
     account,

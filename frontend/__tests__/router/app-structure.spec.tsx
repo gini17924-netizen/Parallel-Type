@@ -52,20 +52,22 @@ describe("app structure (home hub sections)", () => {
     expect(sectionHasPicker(practice)).toBe(true);
   });
 
-  it("games has word blast, bot duel, ghost gp and deck runner (G24 + G2 + G3)", () => {
+  it("games has word blast, bot duel, ghost gp, sprint and deck runner (G24 + G2 + G3 + G5)", () => {
     const games = must("games");
     expect(games.route).toBeUndefined();
     expect(games.subSections?.map((sub) => sub.id)).toEqual([
       "word-blast",
       "bot-duel",
       "ghost-gp",
+      "sprint",
       "deck-runner",
     ]);
     expect(sectionHasPicker(games)).toBe(true);
     expect(games.subSections?.[0]?.route).toBe("/games/word-blast");
     expect(games.subSections?.[1]?.route).toBe("/games/bot-duel");
     expect(games.subSections?.[2]?.route).toBe("/games/ghost-gp");
-    expect(games.subSections?.[3]?.route).toBe("/games/deck-runner");
+    expect(games.subSections?.[3]?.route).toBe("/games/sprint");
+    expect(games.subSections?.[4]?.route).toBe("/games/deck-runner");
   });
 
   it("picker sections link to /sections/<id>, direct ones to their route", () => {
@@ -110,7 +112,7 @@ describe("home hub routing", () => {
     expect(text).toContain("back to home");
   });
 
-  it("the games picker renders all four games (G24 + G2 + G3)", async () => {
+  it("the games picker renders all five games (G24 + G2 + G3 + G5)", async () => {
     const app = renderApp();
     await app.settle();
     await app.router.navigate({
@@ -123,6 +125,7 @@ describe("home hub routing", () => {
     expect(text).toContain("word blast");
     expect(text).toContain("bot duel");
     expect(text).toContain("ghost gp");
+    expect(text).toContain("ten-second sprint");
     expect(text).toContain("deck runner");
     expect(text).toContain("back to home");
   });
