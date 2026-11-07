@@ -32,6 +32,7 @@ import { FruitSlashPage } from "../components/pages/games/fruit-slash/FruitSlash
 import { StackAttackPage } from "../components/pages/games/stack-attack/StackAttackPage";
 import { FirefightPage } from "../components/pages/games/firefight/FirefightPage";
 import { NitroRunPage } from "../components/pages/games/nitro-run/NitroRunPage";
+import { TypePongPage } from "../components/pages/games/type-pong/TypePongPage";
 import { TypeSnakePage } from "../components/pages/games/type-snake/TypeSnakePage";
 import { HomePage } from "../components/pages/home/HomePage";
 import { SectionsPage } from "../components/pages/sections/SectionsPage";
@@ -112,6 +113,7 @@ export type PageName =
   | "type-snake"
   | "firefight"
   | "nitro-run"
+  | "type-pong"
   | "wrapped";
 
 declare module "@tanstack/solid-router" {
@@ -437,6 +439,13 @@ const nitroRun = createRoute({
   component: createRouterPage(NitroRunPage),
 });
 
+const typePong = createRoute({
+  getParentRoute: () => userDataRoute,
+  path: "/games/type-pong",
+  staticData: { page: "type-pong" },
+  component: createRouterPage(TypePongPage),
+});
+
 const wrapped = createRoute({
   getParentRoute: () => userDataRoute,
   path: "/wrapped",
@@ -601,6 +610,7 @@ export const routeTree = root.addChildren([
     typeSnake,
     firefight,
     nitroRun,
+    typePong,
     wrapped,
     login,
     account,

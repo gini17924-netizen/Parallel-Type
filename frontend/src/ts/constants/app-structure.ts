@@ -178,6 +178,13 @@ export const APP_SECTIONS: readonly AppSection[] = [
         icon: "fa-car-side",
         route: "/games/nitro-run",
       },
+      {
+        id: "type-pong",
+        title: "type pong",
+        description: "the paddle moves only when you type — first to 5",
+        icon: "fa-table-tennis",
+        route: "/games/type-pong",
+      },
     ],
   },
 ];
