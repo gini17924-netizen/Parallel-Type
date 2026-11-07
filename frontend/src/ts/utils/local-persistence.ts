@@ -394,6 +394,8 @@ const DECK_RUNNER_STATS_KEY = "mtDesktopDeckRunnerStats";
 const BOT_DUEL_STATS_KEY = "mtDesktopBotDuelStats";
 //owner: utils/ghost-gp/gp-store.ts (idea G3)
 const GHOST_GP_STATS_KEY = "mtDesktopGhostGpStats";
+//owner: utils/sprint/sprint-stats.ts (idea G5)
+const SPRINT_STATS_KEY = "mtDesktopSprintStats";
 
 /** transient runtime state that must never be carried across restores */
 const KEYBR_STATE_EXCLUDED = new Set(["mtKeybrBootError"]);
@@ -476,6 +478,8 @@ export type LocalBackup = {
   botDuelStats?: Record<string, unknown> | undefined;
   /** schema v3 (idea G3): ghost-gp race counters + recently raced ghosts */
   ghostGpStats?: Record<string, unknown> | undefined;
+  /** schema v3 (idea G5): sprint bests + history + daily streak */
+  sprintStats?: Record<string, unknown> | undefined;
   /** schema v2: saved custom texts, their settings and the rotation state */
   customTexts?: Record<string, unknown> | undefined;
   customTextsLong?: Record<string, unknown> | undefined;
@@ -506,6 +510,7 @@ export async function exportBackup(): Promise<LocalBackup> {
     deckRunnerStats: readJsonSafe(DECK_RUNNER_STATS_KEY),
     botDuelStats: readJsonSafe(BOT_DUEL_STATS_KEY),
     ghostGpStats: readJsonSafe(GHOST_GP_STATS_KEY),
+    sprintStats: readJsonSafe(SPRINT_STATS_KEY),
     customTexts: readJsonSafe(CUSTOM_TEXT_KEY),
     customTextsLong: readJsonSafe(CUSTOM_TEXT_LONG_KEY),
     customTextSettings: readJsonSafe(CUSTOM_TEXT_SETTINGS_KEY),
@@ -740,6 +745,15 @@ export async function importBackup(backup: LocalBackup): Promise<number> {
     window.localStorage.setItem(
       GHOST_GP_STATS_KEY,
       JSON.stringify(sanitizeImportedGhostGpStats(backup.ghostGpStats)),
+    );
+  }
+  if (backup.sprintStats !== undefined && backup.sprintStats !== null) {
+    //audit L4 pattern, same as above
+    const { sanitizeImportedSprintStats } =
+      await import("./sprint/sprint-stats");
+    window.localStorage.setItem(
+      SPRINT_STATS_KEY,
+      JSON.stringify(sanitizeImportedSprintStats(backup.sprintStats)),
     );
   }
   const jsonBackedKeys: [string, Record<string, unknown> | undefined][] = [
