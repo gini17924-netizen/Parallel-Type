@@ -164,6 +164,13 @@ export const APP_SECTIONS: readonly AppSection[] = [
         icon: "fa-dragon",
         route: "/games/type-snake",
       },
+      {
+        id: "firefight",
+        title: "firefight",
+        description: "one hose, one word — stop the building from burning",
+        icon: "fa-fire",
+        route: "/games/firefight",
+      },
     ],
   },
 ];
