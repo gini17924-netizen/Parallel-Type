@@ -396,6 +396,10 @@ const BOT_DUEL_STATS_KEY = "mtDesktopBotDuelStats";
 const GHOST_GP_STATS_KEY = "mtDesktopGhostGpStats";
 //owner: utils/sprint/sprint-stats.ts (idea G5)
 const SPRINT_STATS_KEY = "mtDesktopSprintStats";
+//owner: utils/wordle/wordle-store.ts (idea G4) — per-language keys
+const WORDLE_LANGS = ["fa", "en"] as const;
+const wordleStateKey = (lang: string): string => `mtDesktopWordleState_${lang}`;
+const wordleStatsKey = (lang: string): string => `mtDesktopWordleStats_${lang}`;
 
 /** transient runtime state that must never be carried across restores */
 const KEYBR_STATE_EXCLUDED = new Set(["mtKeybrBootError"]);
@@ -480,6 +484,10 @@ export type LocalBackup = {
   ghostGpStats?: Record<string, unknown> | undefined;
   /** schema v3 (idea G5): sprint bests + history + daily streak */
   sprintStats?: Record<string, unknown> | undefined;
+  /** schema v3 (idea G4): wordle puzzle state, keyed by language */
+  wordleState?: Record<string, unknown> | undefined;
+  /** schema v3 (idea G4): wordle career stats, keyed by language */
+  wordleStats?: Record<string, unknown> | undefined;
   /** schema v2: saved custom texts, their settings and the rotation state */
   customTexts?: Record<string, unknown> | undefined;
   customTextsLong?: Record<string, unknown> | undefined;
@@ -511,6 +519,12 @@ export async function exportBackup(): Promise<LocalBackup> {
     botDuelStats: readJsonSafe(BOT_DUEL_STATS_KEY),
     ghostGpStats: readJsonSafe(GHOST_GP_STATS_KEY),
     sprintStats: readJsonSafe(SPRINT_STATS_KEY),
+    wordleState: Object.fromEntries(
+      WORDLE_LANGS.map((lang) => [lang, readJsonSafe(wordleStateKey(lang))]),
+    ),
+    wordleStats: Object.fromEntries(
+      WORDLE_LANGS.map((lang) => [lang, readJsonSafe(wordleStatsKey(lang))]),
+    ),
     customTexts: readJsonSafe(CUSTOM_TEXT_KEY),
     customTextsLong: readJsonSafe(CUSTOM_TEXT_LONG_KEY),
     customTextSettings: readJsonSafe(CUSTOM_TEXT_SETTINGS_KEY),
@@ -755,6 +769,30 @@ export async function importBackup(backup: LocalBackup): Promise<number> {
       SPRINT_STATS_KEY,
       JSON.stringify(sanitizeImportedSprintStats(backup.sprintStats)),
     );
+  }
+  if (backup.wordleState !== undefined && backup.wordleState !== null) {
+    //audit L4 pattern, per language
+    const { sanitizeImportedWordleState } =
+      await import("./wordle/wordle-store");
+    for (const [lang, payload] of Object.entries(backup.wordleState)) {
+      if (payload === undefined || payload === null) continue;
+      window.localStorage.setItem(
+        wordleStateKey(lang),
+        JSON.stringify(sanitizeImportedWordleState(payload)),
+      );
+    }
+  }
+  if (backup.wordleStats !== undefined && backup.wordleStats !== null) {
+    //audit L4 pattern, per language
+    const { sanitizeImportedWordleStats } =
+      await import("./wordle/wordle-store");
+    for (const [lang, payload] of Object.entries(backup.wordleStats)) {
+      if (payload === undefined || payload === null) continue;
+      window.localStorage.setItem(
+        wordleStatsKey(lang),
+        JSON.stringify(sanitizeImportedWordleStats(payload)),
+      );
+    }
   }
   const jsonBackedKeys: [string, Record<string, unknown> | undefined][] = [
     [CUSTOM_TEXT_KEY, backup.customTexts],
