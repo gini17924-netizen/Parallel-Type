@@ -15,7 +15,6 @@ import {
   groupsForLanguage,
   resetLearnState,
   setActiveDrillWords,
-  unlockedLetters,
 } from "../../../utils/learn-stats";
 import { Button } from "../../common/Button";
 import { H2 } from "../../common/Headers";
@@ -55,9 +54,17 @@ export function LearnPage(): JSXElement {
     }
   });
 
-  const unlocked = (): string => unlockedLetters(language());
+  /** derived from the reactive state: unlockedLetters() reads storage
+   * directly, so the reset button could not refresh this line (L2) */
+  const unlocked = (): string =>
+    groups().slice(0, state().unlockedGroups).join("");
+  /** the group currently being mastered (drills weight toward it) */
   const currentGroupLetters = (): string =>
     groups()[Math.min(state().unlockedGroups, groups().length) - 1] ?? "";
+  /** the group that unlocks after the current one is mastered — the
+   * "next group to unlock" display (L1: it used to repeat the current
+   * group instead of the next one) */
+  const nextGroupLetters = (): string => groups()[state().unlockedGroups] ?? "";
 
   const startLearnDrill = (): void => {
     const words = generateDrillWords(
@@ -102,7 +109,7 @@ export function LearnPage(): JSXElement {
           <div class="grid gap-2">
             <div class="text-sub">next group to unlock</div>
             <div class="text-3xl tracking-[0.3em] text-text">
-              {currentGroupLetters()}
+              {nextGroupLetters()}
             </div>
           </div>
         </Show>
