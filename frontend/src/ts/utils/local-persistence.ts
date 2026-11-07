@@ -390,6 +390,8 @@ const CUSTOM_TEXT_ROTATION_KEY = "customTextRotation"; //owner: test/custom-text
 //owner: utils/deck-runner/run-store.ts (idea G24)
 const DECK_RUNNER_RUN_KEY = "mtDesktopDeckRunnerRun";
 const DECK_RUNNER_STATS_KEY = "mtDesktopDeckRunnerStats";
+//owner: utils/bot-duel/duel-store.ts (idea G2)
+const BOT_DUEL_STATS_KEY = "mtDesktopBotDuelStats";
 
 /** transient runtime state that must never be carried across restores */
 const KEYBR_STATE_EXCLUDED = new Set(["mtKeybrBootError"]);
@@ -468,6 +470,8 @@ export type LocalBackup = {
   deckRunnerRun?: Record<string, unknown> | undefined;
   /** schema v3 (idea G24): deck-runner records + run history */
   deckRunnerStats?: Record<string, unknown> | undefined;
+  /** schema v3 (idea G2): bot-duel per-tier records + race history */
+  botDuelStats?: Record<string, unknown> | undefined;
   /** schema v2: saved custom texts, their settings and the rotation state */
   customTexts?: Record<string, unknown> | undefined;
   customTextsLong?: Record<string, unknown> | undefined;
@@ -496,6 +500,7 @@ export async function exportBackup(): Promise<LocalBackup> {
     wordBlastScores: readJsonSafe(WORD_BLAST_SCORES_KEY),
     deckRunnerRun: readJsonSafe(DECK_RUNNER_RUN_KEY),
     deckRunnerStats: readJsonSafe(DECK_RUNNER_STATS_KEY),
+    botDuelStats: readJsonSafe(BOT_DUEL_STATS_KEY),
     customTexts: readJsonSafe(CUSTOM_TEXT_KEY),
     customTextsLong: readJsonSafe(CUSTOM_TEXT_LONG_KEY),
     customTextSettings: readJsonSafe(CUSTOM_TEXT_SETTINGS_KEY),
@@ -711,6 +716,16 @@ export async function importBackup(backup: LocalBackup): Promise<number> {
     window.localStorage.setItem(
       DECK_RUNNER_STATS_KEY,
       JSON.stringify(backup.deckRunnerStats),
+    );
+  }
+  if (backup.botDuelStats !== undefined && backup.botDuelStats !== null) {
+    //audit L4 pattern: an out-of-schema payload would be wiped to the empty
+    //fallback by the store's next read - coerce it into a valid shape instead
+    const { sanitizeImportedBotDuelStats } =
+      await import("./bot-duel/duel-store");
+    window.localStorage.setItem(
+      BOT_DUEL_STATS_KEY,
+      JSON.stringify(sanitizeImportedBotDuelStats(backup.botDuelStats)),
     );
   }
   const jsonBackedKeys: [string, Record<string, unknown> | undefined][] = [
