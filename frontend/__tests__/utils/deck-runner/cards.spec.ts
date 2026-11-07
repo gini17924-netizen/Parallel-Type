@@ -76,10 +76,10 @@ describe("deck-runner cards (G24 phase 2)", () => {
       wordIndex: 0,
       jokers: runtime.scorePipeline,
     });
-    //combo 29: the base combo tier (>=15 -> x1.5) applies, the joker does not
-    expect(below.total).toBe(23);
-    //combo 30: base tier (x2) and the joker (x2) stack -> 15x4
-    expect(at.total).toBe(60);
+    //combo 29: the base combo tier (>=20 -> x2) applies, the joker does not
+    expect(below.total).toBe(30);
+    //combo 30: base tier (x3) and the joker (x2) stack -> 15x6
+    expect(at.total).toBe(90);
   });
 
   it("languageIs matches the run language", () => {
