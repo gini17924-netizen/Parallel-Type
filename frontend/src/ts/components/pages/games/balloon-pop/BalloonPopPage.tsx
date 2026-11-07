@@ -73,6 +73,9 @@ export function BalloonPopPage(): JSXElement {
   /** the hear-it TTS mode (idea G6, phase 3): speak each balloon as it
    * spawns; the cadence slows to make room for the speech */
   const [hearIt, setHearIt] = createSignal(false);
+  /** the blur-pause badge (KI-33): the engine pauses on window blur by
+   * design (anti unfair-death) — without this the run just looks frozen */
+  const [paused, setPaused] = createSignal(false);
 
   let engine: BalloonEngine | undefined;
   let tickTimer: ReturnType<typeof setInterval> | undefined;
@@ -148,6 +151,7 @@ export function BalloonPopPage(): JSXElement {
       bannerTimer = setTimeout(() => setStageBanner(undefined), 1500);
     }
     setEngineState(engine.state());
+    setPaused(false);
     setPagePhase("playing");
     //KI-30: install this run's tick only after retiring any previous run's
     //timers — two overlapping startRuns must never leave two intervals
@@ -200,8 +204,14 @@ export function BalloonPopPage(): JSXElement {
 
   onMount(() => {
     window.addEventListener("keydown", handleKey);
-    const onBlur = (): void => engine?.setPaused(true);
-    const onFocus = (): void => engine?.setPaused(false);
+    const onBlur = (): void => {
+      engine?.setPaused(true);
+      setPaused(true);
+    };
+    const onFocus = (): void => {
+      engine?.setPaused(false);
+      setPaused(false);
+    };
     window.addEventListener("blur", onBlur);
     window.addEventListener("focus", onFocus);
     onCleanup(() => {
@@ -332,6 +342,16 @@ export function BalloonPopPage(): JSXElement {
             </div>
           )}
         </For>
+        <Show when={paused()}>
+          <div
+            class="absolute inset-0 grid place-items-center"
+            data-testid="bp-paused"
+          >
+            <div class="rounded border-2 border-main bg-bg px-6 py-3 text-2xl font-bold text-main">
+              paused
+            </div>
+          </div>
+        </Show>
       </section>
     );
   };

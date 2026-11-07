@@ -134,6 +134,21 @@ describe("balloon pop page (idea G6 phase 2)", () => {
     expect(toVh(tops[1]?.style.top)).toBeGreaterThan(95); //fresh spawn
   });
 
+  it("shows a paused badge while the window is blurred and clears on focus (KI-33)", async () => {
+    const app = await openBalloonPop();
+    vi.useFakeTimers();
+    button(app, "start stage 1")?.click();
+    await vi.advanceTimersByTimeAsync(150);
+    expect(pageText(app)).not.toContain("paused");
+    //the doc's blur-pause (anti unfair-death) must be visible, not a freeze
+    fireEvent.blur(window);
+    expect(
+      app.container.querySelector('[data-testid="bp-paused"]'),
+    ).not.toBeNull();
+    fireEvent.focus(window);
+    expect(app.container.querySelector('[data-testid="bp-paused"]')).toBeNull();
+  });
+
   it("the run records the stage best and the history when it ends", async () => {
     const app = await openBalloonPop();
     vi.useFakeTimers();
