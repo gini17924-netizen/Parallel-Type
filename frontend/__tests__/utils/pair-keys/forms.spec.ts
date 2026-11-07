@@ -47,9 +47,9 @@ describe("pair-keys forms (idea G18 phase 1)", () => {
   it("builds the four forms with the ZWJ trick", () => {
     const forms = letterForms("ب");
     expect(forms.isolated).toBe("ب");
-    expect(forms.initial).toBe("ب" + ZWJ);
-    expect(forms.medial).toBe(ZWJ + "ب" + ZWJ);
-    expect(forms.final).toBe(ZWJ + "ب");
+    expect(forms.initial).toBe(`ب${ZWJ}`);
+    expect(forms.medial).toBe(`${ZWJ}ب${ZWJ}`);
+    expect(forms.final).toBe(`${ZWJ}ب`);
     expect(ZWJ).toBe("\u200D"); //the JOINER, not ZWNJ
   });
 
@@ -68,7 +68,7 @@ describe("pair-keys forms (idea G18 phase 1)", () => {
 
   it("formGlyph maps the four names", () => {
     expect(formGlyph("ب", "isolated")).toBe("ب");
-    expect(formGlyph("ب", "medial")).toBe(ZWJ + "ب" + ZWJ);
+    expect(formGlyph("ب", "medial")).toBe(`${ZWJ}ب${ZWJ}`);
   });
 
   it("the non-joiners are excluded from joining", () => {

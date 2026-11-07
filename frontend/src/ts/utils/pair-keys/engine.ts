@@ -1,10 +1,5 @@
 import { BALANCE } from "./balance";
-import {
-  createBoard,
-  type PairBoard,
-  type PairCard,
-  type PairKeysMode,
-} from "./board";
+import { createBoard, type PairBoard, type PairKeysMode } from "./board";
 
 /**
  * Pair Keys engine (idea G18, phase 1): the memory-game rules. The page
@@ -140,7 +135,7 @@ export function createPairKeysEngine(options: {
     if (card === undefined) return snapshot();
     if (faces[index] !== "down") return snapshot(); //matched or already up
     if (open.length >= 2) return snapshot(); //a mismatch pends — resolve first
-    if (startedAt === undefined) startedAt = options.now();
+    startedAt ??= options.now();
     faces[index] = "up";
     open = [...open, index];
     if (open.length === 2) {
