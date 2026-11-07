@@ -8,13 +8,20 @@ import {
 } from "solid-js";
 
 import { Config } from "../../../config/store";
+import { playClick, playError } from "../../../controllers/sound-controller";
+import { cn } from "../../../utils/cn";
 import { cachedFetchJson } from "../../../utils/json-data";
 import {
+  BALANCE,
   DIFFICULTY_LABELS,
   type Difficulty,
   buildWordPools,
+  comboMult,
   isDifficulty,
+  levelForScore,
+  pickBossWord,
   pickTarget,
+  shouldSpawnHeart,
   spawnIntervalMs,
   spawnSpeed,
   type WordPools,
@@ -33,6 +40,10 @@ type FallingWord = {
   top: number;
   left: number;
   speed: number;
+  /** v2 (idea G1): the guaranteed level-up word — flat ×5 score, slower fall */
+  isBoss?: boolean;
+  /** v2: a short glowing word — completing it grants a life */
+  isHeart?: boolean;
 };
 
 const GAME_HEIGHT_VH = 70;
@@ -54,6 +65,10 @@ export function GamesPage(): JSXElement {
   const [running, setRunning] = createSignal(false);
   const [over, setOver] = createSignal(false);
   const [wpm, setWpm] = createSignal(0);
+  const [combo, setCombo] = createSignal(0);
+  const [maxCombo, setMaxCombo] = createSignal(0);
+  const [correctKeys, setCorrectKeys] = createSignal(0);
+  const [wrongKeys, setWrongKeys] = createSignal(0);
   const [bestScore, setBestScore] = createSignal<number | undefined>(
     getWordBlastBest(loadDifficulty())?.score,
   );
@@ -65,10 +80,17 @@ export function GamesPage(): JSXElement {
     | undefined
   >(undefined);
 
+  /** live accuracy percent (0 while nothing was typed) */
+  const accuracy = (): number => {
+    const attempts = correctKeys() + wrongKeys();
+    return attempts === 0 ? 0 : Math.round((correctKeys() / attempts) * 100);
+  };
+
   let pools: WordPools = { wordPool: [], phrasePool: [] };
   let nextId = 1;
   let typedTotal = 0;
   let startedAt = 0;
+  let spawnCount = 0;
   let gameTimer: ReturnType<typeof setInterval> | undefined;
   let spawnTimer: ReturnType<typeof setInterval> | undefined;
 
@@ -89,7 +111,20 @@ export function GamesPage(): JSXElement {
   onCleanup(stopTimers);
 
   const spawn = (): void => {
-    const text = pickTarget(pools, difficulty());
+    spawnCount++;
+    //v2 (idea G1): on the heart windows a short glowing word may spawn —
+    //completing it grants a life
+    let text: string | undefined;
+    let isHeart = false;
+    if (shouldSpawnHeart(spawnCount, Math.random)) {
+      const short = pools.wordPool.filter((word) => word.length <= 5);
+      const picked = short[Math.floor(Math.random() * short.length)];
+      if (picked !== undefined) {
+        text = picked;
+        isHeart = true;
+      }
+    }
+    text ??= pickTarget(pools, difficulty());
     if (text === undefined || text === "") return;
     setWords((current) => [
       ...current,
@@ -100,6 +135,7 @@ export function GamesPage(): JSXElement {
         top: 0,
         left: 5 + Math.random() * 80,
         speed: spawnSpeed(level(), difficulty()),
+        isHeart,
       },
     ]);
   };
@@ -114,6 +150,8 @@ export function GamesPage(): JSXElement {
         difficulty: difficulty(),
         score: score(),
         wpm: wpm(),
+        maxCombo: maxCombo(),
+        accuracy: accuracy(),
       });
       setRecordInfo({
         isNewRecord: result.isNewRecord,
@@ -143,6 +181,9 @@ export function GamesPage(): JSXElement {
       setWords((current) =>
         current.filter((word) => !hitBottom.includes(word.id)),
       );
+      //v2: any word reaching the bottom breaks the combo — one rule for
+      //every word type, boss and heart included
+      setCombo(0);
       setLives((lives) => {
         const left = lives - hitBottom.length;
         if (left <= 0) end();
@@ -179,6 +220,11 @@ export function GamesPage(): JSXElement {
     setLevel(1);
     setOver(false);
     setRunning(true);
+    setCombo(0);
+    setMaxCombo(0);
+    setCorrectKeys(0);
+    setWrongKeys(0);
+    spawnCount = 0;
     typedTotal = 0;
     startedAt = Date.now();
 
@@ -205,20 +251,64 @@ export function GamesPage(): JSXElement {
     if (target === undefined) return;
 
     const expected = target.text[target.typed]?.toLowerCase();
-    if (expected !== ch) return; //wrong key: ignore
+    if (expected !== ch) {
+      //v2 (idea G1): a wrong key on the current word costs the whole combo
+      //(keymania: accuracy costs more than speed) — one rule for every word
+      //type, boss and heart included
+      setWrongKeys((wrong) => wrong + 1);
+      if (combo() !== 0) {
+        setCombo(0);
+        void playError();
+      }
+      return;
+    }
 
+    setCorrectKeys((correct) => correct + 1);
     typedTotal++;
     const elapsedMin = Math.max((Date.now() - startedAt) / 60000, 1 / 60);
     setWpm(Math.round(typedTotal / 5 / elapsedMin));
 
     const typed = target.typed + 1;
     const targetId = target.id;
-    const targetPoints = target.text.length * 10;
     if (typed >= target.text.length) {
-      setWords((current) => current.filter((word) => word.id !== targetId));
-      setScore((score) => score + targetPoints);
-      if (score() > 0 && score() % 500 === 0) {
-        setLevel((level) => level + 1);
+      //v2: the streak grows on a completed word, then scores with its
+      //multiplier (post-update streak — the deck-runner engine's
+      //convention). The boss word scores a flat ×5 instead.
+      const nextCombo = combo() + 1;
+      const mult =
+        target.isBoss === true ? BALANCE.bossScoreMult : comboMult(nextCombo);
+      const points = target.text.length * 10 * mult;
+      const nextScore = score() + points;
+      const nextLevel = levelForScore(nextScore);
+      const levelUp = nextLevel > level();
+      //a level-up guarantees exactly one boss word (idea G1)
+      const bossText = levelUp ? pickBossWord(pools) : undefined;
+
+      setWords((current) => {
+        const kept = current.filter((word) => word.id !== targetId);
+        if (bossText !== undefined) {
+          kept.push({
+            id: nextId++,
+            text: bossText,
+            typed: 0,
+            top: 0,
+            left: 5 + Math.random() * 80,
+            speed: spawnSpeed(nextLevel, difficulty()) * BALANCE.bossSpeedMult,
+            isBoss: true,
+          });
+        }
+        return kept;
+      });
+      setScore(nextScore);
+      setCombo(nextCombo);
+      setMaxCombo((max) => Math.max(max, nextCombo));
+      if (target.isHeart === true) {
+        //a completed heart word grants a life, capped at maxLives
+        void playClick();
+        setLives((lives) => Math.min(BALANCE.maxLives, lives + 1));
+      }
+      if (levelUp) {
+        setLevel(nextLevel);
         restartTimers();
       }
     } else {
@@ -268,27 +358,49 @@ export function GamesPage(): JSXElement {
         </div>
       </section>
 
-      <div class="grid grid-cols-3 gap-4">
-        <Button
-          text="start game"
-          fa={{ icon: "fa-play" }}
-          class="w-full"
-          onClick={() => void start()}
-        />
-        <div class="text-center">
-          <div class="text-sub">score</div>
-          <div class="text-3xl text-main">{score()}</div>
-        </div>
-        <div class="text-center">
-          <div class="text-sub">wpm / lives</div>
-          <div class="text-3xl">
-            {wpm()} <span class="text-sub">|</span> {"❤".repeat(lives())}
+      <Button
+        text="start game"
+        fa={{ icon: "fa-play" }}
+        class="w-full"
+        onClick={() => void start()}
+      />
+
+      <div class="grid grid-cols-5 gap-2" aria-label="word blast hud">
+        <HudCell label="score" value={String(score())} testId="wb-score" />
+        <HudCell label="wpm" value={String(wpm())} />
+        <HudCell label="accuracy" value={`${accuracy()}%`} testId="wb-acc" />
+        <div class="rounded bg-bg p-2 text-center">
+          <div
+            class="text-xl font-bold text-main tabular-nums"
+            data-testid="wb-combo"
+          >
+            x{combo()}
+          </div>
+          <div class="flex justify-center gap-1">
+            <For each={BALANCE.comboTiers.slice(1)}>
+              {(tier) => (
+                <span
+                  class={cn(
+                    "text-[0.65rem]",
+                    combo() >= tier.n ? "text-main" : "text-sub",
+                  )}
+                >
+                  ×{tier.m}
+                </span>
+              )}
+            </For>
           </div>
         </div>
+        <HudCell
+          label="lives"
+          value={"❤".repeat(lives()) || "—"}
+          testId="wb-lives"
+        />
       </div>
 
       <div
         class="relative w-full overflow-hidden rounded bg-sub-alt"
+        aria-label="word blast arena"
         style={{ height: `${GAME_HEIGHT_VH}vh` }}
       >
         <Show
@@ -302,8 +414,15 @@ export function GamesPage(): JSXElement {
           <For each={words()}>
             {(word) => (
               <div
-                class="absolute font-mono text-2xl tracking-widest"
+                class={cn(
+                  "absolute font-mono text-2xl tracking-widest",
+                  word.isBoss === true &&
+                    "rounded border-2 border-main bg-sub-alt px-2",
+                  word.isHeart === true &&
+                    "animate-pulse rounded border border-main px-2 text-main",
+                )}
                 dir="auto"
+                data-testid={word.isBoss === true ? "wb-boss" : undefined}
                 style={{
                   top: `${word.top}vh`,
                   left: `${word.left}%`,
@@ -330,6 +449,24 @@ export function GamesPage(): JSXElement {
           </div>
         </Show>
       </div>
+    </div>
+  );
+}
+
+function HudCell(props: {
+  label: string;
+  value: string;
+  testId?: string;
+}): JSXElement {
+  return (
+    <div class="rounded bg-bg p-2 text-center">
+      <div
+        class="text-xl font-bold text-main tabular-nums"
+        data-testid={props.testId}
+      >
+        {props.value}
+      </div>
+      <div class="text-xs text-sub">{props.label}</div>
     </div>
   );
 }
