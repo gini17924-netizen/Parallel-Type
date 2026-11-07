@@ -110,7 +110,7 @@ export const JOKER_REGISTRY: Record<string, JokerDef> = {
     description: "+25 chips on every word.",
     rarity: "common",
     cost: 4,
-    effect: { kind: "flatChips", value: 150 },
+    effect: { kind: "flatChips", value: 25 },
   },
   bookworm: {
     id: "bookworm",
@@ -118,7 +118,7 @@ export const JOKER_REGISTRY: Record<string, JokerDef> = {
     description: "+30 chips on perfect words.",
     rarity: "common",
     cost: 4,
-    effect: { kind: "chipsPer", when: { type: "perfectWord" }, value: 150 },
+    effect: { kind: "chipsPer", when: { type: "perfectWord" }, value: 30 },
   },
   code_monkey: {
     id: "code_monkey",
@@ -126,7 +126,7 @@ export const JOKER_REGISTRY: Record<string, JokerDef> = {
     description: "+15 chips on code words.",
     rarity: "common",
     cost: 4,
-    effect: { kind: "chipsPer", when: { type: "codeWord" }, value: 100 },
+    effect: { kind: "chipsPer", when: { type: "codeWord" }, value: 15 },
   },
   persian_charm: {
     id: "persian_charm",
@@ -242,7 +242,7 @@ export const JOKER_REGISTRY: Record<string, JokerDef> = {
     effect: {
       kind: "chipsPer",
       when: { type: "everyNthWord", n: 3 },
-      value: 200,
+      value: 40,
     },
   },
   quick_fingers: {
@@ -254,7 +254,7 @@ export const JOKER_REGISTRY: Record<string, JokerDef> = {
     effect: {
       kind: "chipsPer",
       when: { type: "everyNthWord", n: 2 },
-      value: 75,
+      value: 15,
     },
   },
   wordsmith: {
@@ -327,7 +327,7 @@ export const JOKER_REGISTRY: Record<string, JokerDef> = {
     description: "+80 chips on every word.",
     rarity: "legendary",
     cost: 12,
-    effect: { kind: "flatChips", value: 400 },
+    effect: { kind: "flatChips", value: 80 },
   },
   combo_king: {
     id: "combo_king",
@@ -351,7 +351,7 @@ export const JOKER_REGISTRY: Record<string, JokerDef> = {
     description: "+60 chips on every word.",
     rarity: "rare",
     cost: 7,
-    effect: { kind: "flatChips", value: 300 },
+    effect: { kind: "flatChips", value: 60 },
   },
   code_poet: {
     id: "code_poet",
@@ -362,7 +362,7 @@ export const JOKER_REGISTRY: Record<string, JokerDef> = {
     effect: {
       kind: "chipsPer",
       when: { type: "codeWord" },
-      value: 250,
+      value: 40,
     },
   },
   second_wind: {
