@@ -84,11 +84,25 @@ describe("type pong page (idea G13 phase 2)", () => {
     await vi.advanceTimersByTimeAsync(300);
     const w = currentWord(app)?.text ?? "";
     //type the first 2 chars: the typed prefix grows
+    expect(w.length).toBeGreaterThan(0); //sanity: the word is live
     for (const ch of w.slice(0, 2)) {
       window.dispatchEvent(new KeyboardEvent("keydown", { key: ch }));
       await vi.advanceTimersByTimeAsync(20);
     }
     expect(currentWord(app)?.typed).toBe(w.slice(0, 2));
+  });
+
+  it("the breaker mode: switching works and the word display lives", async () => {
+    const app = await openTypePong();
+    vi.useFakeTimers();
+    button(app, "breaker")?.click();
+    button(app, "start match")?.click();
+    await vi.advanceTimersByTimeAsync(300);
+    //the word display is live (the breaker engine issued the first brick's word)
+    const wordEl = app.container.querySelector('[data-testid="tp-word"]');
+    expect(wordEl, `diag: ${pageText(app).slice(0, 300)}`).not.toBeNull();
+    const word = wordEl?.textContent ?? "";
+    expect(word.length).toBeGreaterThan(0);
   });
 
   it("an idle match ends with the result screen and records it", async () => {
