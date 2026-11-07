@@ -26,6 +26,7 @@ import { GhostGpPage } from "../components/pages/games/ghost-gp/GhostGpPage";
 import { SprintPage } from "../components/pages/games/sprint/SprintPage";
 import { WordlePage } from "../components/pages/games/wordle/WordlePage";
 import { BalloonPopPage } from "../components/pages/games/balloon-pop/BalloonPopPage";
+import { LetterStrikePage } from "../components/pages/games/letter-strike/LetterStrikePage";
 import { HomePage } from "../components/pages/home/HomePage";
 import { SectionsPage } from "../components/pages/sections/SectionsPage";
 import { WrappedPage } from "../components/pages/wrapped/WrappedPage";
@@ -98,6 +99,7 @@ export type PageName =
   | "sprint"
   | "wordle"
   | "balloon-pop"
+  | "letter-strike"
   | "wrapped";
 
 declare module "@tanstack/solid-router" {
@@ -374,6 +376,13 @@ const balloonPop = createRoute({
   component: createRouterPage(BalloonPopPage),
 });
 
+const letterStrike = createRoute({
+  getParentRoute: () => userDataRoute,
+  path: "/games/letter-strike",
+  staticData: { page: "letter-strike" },
+  component: createRouterPage(LetterStrikePage),
+});
+
 const wrapped = createRoute({
   getParentRoute: () => userDataRoute,
   path: "/wrapped",
@@ -531,6 +540,7 @@ export const routeTree = root.addChildren([
     sprint,
     wordle,
     balloonPop,
+    letterStrike,
     wrapped,
     login,
     account,

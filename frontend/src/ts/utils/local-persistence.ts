@@ -398,6 +398,8 @@ const GHOST_GP_STATS_KEY = "mtDesktopGhostGpStats";
 const SPRINT_STATS_KEY = "mtDesktopSprintStats";
 //owner: utils/balloon-pop/store.ts (idea G6)
 const BALLOON_POP_SCORES_KEY = "mtDesktopBalloonPopScores";
+//owner: utils/letter-strike/store.ts (idea G8)
+const LETTER_STRIKE_SCORES_KEY = "mtDesktopLetterStrikeScores";
 //owner: utils/wordle/wordle-store.ts (idea G4) — per-language keys
 const WORDLE_LANGS = ["fa", "en"] as const;
 const wordleStateKey = (lang: string): string => `mtDesktopWordleState_${lang}`;
@@ -488,6 +490,8 @@ export type LocalBackup = {
   sprintStats?: Record<string, unknown> | undefined;
   /** schema v3 (idea G6): balloon-pop per-stage bests + run history */
   balloonPopScores?: Record<string, unknown> | undefined;
+  /** schema v3 (idea G8): letter-strike bests + run history */
+  letterStrikeScores?: Record<string, unknown> | undefined;
   /** schema v3 (idea G4): wordle puzzle state, keyed by language */
   wordleState?: Record<string, unknown> | undefined;
   /** schema v3 (idea G4): wordle career stats, keyed by language */
@@ -524,6 +528,7 @@ export async function exportBackup(): Promise<LocalBackup> {
     ghostGpStats: readJsonSafe(GHOST_GP_STATS_KEY),
     sprintStats: readJsonSafe(SPRINT_STATS_KEY),
     balloonPopScores: readJsonSafe(BALLOON_POP_SCORES_KEY),
+    letterStrikeScores: readJsonSafe(LETTER_STRIKE_SCORES_KEY),
     wordleState: Object.fromEntries(
       WORDLE_LANGS.map((lang) => [lang, readJsonSafe(wordleStateKey(lang))]),
     ),
@@ -785,6 +790,20 @@ export async function importBackup(backup: LocalBackup): Promise<number> {
     window.localStorage.setItem(
       BALLOON_POP_SCORES_KEY,
       JSON.stringify(sanitizeImportedBalloonPopScores(backup.balloonPopScores)),
+    );
+  }
+  if (
+    backup.letterStrikeScores !== undefined &&
+    backup.letterStrikeScores !== null
+  ) {
+    //audit L4 pattern, same as above
+    const { sanitizeImportedLetterStrikeScores } =
+      await import("./letter-strike/store");
+    window.localStorage.setItem(
+      LETTER_STRIKE_SCORES_KEY,
+      JSON.stringify(
+        sanitizeImportedLetterStrikeScores(backup.letterStrikeScores),
+      ),
     );
   }
   if (backup.wordleState !== undefined && backup.wordleState !== null) {

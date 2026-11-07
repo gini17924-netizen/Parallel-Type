@@ -129,6 +129,13 @@ export const APP_SECTIONS: readonly AppSection[] = [
         icon: "fa-layer-group",
         route: "/games/deck-runner",
       },
+      {
+        id: "letter-strike",
+        title: "letter strike",
+        description: "ZType-lite — lock, shoot, destroy the falling ships",
+        icon: "fa-rocket",
+        route: "/games/letter-strike",
+      },
     ],
   },
 ];
