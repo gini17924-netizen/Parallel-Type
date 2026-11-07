@@ -40,6 +40,7 @@ import { SplitDuelPage } from "../components/pages/games/split-duel/SplitDuelPag
 import { MazeRunnerPage } from "../components/pages/games/maze-runner/MazeRunnerPage";
 import { ClimberPage } from "../components/pages/games/climber/ClimberPage";
 import { RunnerPage } from "../components/pages/games/runner/RunnerPage";
+import { LyricLinePage } from "../components/pages/games/lyric-line/LyricLinePage";
 import { TypeSnakePage } from "../components/pages/games/type-snake/TypeSnakePage";
 import { HomePage } from "../components/pages/home/HomePage";
 import { SectionsPage } from "../components/pages/sections/SectionsPage";
@@ -128,6 +129,7 @@ export type PageName =
   | "maze-runner"
   | "climber"
   | "runner"
+  | "lyric-line"
   | "wrapped";
 
 declare module "@tanstack/solid-router" {
@@ -509,6 +511,13 @@ const runner = createRoute({
   component: createRouterPage(RunnerPage),
 });
 
+const lyricLine = createRoute({
+  getParentRoute: () => userDataRoute,
+  path: "/games/lyric-line",
+  staticData: { page: "lyric-line" },
+  component: createRouterPage(LyricLinePage),
+});
+
 const wrapped = createRoute({
   getParentRoute: () => userDataRoute,
   path: "/wrapped",
@@ -681,6 +690,7 @@ export const routeTree = root.addChildren([
     mazeRunner,
     climber,
     runner,
+    lyricLine,
     wrapped,
     login,
     account,

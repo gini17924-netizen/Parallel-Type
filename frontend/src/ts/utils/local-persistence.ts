@@ -426,6 +426,8 @@ const DUEL_LOCAL_STATS_KEY = "mtDesktopDuelLocalStats";
 const MAZE_SCORES_KEY = "mtDesktopMazeScores";
 //owner: utils/climber/store.ts (idea G15) — climber + runner namespaces
 const SKY_SCORES_KEY = "mtDesktopSkyScores";
+//owner: utils/lyric-line/store.ts (idea G20) — metadata only, no media
+const LYRIC_SESSIONS_KEY = "mtDesktopLyricSessions";
 //owner: utils/wordle/wordle-store.ts (idea G4) — per-language keys
 const WORDLE_LANGS = ["fa", "en"] as const;
 const wordleStateKey = (lang: string): string => `mtDesktopWordleState_${lang}`;
@@ -544,6 +546,8 @@ export type LocalBackup = {
   mazeScores?: Record<string, unknown> | undefined;
   /** schema v3 (idea G15): sky scores — the climber + runner namespaces */
   skyScores?: Record<string, unknown> | undefined;
+  /** schema v3 (idea G20): lyric-line session metadata (never the media) */
+  lyricSessions?: Record<string, unknown> | undefined;
   /** schema v3 (idea G4): wordle puzzle state, keyed by language */
   wordleState?: Record<string, unknown> | undefined;
   /** schema v3 (idea G4): wordle career stats, keyed by language */
@@ -594,6 +598,7 @@ export async function exportBackup(): Promise<LocalBackup> {
     duelLocalStats: readJsonSafe(DUEL_LOCAL_STATS_KEY),
     mazeScores: readJsonSafe(MAZE_SCORES_KEY),
     skyScores: readJsonSafe(SKY_SCORES_KEY),
+    lyricSessions: readJsonSafe(LYRIC_SESSIONS_KEY),
     wordleState: Object.fromEntries(
       WORDLE_LANGS.map((lang) => [lang, readJsonSafe(wordleStateKey(lang))]),
     ),
@@ -993,6 +998,15 @@ export async function importBackup(backup: LocalBackup): Promise<number> {
     window.localStorage.setItem(
       SKY_SCORES_KEY,
       JSON.stringify(sanitizeImportedSkyScores(backup.skyScores)),
+    );
+  }
+  if (backup.lyricSessions !== undefined && backup.lyricSessions !== null) {
+    //audit L4 pattern, same as above
+    const { sanitizeImportedLyricSessions } =
+      await import("./lyric-line/store");
+    window.localStorage.setItem(
+      LYRIC_SESSIONS_KEY,
+      JSON.stringify(sanitizeImportedLyricSessions(backup.lyricSessions)),
     );
   }
   if (backup.wordleState !== undefined && backup.wordleState !== null) {
