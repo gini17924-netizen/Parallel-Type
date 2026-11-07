@@ -36,12 +36,13 @@ export const CODE_WORD_BONUS = 15;
 export const LONG_WORD_BONUS = 20;
 export const LONG_WORD_MIN = 8;
 
-/** combo streak tiers: [streak threshold, multiplier] — highest match wins */
+/** combo streak tiers: [streak threshold, multiplier] — highest match wins.
+ * Kept within a blind's reach: the word budget caps a streak at 30, so the
+ * old x3/x5 tiers (streak 50/100) could never fire — phase 6 rescale. */
 export const COMBO_TIERS: readonly [number, number][] = [
-  [100, 5],
-  [50, 3],
-  [30, 2],
-  [15, 1.5],
+  [30, 3],
+  [20, 2],
+  [10, 1.5],
   [5, 1.2],
 ];
 

@@ -74,15 +74,26 @@ export function shopOffers(
   const pool = registryPool({ owned: state.jokers, hasWeakness });
   const count = state.ante >= 2 ? 4 : 3;
   const offers: ShopOffer[] = [];
+  const offered = new Set<string>();
   for (let i = 0; i < count; i++) {
     const rarity = pickWeightedRarity(state.ante, rng);
-    const picked =
-      pickFromRarity(pool, rarity, rng) ??
-      pickFromRarity(pool, "common", rng) ??
-      pool[0];
-    if (picked === undefined) break;
+    //retry a few rolls so one shop never shows the same joker twice
+    let picked = pickFromRarity(pool, rarity, rng);
+    for (
+      let guard = 0;
+      picked !== undefined && offered.has(picked) && guard < 3;
+      guard++
+    ) {
+      picked = pickFromRarity(pool, rarity, rng);
+    }
+    picked =
+      picked !== undefined && !offered.has(picked)
+        ? picked
+        : (pickFromRarity(pool, "common", rng) ?? pool[0]);
+    if (picked === undefined || offered.has(picked)) break;
     const def = JOKER_REGISTRY[picked];
     if (def === undefined) continue;
+    offered.add(picked);
     offers.push({
       jokerId: picked,
       cost: costAfterDiscount(def, runtime.shopDiscount),

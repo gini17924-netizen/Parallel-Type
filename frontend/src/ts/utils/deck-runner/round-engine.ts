@@ -62,6 +62,9 @@ export type RoundState = {
   buffer: string;
   /** mistyped keystrokes on the current word (combo breaks happen per key) */
   errorsThisWord: number;
+  /** fractional skip refunds below a whole word (phase 6: keeps wordsLeft
+   * an integer - the credit rolls over until it adds up to one word) */
+  refundCredit: number;
 };
 
 export function effectiveWordLengths(config: BlindConfig): {
@@ -87,6 +90,7 @@ export function startRound(
     currentWord: source.nextWord(),
     buffer: "",
     errorsThisWord: 0,
+    refundCredit: 0,
   };
 }
 
@@ -212,6 +216,7 @@ export function submitWord(
     currentWord: finished ? state.currentWord : source.nextWord(),
     buffer: "",
     errorsThisWord: 0,
+    refundCredit: state.refundCredit,
   };
 }
 
@@ -284,6 +289,7 @@ export function typeChar(
         currentWord: finished ? state.currentWord : source.nextWord(),
         buffer: "",
         errorsThisWord: 0,
+        refundCredit: state.refundCredit,
       };
     }
     return { ...state, buffer };
@@ -310,7 +316,8 @@ export function goldEarned(config: BlindConfig, state: RoundState): number {
 }
 
 /** skips the current word: burns budget (with a ruleSkipRefund giving some
- * back), spares the combo, pulls the next word (idea G24 phase 3) */
+ * back - fractional refunds roll over in refundCredit until they add up to
+ * a whole word, phase 6), spares the combo, pulls the next word */
 export function skipWord(
   state: RoundState,
   config: BlindConfig,
@@ -322,9 +329,11 @@ export function skipWord(
     typed: "",
     skipped: true,
   });
-  const refund = runtime.skipRefundRatio;
+  const credit = state.refundCredit + runtime.skipRefundRatio;
+  const whole = Math.floor(credit);
   return {
     ...skippedState,
-    wordsLeft: Math.min(config.wordBudget, skippedState.wordsLeft + refund),
+    wordsLeft: Math.min(config.wordBudget, skippedState.wordsLeft + whole),
+    refundCredit: credit - whole,
   };
 }

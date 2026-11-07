@@ -157,6 +157,7 @@ describe("deck-runner round engine (G24)", () => {
       currentWord: "",
       buffer: "",
       errorsThisWord: 0,
+      refundCredit: 0,
     };
     const lostState = { ...wonState, won: false };
     expect(goldEarned(config(), wonState)).toBe(3);
@@ -272,8 +273,13 @@ describe("deck-runner typing buffer (G24 phase 3)", () => {
     state = typeChar(state, cfg, src, "a", runtime);
     state = skipWord(state, cfg, src, runtime);
     expect(state.combo).toBe(0); //no word completed yet
-    expect(state.wordsLeft).toBe(10 - 1 + 0.5); //one burned, half refunded
+    expect(state.wordsLeft).toBe(9); //one burned; the half refund rolls over
+    expect(state.refundCredit).toBeCloseTo(0.5, 6);
     expect(state.events[0]?.skipped).toBe(true);
+    //a second skip completes the credit: a whole word comes back
+    state = skipWord(state, cfg, src, runtime);
+    expect(state.wordsLeft).toBe(9); //burned 1, refunded 1
+    expect(state.refundCredit).toBe(0);
   });
 
   it("perfectComboOnly freezes the combo per keystroke and blocks growth on imperfect words", () => {
@@ -340,7 +346,9 @@ describe("deck-runner score joker wiring (G24 phase 5)", () => {
   });
 
   it("everyNthWord counts words from 0 through the engine (wordIndex wired)", () => {
-    const src = sourceFrom(["abc", "def", "ghi", "jkl", "mno", "pqr"]);
+    //rare-char-free words so the only delta is the joker (+100 on words 0/5)
+    const words = ["abc", "def", "ghi", "abc", "def", "ghi"];
+    const src = sourceFrom(words);
     const runtime = runtimeWith([
       (acc, evt, ctx) =>
         (ctx.wordIndex ?? -1) % 5 === 0
@@ -348,7 +356,7 @@ describe("deck-runner score joker wiring (G24 phase 5)", () => {
           : acc,
     ]);
     let state = startRound(wiredCfg(), src);
-    for (const word of ["abc", "def", "ghi", "jkl", "mno", "pqr"]) {
+    for (const word of words) {
       for (const ch of word) {
         state = typeChar(state, wiredCfg(), src, ch, runtime);
       }

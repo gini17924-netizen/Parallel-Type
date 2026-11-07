@@ -48,6 +48,23 @@ describe("deck-runner shop & rewards (G24 phase 2)", () => {
     expect(offers.map((o) => o.jokerId)).not.toContain(owned);
   });
 
+  it("one shop never offers the same joker twice", () => {
+    for (let s = 0; s < 20; s++) {
+      const state = {
+        ...startRun({
+          seed: 77 + s,
+          language: "english",
+          wordSourceId: "en-1k",
+        }),
+        ante: 2,
+      };
+      const ids = shopOffers(state, jokerRuntime([]), false).map(
+        (o) => o.jokerId,
+      );
+      expect(new Set(ids).size, `seed ${77 + s}`).toBe(ids.length);
+    }
+  });
+
   it("shopDiscount lowers the offer cost", () => {
     const state = startRun({
       seed: 9,
