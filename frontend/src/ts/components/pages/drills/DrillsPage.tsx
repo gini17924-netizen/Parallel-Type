@@ -239,6 +239,10 @@ export function DrillsPage(): JSXElement {
                 });
                 setSmartFallback(plan.usedFallback);
                 if (plan.words.length > 0) {
+                  //D1: register the words so the test-finish hook merges
+                  //this attempt into the review schedule — the UI promises
+                  //"Registered in your review schedule"
+                  setActiveDrillWords(plan.words);
                   startDrill(plan.words, "smart drill");
                 }
               } catch {
@@ -250,6 +254,7 @@ export function DrillsPage(): JSXElement {
                 });
                 setSmartFallback(true);
                 if (plan.words.length > 0) {
+                  setActiveDrillWords(plan.words);
                   startDrill(plan.words, "smart drill");
                 }
               } finally {
