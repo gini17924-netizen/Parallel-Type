@@ -199,6 +199,13 @@ export const APP_SECTIONS: readonly AppSection[] = [
         icon: "fa-drum",
         route: "/games/beat-keys",
       },
+      {
+        id: "pair-keys",
+        title: "pair keys",
+        description: "memory game — pair each letter form with its base",
+        icon: "fa-clone",
+        route: "/games/pair-keys",
+      },
     ],
   },
 ];

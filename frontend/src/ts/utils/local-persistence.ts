@@ -418,6 +418,8 @@ const TYPE_PONG_SCORES_KEY = "mtDesktopTypePongScores";
 const CRANE_SCORES_KEY = "mtDesktopCraneScores";
 //owner: utils/beat-keys/store.ts (idea G21)
 const BEAT_KEYS_SCORES_KEY = "mtDesktopBeatKeysScores";
+//owner: utils/pair-keys/store.ts (idea G18)
+const PAIR_KEYS_STATS_KEY = "mtDesktopPairKeysStats";
 //owner: utils/wordle/wordle-store.ts (idea G4) — per-language keys
 const WORDLE_LANGS = ["fa", "en"] as const;
 const wordleStateKey = (lang: string): string => `mtDesktopWordleState_${lang}`;
@@ -528,6 +530,8 @@ export type LocalBackup = {
   craneScores?: Record<string, unknown> | undefined;
   /** schema v3 (idea G21): beat-keys bests, history + calibration offset */
   beatKeysScores?: Record<string, unknown> | undefined;
+  /** schema v3 (idea G18): pair-keys per-mode bests + run history */
+  pairKeysStats?: Record<string, unknown> | undefined;
   /** schema v3 (idea G4): wordle puzzle state, keyed by language */
   wordleState?: Record<string, unknown> | undefined;
   /** schema v3 (idea G4): wordle career stats, keyed by language */
@@ -574,6 +578,7 @@ export async function exportBackup(): Promise<LocalBackup> {
     typePongScores: readJsonSafe(TYPE_PONG_SCORES_KEY),
     craneScores: readJsonSafe(CRANE_SCORES_KEY),
     beatKeysScores: readJsonSafe(BEAT_KEYS_SCORES_KEY),
+    pairKeysStats: readJsonSafe(PAIR_KEYS_STATS_KEY),
     wordleState: Object.fromEntries(
       WORDLE_LANGS.map((lang) => [lang, readJsonSafe(wordleStateKey(lang))]),
     ),
@@ -941,6 +946,14 @@ export async function importBackup(backup: LocalBackup): Promise<number> {
     window.localStorage.setItem(
       BEAT_KEYS_SCORES_KEY,
       JSON.stringify(sanitizeImportedBeatKeysScores(backup.beatKeysScores)),
+    );
+  }
+  if (backup.pairKeysStats !== undefined && backup.pairKeysStats !== null) {
+    //audit L4 pattern, same as above
+    const { sanitizeImportedPairKeysStats } = await import("./pair-keys/store");
+    window.localStorage.setItem(
+      PAIR_KEYS_STATS_KEY,
+      JSON.stringify(sanitizeImportedPairKeysStats(backup.pairKeysStats)),
     );
   }
   if (backup.wordleState !== undefined && backup.wordleState !== null) {
