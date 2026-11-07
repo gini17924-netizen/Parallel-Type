@@ -150,6 +150,13 @@ export const APP_SECTIONS: readonly AppSection[] = [
         icon: "fa-apple-alt",
         route: "/games/fruit-slash",
       },
+      {
+        id: "stack-attack",
+        title: "stack attack",
+        description: "wordtris — lock the falling words, clear the rows",
+        icon: "fa-cubes",
+        route: "/games/stack-attack",
+      },
     ],
   },
 ];

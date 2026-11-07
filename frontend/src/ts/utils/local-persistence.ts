@@ -404,6 +404,8 @@ const LETTER_STRIKE_SCORES_KEY = "mtDesktopLetterStrikeScores";
 const LANE_DEFENSE_SCORES_KEY = "mtDesktopLaneDefenseScores";
 //owner: utils/fruit-slash/store.ts (idea G10)
 const FRUIT_SLASH_SCORES_KEY = "mtDesktopFruitSlashScores";
+//owner: utils/stack-attack/store.ts (idea G12)
+const STACK_ATTACK_SCORES_KEY = "mtDesktopStackAttackScores";
 //owner: utils/wordle/wordle-store.ts (idea G4) — per-language keys
 const WORDLE_LANGS = ["fa", "en"] as const;
 const wordleStateKey = (lang: string): string => `mtDesktopWordleState_${lang}`;
@@ -500,6 +502,8 @@ export type LocalBackup = {
   laneDefenseScores?: Record<string, unknown> | undefined;
   /** schema v3 (idea G10): fruit-slash bests + run history */
   fruitSlashScores?: Record<string, unknown> | undefined;
+  /** schema v3 (idea G12): stack-attack bests + run history */
+  stackAttackScores?: Record<string, unknown> | undefined;
   /** schema v3 (idea G4): wordle puzzle state, keyed by language */
   wordleState?: Record<string, unknown> | undefined;
   /** schema v3 (idea G4): wordle career stats, keyed by language */
@@ -539,6 +543,7 @@ export async function exportBackup(): Promise<LocalBackup> {
     letterStrikeScores: readJsonSafe(LETTER_STRIKE_SCORES_KEY),
     laneDefenseScores: readJsonSafe(LANE_DEFENSE_SCORES_KEY),
     fruitSlashScores: readJsonSafe(FRUIT_SLASH_SCORES_KEY),
+    stackAttackScores: readJsonSafe(STACK_ATTACK_SCORES_KEY),
     wordleState: Object.fromEntries(
       WORDLE_LANGS.map((lang) => [lang, readJsonSafe(wordleStateKey(lang))]),
     ),
