@@ -56,6 +56,12 @@ function retryButton(app: App): HTMLButtonElement {
 // the loading bar fills up from its last step to "Done" (125ms) before the
 // loading page leaves
 async function waitForDone(): Promise<void> {
+  if (vi.isFakeTimers()) {
+    //advance past the bar's 125ms "Done" fill
+    await vi.advanceTimersByTimeAsync(150);
+    await flush();
+    return;
+  }
   await new Promise((resolve) => setTimeout(resolve, 150));
   await flush();
 }
@@ -205,6 +211,25 @@ describe("app shell routing", () => {
   });
 
   describe("loading bar", () => {
+    //the steps and the "Done" fill run on real sleeps otherwise, so an exact
+    //mid-fill assertion races the clock under a loaded full suite (KI-28):
+    //under fake timers every sleep holds until the test advances it, and
+    //flush()/settle()'s vi.waitFor move the fake clock themselves
+    beforeEach(() => {
+      vi.useFakeTimers({
+        toFake: [
+          "setTimeout",
+          "clearTimeout",
+          "Date",
+          "requestAnimationFrame",
+          "cancelAnimationFrame",
+        ],
+      });
+    });
+    afterEach(() => {
+      vi.useRealTimers();
+    });
+
     it("splits a refresh on account between user data and results", async () => {
       const userData = deferred();
       const app = renderApp({
@@ -592,6 +617,24 @@ describe("app shell routing", () => {
   });
 
   describe("navigating while the loading bar is shown", () => {
+    //same KI-28 treatment as the "loading bar" describe: the bar and the
+    //loading page swap run on real timers otherwise, so asserting the
+    //indicator after three flushes races frame scheduling under load
+    beforeEach(() => {
+      vi.useFakeTimers({
+        toFake: [
+          "setTimeout",
+          "clearTimeout",
+          "Date",
+          "requestAnimationFrame",
+          "cancelAnimationFrame",
+        ],
+      });
+    });
+    afterEach(() => {
+      vi.useRealTimers();
+    });
+
     // test page -> account, the results download holding the bar up
     async function accountLoading(): Promise<App> {
       const app = renderApp({ url: "/", auth: "signedIn", results: "pending" });
