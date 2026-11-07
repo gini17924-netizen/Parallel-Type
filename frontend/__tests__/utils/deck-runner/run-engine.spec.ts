@@ -1,6 +1,10 @@
 import { describe, it, expect } from "vitest";
 
-import { QUOTA_GROWTH } from "../../../src/ts/utils/deck-runner/balance";
+import {
+  BOSS_ERROR_PENALTY,
+  LONG_WORDS_BOSS_MIN,
+  QUOTA_GROWTH,
+} from "../../../src/ts/utils/deck-runner/balance";
 
 import {
   currentBlindConfig,
@@ -64,6 +68,37 @@ describe("deck-runner run state machine (G24 phase 2)", () => {
       runtime,
     );
     expect(boss.isBoss).toBe(true);
+  });
+
+  it("boss rules per slot: big = errorPenalty, boss = perfectComboOnly (ante 1) / longWords (ante 2+)", () => {
+    const runtime = jokerRuntime([]);
+    const mk = (
+      ante: number,
+      blindIndex: number,
+    ): ReturnType<typeof currentBlindConfig> =>
+      currentBlindConfig(
+        {
+          ...startRun({ seed: 1, language: "english", wordSourceId: "en-1k" }),
+          ante,
+          blindIndex,
+        },
+        runtime,
+      );
+    expect(mk(1, 0).bossRule).toBeUndefined();
+    expect(mk(1, 1).bossRule).toEqual({
+      kind: "errorPenalty",
+      chips: BOSS_ERROR_PENALTY,
+    });
+    expect(mk(1, 2).bossRule).toEqual({ kind: "perfectComboOnly" });
+    expect(mk(2, 0).bossRule).toBeUndefined();
+    expect(mk(2, 1).bossRule).toEqual({
+      kind: "errorPenalty",
+      chips: BOSS_ERROR_PENALTY,
+    });
+    expect(mk(2, 2).bossRule).toEqual({
+      kind: "longWords",
+      minLength: LONG_WORDS_BOSS_MIN,
+    });
   });
 
   it("winning a blind moves to reward and pays gold (goldPerWord x rewardMult)", () => {

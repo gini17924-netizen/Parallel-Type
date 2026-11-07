@@ -62,6 +62,7 @@ const [blindInfo, setBlindInfo] = createSignal<{
   quota: number;
   budget: number;
   isBoss: boolean;
+  bossRule: BlindConfig["bossRule"];
 } | null>(null);
 const [stats, setStats] = createSignal<DeckRunnerStats | null>(
   getDeckRunnerStats(),
@@ -161,6 +162,7 @@ export async function beginBlind(): Promise<void> {
       quota: blindCfg.quota,
       budget: blindCfg.wordBudget,
       isBoss: blindCfg.isBoss,
+      bossRule: blindCfg.bossRule,
     });
     const pool = await poolFor(runState.wordSourceId);
     const lengths = effectiveWordLengths(blindCfg);

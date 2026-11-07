@@ -7,12 +7,14 @@ import {
   JOKER_REGISTRY,
   type JokerRuntime,
 } from "./cards";
-import { GOLD_BASE, GOLD_BOSS } from "./round-engine";
+import { GOLD_BASE, GOLD_BOSS, type BossRule } from "./round-engine";
 import {
   BASE_QUOTA,
   BLIND_BUDGET,
   BLIND_QUOTA_MULT,
   BLINDS_PER_ANTE,
+  BOSS_ERROR_PENALTY,
+  LONG_WORDS_BOSS_MIN,
   MAX_JOKER_SLOTS,
   QUOTA_GROWTH,
   REROLL_COST,
@@ -97,8 +99,10 @@ export function startRun(options: {
   };
 }
 
-/** quota/budget/isBoss of the current blind, with run-level multipliers
- * (riskQuota) applied to the quota */
+/** quota/budget/isBoss/bossRule of the current blind, with run-level
+ * multipliers (riskQuota) applied to the quota.
+ * Boss rules per slot (phase 5): big blind punishes errors, the boss blind
+ * freezes the combo (ante 1) or forces long words (ante 2+). */
 export function currentBlindConfig(
   state: DeckRunState,
   runtime: JokerRuntime,
@@ -108,17 +112,27 @@ export function currentBlindConfig(
   wordSourceId: string;
   language: string;
   isBoss: boolean;
+  bossRule: BossRule | undefined;
 } {
   const base =
     BASE_QUOTA *
     Math.pow(QUOTA_GROWTH, state.ante - 1) *
     (BLIND_QUOTA_MULT[state.blindIndex] ?? 1);
+  const bossRule: BossRule | undefined =
+    state.blindIndex === 1
+      ? { kind: "errorPenalty", chips: BOSS_ERROR_PENALTY }
+      : state.blindIndex === BLINDS_PER_ANTE - 1
+        ? state.ante >= 2
+          ? { kind: "longWords", minLength: LONG_WORDS_BOSS_MIN }
+          : { kind: "perfectComboOnly" }
+        : undefined;
   return {
     quota: Math.round(base * runtime.quotaMult),
     wordBudget: BLIND_BUDGET[state.blindIndex] ?? 25,
     wordSourceId: state.wordSourceId,
     language: state.language,
     isBoss: state.blindIndex === BLINDS_PER_ANTE - 1,
+    bossRule,
   };
 }
 

@@ -12,6 +12,7 @@ import {
 import type {
   BlindConfig,
   RoundState,
+  WordEvent,
 } from "../../../src/ts/utils/deck-runner/round-engine";
 import type { WordSource } from "../../../src/ts/utils/deck-runner/words-source";
 
@@ -273,5 +274,114 @@ describe("deck-runner typing buffer (G24 phase 3)", () => {
     expect(state.combo).toBe(0); //no word completed yet
     expect(state.wordsLeft).toBe(10 - 1 + 0.5); //one burned, half refunded
     expect(state.events[0]?.skipped).toBe(true);
+  });
+
+  it("perfectComboOnly freezes the combo per keystroke and blocks growth on imperfect words", () => {
+    const src = sourceFrom(["abc", "def", "ghi", "jkl"]);
+    const bossCfg = config({
+      quota: 999999,
+      isBoss: true,
+      bossRule: { kind: "perfectComboOnly" },
+    });
+    let state = startRound(bossCfg, src);
+    for (const ch of "abc") state = typeChar(state, bossCfg, src, ch);
+    for (const ch of "def") state = typeChar(state, bossCfg, src, ch);
+    expect(state.combo).toBe(2);
+    state = typeChar(state, bossCfg, src, "x"); //mismatch: frozen, not reset
+    expect(state.combo).toBe(2);
+    for (const ch of "ghi") state = typeChar(state, bossCfg, src, ch); //imperfect commit
+    expect(state.combo).toBe(2); //no growth on an imperfect word
+    for (const ch of "jkl") state = typeChar(state, bossCfg, src, ch); //perfect
+    expect(state.combo).toBe(3);
+  });
+});
+
+describe("deck-runner score joker wiring (G24 phase 5)", () => {
+  const wiredCfg = (overrides: Partial<BlindConfig> = {}): BlindConfig => ({
+    quota: 999999,
+    wordBudget: 10,
+    wordSourceId: "test-src",
+    language: "english",
+    isBoss: false,
+    ...overrides,
+  });
+
+  function runtimeWith(
+    pipeline: {
+      (
+        acc: { chips: number; mult: number },
+        evt: WordEvent,
+        ctx: {
+          combo: number;
+          wordIndex?: number;
+          language?: string;
+          sourceId: string;
+        },
+      ): { chips: number; mult: number };
+    }[],
+  ): Parameters<typeof typeChar>[4] {
+    return {
+      comboFloor: 0,
+      accuracyShield: false,
+      goldPerWord: 0,
+      rewardMult: 1,
+      scorePipeline: pipeline,
+    };
+  }
+
+  it("a flatChips joker in the runtime pipeline adds its chips via typeChar", () => {
+    const src = sourceFrom(["abc", "def"]);
+    const runtime = runtimeWith([(acc) => ({ ...acc, chips: acc.chips + 25 })]);
+    let state = startRound(wiredCfg(), src);
+    for (const ch of "abc") {
+      state = typeChar(state, wiredCfg(), src, ch, runtime);
+    }
+    expect(state.score).toBe(15 + 25); //3 chars x 5 + joker 25, mult 1
+  });
+
+  it("everyNthWord counts words from 0 through the engine (wordIndex wired)", () => {
+    const src = sourceFrom(["abc", "def", "ghi", "jkl", "mno", "pqr"]);
+    const runtime = runtimeWith([
+      (acc, evt, ctx) =>
+        (ctx.wordIndex ?? -1) % 5 === 0
+          ? { ...acc, chips: acc.chips + 100 }
+          : acc,
+    ]);
+    let state = startRound(wiredCfg(), src);
+    for (const word of ["abc", "def", "ghi", "jkl", "mno", "pqr"]) {
+      for (const ch of word) {
+        state = typeChar(state, wiredCfg(), src, ch, runtime);
+      }
+    }
+    //word 0: (15+100)x1 = 115; words 1-3: 15 each; word 4: 15x1.2 = 18
+    //(streak 5 tier); word 5: (15+100)x1.2 = 138 -> total 316
+    expect(state.score).toBe(316);
+  });
+
+  it("languageIs receives the run language through the engine", () => {
+    const src = sourceFrom(["abc"]);
+    const runtime = runtimeWith([
+      (acc, evt, ctx) =>
+        ctx.language === "persian" ? { ...acc, mult: acc.mult * 2 } : acc,
+    ]);
+    let state = startRound(wiredCfg({ language: "persian" }), src);
+    for (const ch of "abc") {
+      state = typeChar(
+        state,
+        wiredCfg({ language: "persian" }),
+        src,
+        ch,
+        runtime,
+      );
+    }
+    expect(state.score).toBe(30); //15 chips x joker 2
+  });
+
+  it("submitWord honors the pipeline too", () => {
+    const src = sourceFrom(["abc"]);
+    const runtime = runtimeWith([(acc) => ({ ...acc, chips: acc.chips + 25 })]);
+    let state = startRound(wiredCfg(), src);
+    state = submitWord(state, wiredCfg(), src, { typed: "abc" }, runtime);
+    expect(state.score).toBe(40);
   });
 });

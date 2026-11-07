@@ -7,14 +7,18 @@
 // --- run structure ----------------------------------------------------------
 
 export const BLINDS_PER_ANTE = 3;
-export const BASE_QUOTA = 800;
-export const QUOTA_GROWTH = 1.75; //quota multiplier per ante
+export const BASE_QUOTA = 500;
+export const QUOTA_GROWTH = 1.6; //quota multiplier per ante
 /** quota multiplier per blind slot within an ante (small / big / boss) */
 export const BLIND_QUOTA_MULT: readonly [number, number, number] = [
   1, 1.5, 2.5,
 ];
 /** word budget per blind slot */
 export const BLIND_BUDGET: readonly [number, number, number] = [25, 25, 30];
+/** errorPenalty boss rule (big blind): chips subtracted per imperfect word.
+ * Tuned small on purpose: it must dent the income, not zero it (phase 5
+ * headless sim: 50 made the big blind unwinnable, 10 keeps it pressuring). */
+export const BOSS_ERROR_PENALTY = 10;
 
 // --- economy ----------------------------------------------------------------
 

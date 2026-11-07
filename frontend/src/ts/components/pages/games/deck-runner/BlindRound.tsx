@@ -1,5 +1,7 @@
 import { For, JSXElement, onCleanup, Show } from "solid-js";
 
+import type { BossRule } from "../../../../utils/deck-runner/round-engine";
+
 import {
   deckBlindInfo,
   deckQueue,
@@ -9,6 +11,18 @@ import {
 } from "../../../../states/deck-runner";
 import { cn } from "../../../../utils/cn";
 import { CardRow } from "./CardRow";
+
+/** one-line player-facing summary of the active blind's special rule */
+function bossRuleLabel(rule: BossRule): string {
+  switch (rule.kind) {
+    case "errorPenalty":
+      return `big blind - an imperfect word costs ${rule.chips} chips`;
+    case "perfectComboOnly":
+      return "boss - the combo only grows on perfect words";
+    case "longWords":
+      return `boss - only words of ${rule.minLength}+ letters`;
+  }
+}
 
 /**
  * The blind round (idea G24): HUD (quota/score/budget/combo/gold), the word
@@ -88,6 +102,11 @@ export function BlindRound(): JSXElement {
           <div class="text-center text-xs text-sub">
             type the word - space skips it (still burns budget)
           </div>
+          <Show when={info()?.bossRule !== undefined}>
+            <div class="text-center text-xs font-bold text-main">
+              {bossRuleLabel(info()?.bossRule as BossRule)}
+            </div>
+          </Show>
         </Show>
       </section>
 

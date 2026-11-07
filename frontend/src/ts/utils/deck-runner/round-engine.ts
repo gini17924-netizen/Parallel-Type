@@ -31,6 +31,8 @@ export type BlindConfig = {
   quota: number;
   wordBudget: number;
   wordSourceId: string;
+  /** run language (drives the languageIs joker trigger) */
+  language?: string;
   isBoss: boolean;
   bossRule?: BossRule;
 };
@@ -115,11 +117,29 @@ export type WordInput = {
   elapsedMs?: number;
 };
 
+/**
+ * One score-pipeline joker (deck-runner cards.ts shape, restated here to
+ * keep round-engine decoupled from cards.ts — cards.ts imports WordEvent
+ * from this module). Structurally identical to the closures jokerRuntime
+ * produces, so the runtime's pipeline passes straight through.
+ */
+export type ScoreJokerFn = (
+  acc: { chips: number; mult: number },
+  evt: WordEvent,
+  ctx: {
+    combo: number;
+    wordIndex?: number;
+    language?: string;
+    sourceId: string;
+  },
+) => { chips: number; mult: number };
+
 export function submitWord(
   state: RoundState,
   config: BlindConfig,
   source: WordSource,
   input: WordInput,
+  runtime: { scorePipeline?: ScoreJokerFn[] } = {},
 ): RoundState {
   if (state.finished) return state;
   const word = state.currentWord;
@@ -169,6 +189,9 @@ export function submitWord(
     const { total } = wordScore(evt, {
       combo: comboAfter,
       sourceId: config.wordSourceId,
+      language: config.language,
+      wordIndex: state.events.length,
+      jokers: runtime.scorePipeline ?? [],
     });
     score += total;
     if (errors > 0 && config.bossRule?.kind === "errorPenalty") {
@@ -208,9 +231,12 @@ export function typeChar(
     accuracyShield: boolean;
     goldPerWord: number;
     rewardMult: number;
+    scorePipeline?: ScoreJokerFn[];
   } = { comboFloor: 0, accuracyShield: false, goldPerWord: 0, rewardMult: 1 },
 ): RoundState {
   if (state.finished) return state;
+  const perfectOnly =
+    config.isBoss && config.bossRule?.kind === "perfectComboOnly";
   const expected = state.currentWord[state.buffer.length];
   if (char === expected) {
     const buffer = state.buffer + char;
@@ -228,10 +254,15 @@ export function typeChar(
         elapsedMs: 0,
         comboBefore: state.combo,
       };
-      const comboAfter = state.combo + 1;
+      //perfectComboOnly: growth requires a perfect word (a frozen combo is kept)
+      const comboAfter =
+        perfectOnly && state.errorsThisWord > 0 ? state.combo : state.combo + 1;
       const { total } = wordScore(evt, {
         combo: comboAfter,
         sourceId: config.wordSourceId,
+        language: config.language,
+        wordIndex: state.events.length,
+        jokers: runtime.scorePipeline ?? [],
       });
       let score = state.score + total;
       if (
@@ -257,10 +288,12 @@ export function typeChar(
     }
     return { ...state, buffer };
   }
-  //mismatch: combo breaks (shield keeps it), floor lifts it back up
-  const combo = runtime.accuracyShield
-    ? Math.max(state.combo, runtime.comboFloor)
-    : Math.max(runtime.comboFloor, 0);
+  //mismatch: combo breaks (shield keeps it; perfectComboOnly freezes it),
+  //floor lifts it back up
+  const combo =
+    runtime.accuracyShield || perfectOnly
+      ? Math.max(state.combo, runtime.comboFloor)
+      : Math.max(runtime.comboFloor, 0);
   return { ...state, combo, errorsThisWord: state.errorsThisWord + 1 };
 }
 
