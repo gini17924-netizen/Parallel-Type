@@ -172,6 +172,11 @@ export function createSprintEngine(options: {
       return { accepted: true };
     },
     tick(nowMs) {
+      //the GO moment: arming flips to running exactly at goAt (the clock
+      //anchors there, not at the tick that noticed it)
+      if (phase === "arming" && goAt !== undefined && nowMs >= goAt) {
+        startRunning(goAt);
+      }
       if (
         phase === "running" &&
         startedAt !== undefined &&
