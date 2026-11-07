@@ -414,6 +414,8 @@ const FIREFIGHT_SCORES_KEY = "mtDesktopFirefightScores";
 const NITRO_RUN_STATS_KEY = "mtDesktopNitroRunStats";
 //owner: utils/type-pong/store.ts (idea G13)
 const TYPE_PONG_SCORES_KEY = "mtDesktopTypePongScores";
+//owner: utils/crane/store.ts (idea G17)
+const CRANE_SCORES_KEY = "mtDesktopCraneScores";
 //owner: utils/wordle/wordle-store.ts (idea G4) — per-language keys
 const WORDLE_LANGS = ["fa", "en"] as const;
 const wordleStateKey = (lang: string): string => `mtDesktopWordleState_${lang}`;
@@ -520,6 +522,8 @@ export type LocalBackup = {
   nitroRunStats?: Record<string, unknown> | undefined;
   /** schema v3 (idea G13): type-pong pong/breaker stats + history */
   typePongScores?: Record<string, unknown> | undefined;
+  /** schema v3 (idea G17): crane-stack bests + run history */
+  craneScores?: Record<string, unknown> | undefined;
   /** schema v3 (idea G4): wordle puzzle state, keyed by language */
   wordleState?: Record<string, unknown> | undefined;
   /** schema v3 (idea G4): wordle career stats, keyed by language */
@@ -564,6 +568,7 @@ export async function exportBackup(): Promise<LocalBackup> {
     firefightScores: readJsonSafe(FIREFIGHT_SCORES_KEY),
     nitroRunStats: readJsonSafe(NITRO_RUN_STATS_KEY),
     typePongScores: readJsonSafe(TYPE_PONG_SCORES_KEY),
+    craneScores: readJsonSafe(CRANE_SCORES_KEY),
     wordleState: Object.fromEntries(
       WORDLE_LANGS.map((lang) => [lang, readJsonSafe(wordleStateKey(lang))]),
     ),
@@ -865,6 +870,63 @@ export async function importBackup(backup: LocalBackup): Promise<number> {
     window.localStorage.setItem(
       FRUIT_SLASH_SCORES_KEY,
       JSON.stringify(sanitizeImportedFruitSlashScores(backup.fruitSlashScores)),
+    );
+  }
+  if (
+    backup.stackAttackScores !== undefined &&
+    backup.stackAttackScores !== null
+  ) {
+    //audit L4 pattern, same as above
+    const { sanitizeImportedStackAttackScores } =
+      await import("./stack-attack/store");
+    window.localStorage.setItem(
+      STACK_ATTACK_SCORES_KEY,
+      JSON.stringify(
+        sanitizeImportedStackAttackScores(backup.stackAttackScores),
+      ),
+    );
+  }
+  if (backup.typeSnakeScores !== undefined && backup.typeSnakeScores !== null) {
+    //audit L4 pattern, same as above
+    const { sanitizeImportedTypeSnakeScores } =
+      await import("./type-snake/store");
+    window.localStorage.setItem(
+      TYPE_SNAKE_SCORES_KEY,
+      JSON.stringify(sanitizeImportedTypeSnakeScores(backup.typeSnakeScores)),
+    );
+  }
+  if (backup.firefightScores !== undefined && backup.firefightScores !== null) {
+    //audit L4 pattern, same as above
+    const { sanitizeImportedFirefightScores } =
+      await import("./firefight/store");
+    window.localStorage.setItem(
+      FIREFIGHT_SCORES_KEY,
+      JSON.stringify(sanitizeImportedFirefightScores(backup.firefightScores)),
+    );
+  }
+  if (backup.nitroRunStats !== undefined && backup.nitroRunStats !== null) {
+    //audit L4 pattern, same as above
+    const { sanitizeImportedNitroRunStats } = await import("./nitro-run/store");
+    window.localStorage.setItem(
+      NITRO_RUN_STATS_KEY,
+      JSON.stringify(sanitizeImportedNitroRunStats(backup.nitroRunStats)),
+    );
+  }
+  if (backup.typePongScores !== undefined && backup.typePongScores !== null) {
+    //audit L4 pattern, same as above
+    const { sanitizeImportedTypePongScores } =
+      await import("./type-pong/store");
+    window.localStorage.setItem(
+      TYPE_PONG_SCORES_KEY,
+      JSON.stringify(sanitizeImportedTypePongScores(backup.typePongScores)),
+    );
+  }
+  if (backup.craneScores !== undefined && backup.craneScores !== null) {
+    //audit L4 pattern, same as above
+    const { sanitizeImportedCraneScores } = await import("./crane/store");
+    window.localStorage.setItem(
+      CRANE_SCORES_KEY,
+      JSON.stringify(sanitizeImportedCraneScores(backup.craneScores)),
     );
   }
   if (backup.wordleState !== undefined && backup.wordleState !== null) {

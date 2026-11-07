@@ -185,6 +185,13 @@ export const APP_SECTIONS: readonly AppSection[] = [
         icon: "fa-table-tennis",
         route: "/games/type-pong",
       },
+      {
+        id: "crane",
+        title: "crane stack",
+        description: "release the box on time — stack a real tilted tower",
+        icon: "fa-anchor",
+        route: "/games/crane",
+      },
     ],
   },
 ];

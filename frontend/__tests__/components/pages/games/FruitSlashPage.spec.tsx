@@ -27,6 +27,13 @@ function fruits(app: App): { text: string; typed: string }[] {
   );
 }
 
+/** the typable fruits only — typing a bomb's word is the penalty path */
+function nonBombTargets(app: App): string[] {
+  return [...app.container.querySelectorAll('[data-testid="fs-fruit"]')]
+    .filter((el) => el.querySelector('[data-testid="fs-bomb"]') === null)
+    .map((el) => el.textContent ?? "");
+}
+
 async function openFruitSlash(): Promise<App> {
   const app = renderApp();
   await app.settle();
@@ -70,8 +77,14 @@ describe("fruit slash page (idea G10 phase 2)", () => {
     //the fruit rises: its position moves up over the ticks
     expect(pageText(app)).toContain("time");
 
-    //slash the first fruit by typing its whole word
-    const target = field[0]?.text ?? "";
+    //slash the first NON-BOMB fruit by typing its whole word (typing a
+    //bomb is the penalty path — the bomb mix is random per run)
+    const targets = nonBombTargets(app);
+    expect(
+      targets.length,
+      `diag: ${pageText(app).slice(0, 240)}`,
+    ).toBeGreaterThan(0);
+    const target = targets[0] ?? "";
     for (const ch of target) {
       window.dispatchEvent(new KeyboardEvent("keydown", { key: ch }));
       await vi.advanceTimersByTimeAsync(20);
