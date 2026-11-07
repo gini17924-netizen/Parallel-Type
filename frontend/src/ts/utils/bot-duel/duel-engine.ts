@@ -1,4 +1,4 @@
-import { createBotPacer } from "./bot-pacer";
+import { createBotPacer, type BotPacer } from "./bot-pacer";
 
 /**
  * Bot Duel engine (idea G2): a 1-vs-1 race over one shared word sequence —
@@ -60,9 +60,14 @@ export type DuelEngine = {
 export function createDuelEngine(options: {
   words: string[];
   botWpm: number;
+  /** inject a custom opponent pacer (ghost-gp's curve ghost); the default
+   * is the constant-rate bot pacer at botWpm */
+  pacer?: BotPacer;
 }): DuelEngine {
   if (options.words.length === 0) throw new Error("duel needs words");
-  const pacer = createBotPacer({ wpm: options.botWpm, words: options.words });
+  const pacer =
+    options.pacer ??
+    createBotPacer({ wpm: options.botWpm, words: options.words });
   const raceWords = options.words.length;
 
   let phase: DuelPhase = "ready";

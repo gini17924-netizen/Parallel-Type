@@ -133,3 +133,25 @@ describe("bot-duel engine (idea G2)", () => {
     expect(engine.state()).toEqual(before);
   });
 });
+
+describe("bot-duel injected pacer (idea G3)", () => {
+  it("an injected pacer replaces the constant-rate movement", () => {
+    //a fast curve-like pacer: finishes the 8-char race at 400ms
+    const engine = createDuelEngine({
+      words: WORDS,
+      botWpm: 60,
+      pacer: {
+        progressChars: (elapsedMs) => (elapsedMs / 1000) * 20,
+        wordIndex: (elapsedMs) => Math.min(3, Math.floor(elapsedMs / 400)),
+        finished: (elapsedMs) => elapsedMs >= 400,
+        finishMs: 400,
+        totalChars: 8,
+      },
+    });
+    engine.start(1000);
+    expect(engine.tick(1000 + 300).phase).toBe("running");
+    const state = engine.tick(1000 + 450);
+    expect(state.phase).toBe("botWon");
+    expect(state.finishedAtMs).toBe(400);
+  });
+});

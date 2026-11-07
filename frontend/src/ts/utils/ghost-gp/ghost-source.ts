@@ -6,17 +6,29 @@
  * the ghost paces a word sequence of that language.
  */
 
-export type Ghost = {
+export type ConstantGhost = {
   kind: "constant";
   wpm: number;
   /** what the strip shows, eg. "last run" or "personal best" */
   label: string;
 };
 
+/** v2 (idea G3, phase 3): the record's per-second raw wpm (chartData.burst)
+ * drives the pace — the ghost accelerates like the real race it came from */
+export type CurveGhost = {
+  kind: "curve";
+  perSecondWpm: number[];
+  /** the burst's average wpm (the label/summary value) */
+  averageWpm: number;
+  label: string;
+};
+
+export type Ghost = ConstantGhost | CurveGhost;
+
 export type GhostSourceReason = "no-result" | "wrong-language" | "invalid-wpm";
 
 export type GhostSourceResult =
-  | { ok: true; ghost: Ghost }
+  | { ok: true; ghost: ConstantGhost }
   | { ok: false; reason: GhostSourceReason };
 
 function constantGhost(
@@ -57,4 +69,34 @@ export function ghostFromPersonalBest(
 ): GhostSourceResult {
   if (pb === undefined) return { ok: false, reason: "no-result" };
   return constantGhost(pb.wpm, "personal best", pb.language, currentLanguage);
+}
+
+/**
+ * Curve Ghost (v2, phase 3): builds from the result's chartData.burst when
+ * the heavy store still holds it — the ghost paces the record's real
+ * per-second wpm. The doc's fallbacks land on a constant ghost of the
+ * result's average wpm: a stripped row (no heavy twin), a "toolong"
+ * chartData, or a burst too short to shape a curve.
+ */
+export function curveGhostFromChartData(
+  chartData: unknown,
+  fallbackWpm: number,
+  label: string,
+): Ghost {
+  const burst =
+    typeof chartData === "object" &&
+    chartData !== null &&
+    Array.isArray((chartData as { burst?: unknown }).burst)
+      ? (chartData as { burst: unknown[] }).burst.filter(
+          (it): it is number => typeof it === "number" && it > 0,
+        )
+      : [];
+  if (burst.length < 2) {
+    return { kind: "constant", wpm: fallbackWpm, label };
+  }
+  const averageWpm =
+    Math.round(
+      (burst.reduce((sum, wpm) => sum + wpm, 0) / burst.length) * 100,
+    ) / 100;
+  return { kind: "curve", perSecondWpm: burst, averageWpm, label };
 }

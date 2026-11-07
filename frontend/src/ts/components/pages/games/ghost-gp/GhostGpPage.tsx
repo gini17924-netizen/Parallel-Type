@@ -16,13 +16,16 @@ import { getLastResult } from "../../../../states/snapshot";
 import { getActiveFunboxes } from "../../../../test/funbox/list";
 import { cn } from "../../../../utils/cn";
 import {
+  curveGhostFromChartData,
   ghostFromLastResult,
   ghostFromPersonalBest,
+  type Ghost,
   type GhostSourceResult,
 } from "../../../../utils/ghost-gp/ghost-source";
 import { createGpEngine } from "../../../../utils/ghost-gp/gp-engine";
 import { recordGhostRace } from "../../../../utils/ghost-gp/gp-store";
 import { cachedFetchJson } from "../../../../utils/json-data";
+import { loadLocalHeavyResult } from "../../../../utils/local-persistence";
 import * as Misc from "../../../../utils/misc";
 import { Button } from "../../../common/Button";
 import { H2 } from "../../../common/Headers";
@@ -79,7 +82,7 @@ export function GhostGpPage(): JSXElement {
   const [sourceMessage, setSourceMessage] = createSignal<string | undefined>(
     undefined,
   );
-  const [ghostWpm, setGhostWpm] = createSignal(60);
+  const [ghost, setGhost] = createSignal<Ghost | undefined>(undefined);
   const [ghostLabel, setGhostLabel] = createSignal("ghost");
 
   let engine: ReturnType<typeof createGpEngine> | undefined;
@@ -152,14 +155,20 @@ export function GhostGpPage(): JSXElement {
     return "the ghost's wpm is unusable";
   };
 
-  const startCountdown = (ghost: {
-    wpm: number;
-    label: string;
-    date: string | undefined;
-  }): void => {
-    setGhostWpm(ghost.wpm);
+  /** the summary wpm of the resolved ghost (a curve shows its average) */
+  const ghostWpm = (): number => {
+    const g = ghost();
+    if (g === undefined) return 0;
+    return g.kind === "curve" ? g.averageWpm : g.wpm;
+  };
+
+  const startCountdown = (date: string | undefined): void => {
+    const g = ghost();
+    if (g === undefined) return;
     setGhostLabel(
-      `${ghost.label} · ${ghost.wpm}wpm${ghost.date !== undefined ? ` · ${ghost.date}` : ""}`,
+      `${g.label} · ${ghostWpm()}wpm${date !== undefined ? ` · ${date}` : ""}${
+        g.kind === "curve" ? " (curve)" : ""
+      }`,
     );
     setPagePhase("countdown");
     setCountdown(3);
@@ -177,7 +186,9 @@ export function GhostGpPage(): JSXElement {
   };
 
   const beginDuel = (): void => {
-    engine = createGpEngine({ words: wordList(), ghostWpm: ghostWpm() });
+    const g = ghost();
+    if (g === undefined) return;
+    engine = createGpEngine({ words: wordList(), ghost: g });
     engine.start(performance.now());
     setTyped(0);
     setWordErrors(0);
@@ -215,11 +226,20 @@ export function GhostGpPage(): JSXElement {
       last !== undefined
         ? new Date(last.timestamp).toLocaleDateString()
         : undefined;
-    startCountdown({
-      wpm: resolved.ghost.wpm,
-      label: resolved.ghost.label,
-      date,
-    });
+    //phase 3: the last-run ghost tries the record's real per-second curve
+    //(the heavy store's chartData) — stripped rows, "toolong" charts and
+    //short bursts fall back to the constant ghost of the result's wpm
+    let ghost: Ghost = resolved.ghost;
+    if (ghostKind() === "last" && last !== undefined) {
+      const heavy = await loadLocalHeavyResult(last._id);
+      ghost = curveGhostFromChartData(
+        heavy?.chartData,
+        resolved.ghost.wpm,
+        resolved.ghost.label,
+      );
+    }
+    setGhost(ghost);
+    startCountdown(date);
   };
 
   const endRace = (state: DuelState): void => {
@@ -236,6 +256,7 @@ export function GhostGpPage(): JSXElement {
       ghostWpm: ghostWpm(),
       lang: Config.language,
     });
+    //ghostWpm() derives from the stored ghost signal — untouched here
     setPagePhase("result");
   };
 
@@ -406,11 +427,7 @@ export function GhostGpPage(): JSXElement {
             class="w-full"
             onClick={() => {
               setVoided(false);
-              startCountdown({
-                wpm: ghostWpm(),
-                label: ghostLabel(),
-                date: undefined,
-              });
+              startCountdown(undefined);
             }}
           />
           <Button

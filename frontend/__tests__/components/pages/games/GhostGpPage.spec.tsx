@@ -1,6 +1,8 @@
+import "fake-indexeddb/auto";
 import type { Mode } from "@monkeytype/schemas/shared";
 
 import { fireEvent } from "@solidjs/testing-library";
+import { IDBFactory } from "fake-indexeddb";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import type { SnapshotResult } from "../../../../src/ts/constants/default-snapshot";
@@ -74,6 +76,9 @@ async function startRace(app: App): Promise<void> {
 
 describe("ghost gp page (idea G3 phase 2)", () => {
   beforeEach(() => {
+    //startRace reads the heavy store (the curve attempt): fake-indexeddb
+    //with a fresh factory per test (the cross-file leakage vaccination)
+    (globalThis as { indexedDB: unknown }).indexedDB = new IDBFactory();
     window.localStorage.clear();
     _resetGhostGpStatsForTests();
     setLastResult(undefined);
@@ -82,6 +87,8 @@ describe("ghost gp page (idea G3 phase 2)", () => {
   afterEach(() => {
     vi.useRealTimers();
     setLastResult(undefined);
+    //leave a clean shared factory behind (cross-file leakage vaccination)
+    (globalThis as { indexedDB: unknown }).indexedDB = new IDBFactory();
     cleanupApp();
   });
 
