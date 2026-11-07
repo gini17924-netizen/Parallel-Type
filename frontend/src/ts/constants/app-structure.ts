@@ -192,6 +192,13 @@ export const APP_SECTIONS: readonly AppSection[] = [
         icon: "fa-anchor",
         route: "/games/crane",
       },
+      {
+        id: "beat-keys",
+        title: "beat keys",
+        description: "type the lanes on the beat — timing is the score",
+        icon: "fa-drum",
+        route: "/games/beat-keys",
+      },
     ],
   },
 ];

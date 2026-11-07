@@ -416,6 +416,8 @@ const NITRO_RUN_STATS_KEY = "mtDesktopNitroRunStats";
 const TYPE_PONG_SCORES_KEY = "mtDesktopTypePongScores";
 //owner: utils/crane/store.ts (idea G17)
 const CRANE_SCORES_KEY = "mtDesktopCraneScores";
+//owner: utils/beat-keys/store.ts (idea G21)
+const BEAT_KEYS_SCORES_KEY = "mtDesktopBeatKeysScores";
 //owner: utils/wordle/wordle-store.ts (idea G4) — per-language keys
 const WORDLE_LANGS = ["fa", "en"] as const;
 const wordleStateKey = (lang: string): string => `mtDesktopWordleState_${lang}`;
@@ -524,6 +526,8 @@ export type LocalBackup = {
   typePongScores?: Record<string, unknown> | undefined;
   /** schema v3 (idea G17): crane-stack bests + run history */
   craneScores?: Record<string, unknown> | undefined;
+  /** schema v3 (idea G21): beat-keys bests, history + calibration offset */
+  beatKeysScores?: Record<string, unknown> | undefined;
   /** schema v3 (idea G4): wordle puzzle state, keyed by language */
   wordleState?: Record<string, unknown> | undefined;
   /** schema v3 (idea G4): wordle career stats, keyed by language */
@@ -569,6 +573,7 @@ export async function exportBackup(): Promise<LocalBackup> {
     nitroRunStats: readJsonSafe(NITRO_RUN_STATS_KEY),
     typePongScores: readJsonSafe(TYPE_PONG_SCORES_KEY),
     craneScores: readJsonSafe(CRANE_SCORES_KEY),
+    beatKeysScores: readJsonSafe(BEAT_KEYS_SCORES_KEY),
     wordleState: Object.fromEntries(
       WORDLE_LANGS.map((lang) => [lang, readJsonSafe(wordleStateKey(lang))]),
     ),
@@ -927,6 +932,15 @@ export async function importBackup(backup: LocalBackup): Promise<number> {
     window.localStorage.setItem(
       CRANE_SCORES_KEY,
       JSON.stringify(sanitizeImportedCraneScores(backup.craneScores)),
+    );
+  }
+  if (backup.beatKeysScores !== undefined && backup.beatKeysScores !== null) {
+    //audit L4 pattern, same as above
+    const { sanitizeImportedBeatKeysScores } =
+      await import("./beat-keys/store");
+    window.localStorage.setItem(
+      BEAT_KEYS_SCORES_KEY,
+      JSON.stringify(sanitizeImportedBeatKeysScores(backup.beatKeysScores)),
     );
   }
   if (backup.wordleState !== undefined && backup.wordleState !== null) {

@@ -38,6 +38,8 @@ export type BeatKeysState = {
   judgedCount: number;
   totalCount: number;
   lastGrade: BeatGrade | undefined;
+  /** the lane of the last judged note (the page's grade popup) */
+  lastLane: number | undefined;
   rank: BeatRank | undefined;
   result: BeatKeysResult | undefined;
 };
@@ -83,6 +85,7 @@ export function createBeatKeysEngine(options: {
   let maxCombo = 0;
   let score = 0;
   let lastGrade: BeatGrade | undefined;
+  let lastLane: number | undefined;
   const grades: Record<BeatGrade, number> = {
     perfect: 0,
     good: 0,
@@ -153,6 +156,7 @@ export function createBeatKeysEngine(options: {
       judgedCount: judgedCount(),
       totalCount: total,
       lastGrade,
+      lastLane,
       rank: finished ? computeRank() : undefined,
       result,
     };
@@ -189,6 +193,7 @@ export function createBeatKeysEngine(options: {
     maxCombo = Math.max(maxCombo, combo);
     score += GRADE_SCORE[grade];
     lastGrade = grade;
+    lastLane = best.lane;
     return snapshot();
   }
 
