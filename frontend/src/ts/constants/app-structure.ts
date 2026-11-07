@@ -143,6 +143,13 @@ export const APP_SECTIONS: readonly AppSection[] = [
         icon: "fa-shield-alt",
         route: "/games/lane-defense",
       },
+      {
+        id: "fruit-slash",
+        title: "fruit slash",
+        description: "arcs of words — slash them, never the bombs",
+        icon: "fa-apple-alt",
+        route: "/games/fruit-slash",
+      },
     ],
   },
 ];

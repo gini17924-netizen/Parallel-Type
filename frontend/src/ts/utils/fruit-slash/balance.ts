@@ -38,6 +38,8 @@ export const BALANCE = {
    * launch line is only ~1.85s (gravity 70, floor 5vh below the launch),
    * so a 2s half-life could never fire — the unit test caught it */
   bombHalfLifeMs: 1200,
+  /** the chance a launch is a bomb (the caller mixes them into the words) */
+  bombChance: 0.18,
   scorePerChar: 10,
   /** the doc's v1 word window (4-6 letters; length rides the level) */
   minWordLen: 4,

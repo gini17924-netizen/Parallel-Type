@@ -28,6 +28,7 @@ import { WordlePage } from "../components/pages/games/wordle/WordlePage";
 import { BalloonPopPage } from "../components/pages/games/balloon-pop/BalloonPopPage";
 import { LetterStrikePage } from "../components/pages/games/letter-strike/LetterStrikePage";
 import { LaneDefensePage } from "../components/pages/games/lane-defense/LaneDefensePage";
+import { FruitSlashPage } from "../components/pages/games/fruit-slash/FruitSlashPage";
 import { HomePage } from "../components/pages/home/HomePage";
 import { SectionsPage } from "../components/pages/sections/SectionsPage";
 import { WrappedPage } from "../components/pages/wrapped/WrappedPage";
@@ -102,6 +103,7 @@ export type PageName =
   | "balloon-pop"
   | "letter-strike"
   | "lane-defense"
+  | "fruit-slash"
   | "wrapped";
 
 declare module "@tanstack/solid-router" {
@@ -392,6 +394,13 @@ const laneDefense = createRoute({
   component: createRouterPage(LaneDefensePage),
 });
 
+const fruitSlash = createRoute({
+  getParentRoute: () => userDataRoute,
+  path: "/games/fruit-slash",
+  staticData: { page: "fruit-slash" },
+  component: createRouterPage(FruitSlashPage),
+});
+
 const wrapped = createRoute({
   getParentRoute: () => userDataRoute,
   path: "/wrapped",
@@ -551,6 +560,7 @@ export const routeTree = root.addChildren([
     balloonPop,
     letterStrike,
     laneDefense,
+    fruitSlash,
     wrapped,
     login,
     account,

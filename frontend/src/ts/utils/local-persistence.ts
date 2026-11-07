@@ -402,6 +402,8 @@ const BALLOON_POP_SCORES_KEY = "mtDesktopBalloonPopScores";
 const LETTER_STRIKE_SCORES_KEY = "mtDesktopLetterStrikeScores";
 //owner: utils/lane-defense/store.ts (idea G9)
 const LANE_DEFENSE_SCORES_KEY = "mtDesktopLaneDefenseScores";
+//owner: utils/fruit-slash/store.ts (idea G10)
+const FRUIT_SLASH_SCORES_KEY = "mtDesktopFruitSlashScores";
 //owner: utils/wordle/wordle-store.ts (idea G4) — per-language keys
 const WORDLE_LANGS = ["fa", "en"] as const;
 const wordleStateKey = (lang: string): string => `mtDesktopWordleState_${lang}`;
@@ -496,6 +498,8 @@ export type LocalBackup = {
   letterStrikeScores?: Record<string, unknown> | undefined;
   /** schema v3 (idea G9): lane-defense bests, per-zone bests + history */
   laneDefenseScores?: Record<string, unknown> | undefined;
+  /** schema v3 (idea G10): fruit-slash bests + run history */
+  fruitSlashScores?: Record<string, unknown> | undefined;
   /** schema v3 (idea G4): wordle puzzle state, keyed by language */
   wordleState?: Record<string, unknown> | undefined;
   /** schema v3 (idea G4): wordle career stats, keyed by language */
@@ -534,6 +538,7 @@ export async function exportBackup(): Promise<LocalBackup> {
     balloonPopScores: readJsonSafe(BALLOON_POP_SCORES_KEY),
     letterStrikeScores: readJsonSafe(LETTER_STRIKE_SCORES_KEY),
     laneDefenseScores: readJsonSafe(LANE_DEFENSE_SCORES_KEY),
+    fruitSlashScores: readJsonSafe(FRUIT_SLASH_SCORES_KEY),
     wordleState: Object.fromEntries(
       WORDLE_LANGS.map((lang) => [lang, readJsonSafe(wordleStateKey(lang))]),
     ),
@@ -823,6 +828,18 @@ export async function importBackup(backup: LocalBackup): Promise<number> {
       JSON.stringify(
         sanitizeImportedLaneDefenseScores(backup.laneDefenseScores),
       ),
+    );
+  }
+  if (
+    backup.fruitSlashScores !== undefined &&
+    backup.fruitSlashScores !== null
+  ) {
+    //audit L4 pattern, same as above
+    const { sanitizeImportedFruitSlashScores } =
+      await import("./fruit-slash/store");
+    window.localStorage.setItem(
+      FRUIT_SLASH_SCORES_KEY,
+      JSON.stringify(sanitizeImportedFruitSlashScores(backup.fruitSlashScores)),
     );
   }
   if (backup.wordleState !== undefined && backup.wordleState !== null) {
