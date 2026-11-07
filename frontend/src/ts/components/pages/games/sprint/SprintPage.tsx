@@ -86,6 +86,8 @@ export function SprintPage(): JSXElement {
   const [previousBest, setPreviousBest] = createSignal<number | undefined>(
     undefined,
   );
+  /** the share button's flash (KI-31: the doc's simple result share) */
+  const [copied, setCopied] = createSignal(false);
 
   let engine: SprintEngine | undefined;
   let wordStream: string[] = [];
@@ -166,7 +168,9 @@ export function SprintPage(): JSXElement {
       rng: Math.random,
     });
     engine.arm(performance.now());
-    next(); //materialize the first word for the arming screen
+    //KI-35: the engine's construction already consumed next() (which sets
+    //the word signals) — a second call here shifted the DISPLAYED word one
+    //ahead of the engine's current word, so no typed char could ever match
     setEngineState(engine.state());
     setPagePhase("arming");
     tickTimer = setInterval(() => {
@@ -283,9 +287,12 @@ export function SprintPage(): JSXElement {
   };
 
   const RunningScreen = (): JSXElement => {
-    const state = engineState();
-    const word = currentWord();
-    const typedCount = state?.typed ?? 0;
+    //KI-36: every read must be inline in JSX — capturing engineState() in a
+    //local const froze the word prefix, the live HUD and the next word on
+    //the mount-time snapshot (the same Solid once-run pattern as KI-34)
+    const state = (): SprintState | undefined => engineState();
+    const word = (): string => currentWord();
+    const typedCount = (): number => state()?.typed ?? 0;
     return (
       <>
         <section class="grid place-items-center rounded bg-sub-alt py-6">
@@ -305,24 +312,44 @@ export function SprintPage(): JSXElement {
               dir="auto"
               data-testid="sp-word"
             >
-              <span class="text-main">{word.slice(0, typedCount)}</span>
-              <span>{word.slice(typedCount)}</span>
+              <span class="text-main">{word().slice(0, typedCount())}</span>
+              <span>{word().slice(typedCount())}</span>
             </div>
             <div class="pt-3 text-sm text-sub" dir="auto">
               next: {nextWord()}
             </div>
           </div>
           <div class="grid grid-cols-3 gap-2">
-            <HudCell label="chars" value={String(state?.chars ?? 0)} />
-            <HudCell label="words" value={String(state?.wordsComplete ?? 0)} />
+            <HudCell label="chars" value={String(state()?.chars ?? 0)} />
+            <HudCell
+              label="words"
+              value={String(state()?.wordsComplete ?? 0)}
+            />
             <HudCell
               label="wpm live"
-              value={String(Math.round((state?.chars ?? 0) * 6))}
+              value={String(Math.round((state()?.chars ?? 0) * 6))}
             />
           </div>
         </section>
       </>
     );
+  };
+
+  /** the doc's simple result share: one plain line to the clipboard (KI-31) */
+  const share = async (): Promise<void> => {
+    const result = engine?.state().result;
+    const text = `ParallelType ten-second sprint: ${result?.wpm ?? 0} wpm · raw ${
+      result?.raw ?? 0
+    } · acc ${result?.accuracy ?? 0}% · ${result?.wordsComplete ?? 0} words · ${
+      Config.language
+    }`;
+    try {
+      await navigator.clipboard.writeText(text);
+      setCopied(true);
+      setTimeout(() => setCopied(false), 2000);
+    } catch {
+      setMessage("the clipboard is unavailable");
+    }
   };
 
   const ResultScreen = (): JSXElement => {
@@ -354,12 +381,20 @@ export function SprintPage(): JSXElement {
             {getSprintStats().daily.bestWpm})
           </div>
         </Show>
-        <Button
-          text="another attempt"
-          fa={{ icon: "fa-redo" }}
-          class="w-full"
-          onClick={() => backToIdle()}
-        />
+        <div class="grid grid-cols-2 gap-2">
+          <Button
+            text={copied() ? "copied!" : "share result"}
+            fa={{ icon: "fa-share-alt" }}
+            class="w-full"
+            onClick={() => void share()}
+          />
+          <Button
+            text="another attempt"
+            fa={{ icon: "fa-redo" }}
+            class="w-full"
+            onClick={() => backToIdle()}
+          />
+        </div>
       </section>
     );
   };

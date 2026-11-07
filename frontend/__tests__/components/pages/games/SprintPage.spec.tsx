@@ -115,6 +115,71 @@ describe("sprint page (idea G5 phase 2)", () => {
     expect(raw.bestByLang["english"]?.wpm).toBe(102);
   });
 
+  it("the result screen offers the doc's simple share to the clipboard (KI-31)", async () => {
+    const writeText = vi.fn<(text: string) => Promise<void>>(
+      async (): Promise<void> => undefined,
+    );
+    const original = Object.getOwnPropertyDescriptor(navigator, "clipboard");
+    Object.defineProperty(navigator, "clipboard", {
+      value: { writeText: writeText },
+      configurable: true,
+    });
+    try {
+      const app = await openSprint();
+      button(app, "start attempt")?.click();
+      await waitMs(120);
+      fakeNow = 5000;
+      await waitMs(120);
+      //85 correct characters: the same exact-metric flow as the test above
+      for (let i = 0; i < 85; i++) {
+        fakeNow += 50;
+        const word = currentWord(app);
+        const done = typedPart(app).length;
+        if (done < word.length) {
+          fireEvent.keyDown(window, { key: word[done] });
+        } else {
+          fireEvent.keyDown(window, { key: word[0] });
+        }
+      }
+      fakeNow += 11000;
+      await waitMs(150);
+
+      expect(pageText(app)).toContain("share result");
+      button(app, "share result")?.click();
+      await waitMs(40);
+      expect(writeText).toHaveBeenCalledTimes(1);
+      expect(writeText.mock.calls[0]?.[0] ?? "").toMatch(
+        /^ParallelType ten-second sprint: 102 wpm · raw 85 · acc 100% · \d+ words · english$/,
+      );
+      expect(pageText(app)).toContain("copied!");
+    } finally {
+      if (original) {
+        Object.defineProperty(navigator, "clipboard", original);
+      } else {
+        delete (navigator as { clipboard?: unknown }).clipboard;
+      }
+    }
+  });
+
+  it("typing the displayed word grows the typed prefix (KI-35/KI-36)", async () => {
+    const app = await openSprint();
+    button(app, "start attempt")?.click();
+    await waitMs(120);
+    fakeNow = 5000;
+    await waitMs(120);
+    //KI-35: the displayed word must BE the engine's expected word
+    const word = currentWord(app);
+    expect(word).not.toBe("");
+    for (const ch of word.slice(0, 3)) {
+      fakeNow += 50;
+      fireEvent.keyDown(window, { key: ch });
+    }
+    await waitMs(60);
+    //KI-36: the typed prefix is rendered from a live snapshot, not a
+    //mount-time capture
+    expect(typedPart(app)).toBe(word.slice(0, 3));
+  });
+
   it("a pre-GO key is a false start and voids the attempt", async () => {
     const app = await openSprint();
     button(app, "start attempt")?.click();
