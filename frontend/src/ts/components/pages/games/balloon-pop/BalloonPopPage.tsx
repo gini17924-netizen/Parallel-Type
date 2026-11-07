@@ -149,6 +149,10 @@ export function BalloonPopPage(): JSXElement {
     }
     setEngineState(engine.state());
     setPagePhase("playing");
+    //KI-30: install this run's tick only after retiring any previous run's
+    //timers — two overlapping startRuns must never leave two intervals
+    //ticking one engine (2x balloon speed, doubled TTS)
+    stopTimers();
     tickTimer = setInterval(() => {
       if (engine === undefined) return;
       const state = engine.tick(TICK_MS);
@@ -208,6 +212,9 @@ export function BalloonPopPage(): JSXElement {
   });
 
   const backToMenu = (): void => {
+    //KI-30: leaving mid-run must stop the tick — the leaked interval would
+    //otherwise double-tick the next run (2x balloon speed, doubled TTS)
+    stopTimers();
     engine = undefined;
     setPagePhase("menu");
   };
@@ -295,7 +302,9 @@ export function BalloonPopPage(): JSXElement {
   };
 
   const Arena = (): JSXElement => {
-    const state = engineState();
+    //KI-34: the signal must be read inline in JSX — capturing it in a local
+    //const froze the arena on the mount-time snapshot (no movement, no
+    //spawns, no pops ever rendered)
     return (
       <section
         class="relative w-full overflow-hidden rounded bg-sub-alt"
@@ -306,7 +315,7 @@ export function BalloonPopPage(): JSXElement {
         <div class="absolute top-1 w-full text-center text-[0.65rem] text-error">
           danger line
         </div>
-        <For each={state?.bubbles ?? []}>
+        <For each={engineState()?.bubbles ?? []}>
           {(balloon) => (
             <div
               class="absolute grid place-items-center rounded-full border-2 border-main bg-bg font-bold"

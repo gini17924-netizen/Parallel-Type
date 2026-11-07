@@ -104,6 +104,36 @@ describe("balloon pop page (idea G6 phase 2)", () => {
     expect(text).toContain("1"); //the score left zero
   });
 
+  it("a rapid double-start does not double-tick the engine (KI-30)", async () => {
+    const app = await openBalloonPop();
+    vi.useFakeTimers();
+    //two overlapping startRuns: the second must retire the first's interval
+    button(app, "start stage 1")?.click();
+    button(app, "start stage 1")?.click();
+    await vi.advanceTimersByTimeAsync(150);
+    expect(balloons(app).length).toBe(1); //the construction spawn only
+    //with a leaked interval the stage-1 cadence (2200ms) would fire at
+    //~1.1s and ~2.2s — 3+ balloons; single tick gives exactly one spawn
+    await vi.advanceTimersByTimeAsync(2150);
+    expect(balloons(app).length).toBe(2);
+  });
+
+  it("the arena re-renders: balloons rise and new spawns appear (KI-34)", async () => {
+    const app = await openBalloonPop();
+    vi.useFakeTimers();
+    button(app, "start stage 1")?.click();
+    await vi.advanceTimersByTimeAsync(150);
+    await vi.advanceTimersByTimeAsync(2350);
+    //movement: the first balloon visibly left the bottom line...
+    const tops = app.container.querySelectorAll<HTMLElement>(
+      '[data-testid="bp-balloon"]',
+    );
+    expect(tops.length).toBe(2); //...and the cadence spawn rendered too
+    const toVh = (top: string | undefined): number => parseFloat(top ?? "100");
+    expect(toVh(tops[0]?.style.top)).toBeLessThan(toVh(tops[1]?.style.top));
+    expect(toVh(tops[1]?.style.top)).toBeGreaterThan(95); //fresh spawn
+  });
+
   it("the run records the stage best and the history when it ends", async () => {
     const app = await openBalloonPop();
     vi.useFakeTimers();

@@ -134,7 +134,9 @@ export function createBalloonEngine(options: {
       maxCombo,
       popped,
       escaped,
-      bubbles: [...bubbles],
+      //fresh per-balloon references: the UI's <For> keys by reference, so a
+      //shared in-place-mutated object would freeze the rendered positions
+      bubbles: bubbles.map((balloon) => ({ ...balloon })),
       justPromoted: false,
       result: phase === "done" ? finishResult() : undefined,
     };
