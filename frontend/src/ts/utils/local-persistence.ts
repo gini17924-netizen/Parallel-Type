@@ -396,6 +396,8 @@ const BOT_DUEL_STATS_KEY = "mtDesktopBotDuelStats";
 const GHOST_GP_STATS_KEY = "mtDesktopGhostGpStats";
 //owner: utils/sprint/sprint-stats.ts (idea G5)
 const SPRINT_STATS_KEY = "mtDesktopSprintStats";
+//owner: utils/balloon-pop/store.ts (idea G6)
+const BALLOON_POP_SCORES_KEY = "mtDesktopBalloonPopScores";
 //owner: utils/wordle/wordle-store.ts (idea G4) — per-language keys
 const WORDLE_LANGS = ["fa", "en"] as const;
 const wordleStateKey = (lang: string): string => `mtDesktopWordleState_${lang}`;
@@ -484,6 +486,8 @@ export type LocalBackup = {
   ghostGpStats?: Record<string, unknown> | undefined;
   /** schema v3 (idea G5): sprint bests + history + daily streak */
   sprintStats?: Record<string, unknown> | undefined;
+  /** schema v3 (idea G6): balloon-pop per-stage bests + run history */
+  balloonPopScores?: Record<string, unknown> | undefined;
   /** schema v3 (idea G4): wordle puzzle state, keyed by language */
   wordleState?: Record<string, unknown> | undefined;
   /** schema v3 (idea G4): wordle career stats, keyed by language */
@@ -519,6 +523,7 @@ export async function exportBackup(): Promise<LocalBackup> {
     botDuelStats: readJsonSafe(BOT_DUEL_STATS_KEY),
     ghostGpStats: readJsonSafe(GHOST_GP_STATS_KEY),
     sprintStats: readJsonSafe(SPRINT_STATS_KEY),
+    balloonPopScores: readJsonSafe(BALLOON_POP_SCORES_KEY),
     wordleState: Object.fromEntries(
       WORDLE_LANGS.map((lang) => [lang, readJsonSafe(wordleStateKey(lang))]),
     ),
@@ -768,6 +773,18 @@ export async function importBackup(backup: LocalBackup): Promise<number> {
     window.localStorage.setItem(
       SPRINT_STATS_KEY,
       JSON.stringify(sanitizeImportedSprintStats(backup.sprintStats)),
+    );
+  }
+  if (
+    backup.balloonPopScores !== undefined &&
+    backup.balloonPopScores !== null
+  ) {
+    //audit L4 pattern, same as above
+    const { sanitizeImportedBalloonPopScores } =
+      await import("./balloon-pop/store");
+    window.localStorage.setItem(
+      BALLOON_POP_SCORES_KEY,
+      JSON.stringify(sanitizeImportedBalloonPopScores(backup.balloonPopScores)),
     );
   }
   if (backup.wordleState !== undefined && backup.wordleState !== null) {
