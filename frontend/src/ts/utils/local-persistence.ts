@@ -410,6 +410,8 @@ const STACK_ATTACK_SCORES_KEY = "mtDesktopStackAttackScores";
 const TYPE_SNAKE_SCORES_KEY = "mtDesktopTypeSnakeScores";
 //owner: utils/firefight/store.ts (idea G16)
 const FIREFIGHT_SCORES_KEY = "mtDesktopFirefightScores";
+//owner: utils/nitro-run/store.ts (idea G23)
+const NITRO_RUN_STATS_KEY = "mtDesktopNitroRunStats";
 //owner: utils/wordle/wordle-store.ts (idea G4) — per-language keys
 const WORDLE_LANGS = ["fa", "en"] as const;
 const wordleStateKey = (lang: string): string => `mtDesktopWordleState_${lang}`;
@@ -512,6 +514,8 @@ export type LocalBackup = {
   typeSnakeScores?: Record<string, unknown> | undefined;
   /** schema v3 (idea G16): firefight bests, wins + run history */
   firefightScores?: Record<string, unknown> | undefined;
+  /** schema v3 (idea G23): nitro-run bests, nitro total + history */
+  nitroRunStats?: Record<string, unknown> | undefined;
   /** schema v3 (idea G4): wordle puzzle state, keyed by language */
   wordleState?: Record<string, unknown> | undefined;
   /** schema v3 (idea G4): wordle career stats, keyed by language */
@@ -554,6 +558,7 @@ export async function exportBackup(): Promise<LocalBackup> {
     stackAttackScores: readJsonSafe(STACK_ATTACK_SCORES_KEY),
     typeSnakeScores: readJsonSafe(TYPE_SNAKE_SCORES_KEY),
     firefightScores: readJsonSafe(FIREFIGHT_SCORES_KEY),
+    nitroRunStats: readJsonSafe(NITRO_RUN_STATS_KEY),
     wordleState: Object.fromEntries(
       WORDLE_LANGS.map((lang) => [lang, readJsonSafe(wordleStateKey(lang))]),
     ),

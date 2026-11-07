@@ -171,6 +171,13 @@ export const APP_SECTIONS: readonly AppSection[] = [
         icon: "fa-fire",
         route: "/games/firefight",
       },
+      {
+        id: "nitro-run",
+        title: "nitro run",
+        description: "endless race vs AI — nitro on a clean streak",
+        icon: "fa-car-side",
+        route: "/games/nitro-run",
+      },
     ],
   },
 ];
