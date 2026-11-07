@@ -157,6 +157,13 @@ export const APP_SECTIONS: readonly AppSection[] = [
         icon: "fa-cubes",
         route: "/games/stack-attack",
       },
+      {
+        id: "type-snake",
+        title: "type snake",
+        description: "the snake walks itself — typing ripens the food",
+        icon: "fa-dragon",
+        route: "/games/type-snake",
+      },
     ],
   },
 ];
