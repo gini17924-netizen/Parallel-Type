@@ -395,6 +395,10 @@ export async function importLocalBackup(backup: LocalBackup): Promise<number> {
   return imported;
 }
 
+//the auto-backup module statically imports this file: it gets the importer
+//handed over instead of importing back (module cycle, see registerBackupImporter)
+DesktopAutoBackup.registerBackupImporter(importLocalBackup);
+
 export type SaveLocalResultData = {
   xp?: number;
   xpBreakdown?: XpBreakdown;

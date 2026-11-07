@@ -122,6 +122,11 @@ describe("DesktopAutoBackup (KI-02)", () => {
     const fake = installFakeTauri(JSON.stringify(backup));
 
     const AutoBackup = await freshModule();
+    //the restore hands the backup to db's importer through the registration
+    //hook (db.ts registers it at boot in the app - module cycle, see
+    //registerBackupImporter)
+    const db = await import("../../src/ts/db");
+    AutoBackup.registerBackupImporter(db.importLocalBackup);
     await AutoBackup.restoreFromAutoBackupIfNeeded();
 
     const { loadLocalResults, loadLocalSnapshotFields } =
@@ -139,6 +144,16 @@ describe("DesktopAutoBackup (KI-02)", () => {
 
   it("does nothing when there is no backup file", async () => {
     installFakeTauri(null);
+    const AutoBackup = await freshModule();
+    await AutoBackup.restoreFromAutoBackupIfNeeded();
+    const { loadLocalResults } =
+      await import("../../src/ts/utils/local-persistence");
+    expect(await loadLocalResults()).toHaveLength(0);
+  });
+
+  it("skips the restore when no importer is registered", async () => {
+    const backup = { schemaVersion: 3, results: [], exportedAt: "x" };
+    installFakeTauri(JSON.stringify(backup));
     const AutoBackup = await freshModule();
     await AutoBackup.restoreFromAutoBackupIfNeeded();
     const { loadLocalResults } =

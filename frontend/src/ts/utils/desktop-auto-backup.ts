@@ -9,6 +9,20 @@ import {
 import { showSuccessNotification } from "../states/notifications";
 
 /**
+ * db.ts statically imports this module, so a db import here (even a
+ * late-bound one) closes a module cycle that the circular-dependency gate
+ * reports (madge follows dynamic imports too). db.ts registers its importer
+ * instead; a restore before registration is skipped (impossible in the app:
+ * db.ts loads at boot).
+ */
+type BackupImporter = (backup: LocalBackup) => Promise<number>;
+let importBackup: BackupImporter | undefined;
+
+export function registerBackupImporter(importer: BackupImporter): void {
+  importBackup = importer;
+}
+
+/**
  * Desktop auto-backup (closes KI-02).
  *
  * localStorage and IndexedDB both live inside the WebView2 profile, so a
@@ -117,11 +131,9 @@ export async function restoreFromAutoBackupIfNeeded(): Promise<void> {
     const contents = await invoke<string | null>("backup_read");
     if (contents === null || contents === undefined) return;
     const backup = JSON.parse(contents) as LocalBackup;
-    //late-bound import: db.ts statically imports this module, so a static
-    //import here would create a module cycle (same pattern as
-    //learn-stats.ts fetchWordList)
-    const db = await import("../db");
-    const count = await db.importLocalBackup(backup);
+    const importer = importBackup;
+    if (importer === undefined) return;
+    const count = await importer(backup);
     await writeAutoBackup(); //re-anchor the file to the current app data dir
     showSuccessNotification(`Restored ${count} results from automatic backup`);
   } catch (error) {
