@@ -20,6 +20,13 @@ export const wordleStateKey = (lang: string): string =>
 export const wordleStatsKey = (lang: string): string =>
   `mtDesktopWordleStats_${lang}`;
 
+/** the local calendar day key in the HUMAN convention (1-indexed months) —
+ * the same strings yesterdayKey's arithmetic works on; the page passes this */
+export function wordleDayKey(ts: number): string {
+  const d = new Date(ts);
+  return `${d.getFullYear()}-${d.getMonth() + 1}-${d.getDate()}`;
+}
+
 const StateSchema = z.object({
   dayKey: z.string(),
   lang: z.string(),

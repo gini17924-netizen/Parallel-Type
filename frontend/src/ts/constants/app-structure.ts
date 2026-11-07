@@ -109,6 +109,13 @@ export const APP_SECTIONS: readonly AppSection[] = [
         route: "/games/sprint",
       },
       {
+        id: "wordle",
+        title: "wordle",
+        description: "one daily 5-letter puzzle — فارسی و english",
+        icon: "fa-font",
+        route: "/games/wordle",
+      },
+      {
         id: "deck-runner",
         title: "deck runner",
         description: "a typing roguelite — quotas, gold, jokers",
