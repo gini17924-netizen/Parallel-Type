@@ -83,10 +83,13 @@ describe("beat keys page (idea G21 phase 2)", () => {
     const app = await openBeatKeys();
     vi.useFakeTimers();
     button(app, "start")?.click();
-    //sweep several beats, tapping "d" all the way: every d-note in the
-    //window gets judged (the charts always contain lane-0 notes)
+    //sweep several beats tapping ALL 4 lane keys: the chart's lane mix is
+    //random per run, so key-agnostic spam guarantees every note in the
+    //window gets judged
     for (let i = 0; i < 90; i++) {
-      window.dispatchEvent(new KeyboardEvent("keydown", { key: "d" }));
+      for (const key of ["d", "f", "j", "k"]) {
+        window.dispatchEvent(new KeyboardEvent("keydown", { key }));
+      }
       await vi.advanceTimersByTimeAsync(33);
     }
     expect(hudValue(app, "bk-score")).toBeGreaterThan(0);

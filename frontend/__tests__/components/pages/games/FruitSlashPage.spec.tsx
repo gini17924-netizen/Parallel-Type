@@ -77,14 +77,21 @@ describe("fruit slash page (idea G10 phase 2)", () => {
     //the fruit rises: its position moves up over the ticks
     expect(pageText(app)).toContain("time");
 
-    //slash the first NON-BOMB fruit by typing its whole word (typing a
-    //bomb is the penalty path — the bomb mix is random per run)
-    const targets = nonBombTargets(app);
+    //slash a NON-BOMB fruit by typing its whole word (typing a bomb is
+    //the penalty path and the bomb mix is random per run — keep ticking
+    //until a typable fruit is on the field)
+    let targets = nonBombTargets(app);
+    let guard = 0;
+    while (targets.length === 0 && guard++ < 40) {
+      await vi.advanceTimersByTimeAsync(200);
+      targets = nonBombTargets(app);
+    }
     expect(
       targets.length,
       `diag: ${pageText(app).slice(0, 240)}`,
     ).toBeGreaterThan(0);
-    const target = targets[0] ?? "";
+    //the LAST match is the newest spawn — the most airtime left
+    const target = targets[targets.length - 1] ?? "";
     for (const ch of target) {
       window.dispatchEvent(new KeyboardEvent("keydown", { key: ch }));
       await vi.advanceTimersByTimeAsync(20);
