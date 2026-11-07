@@ -25,7 +25,7 @@ function typeAll(
 
 describe("split-duel match (idea G19 phase 1)", () => {
   it("the countdown gates the begin", () => {
-    const match = createSplitDuelMatch({ mode: "turn", words: WORDS });
+    const match = createSplitDuelMatch({ mode: "turn", words: [WORDS, WORDS] });
     match.startCountdown(1000);
     expect(match.state().phase).toBe("countdown");
     const early = match.begin(1000 + BALANCE.countdownMs - 1);
@@ -36,7 +36,7 @@ describe("split-duel match (idea G19 phase 1)", () => {
   });
 
   it("turn mode: P1's finish parks in turn-swap; swapTo runs P2", () => {
-    const match = createSplitDuelMatch({ mode: "turn", words: WORDS });
+    const match = createSplitDuelMatch({ mode: "turn", words: [WORDS, WORDS] });
     match.startCountdown(0);
     match.begin(BALANCE.countdownMs);
     const t = { v: BALANCE.countdownMs };
@@ -60,7 +60,10 @@ describe("split-duel match (idea G19 phase 1)", () => {
   });
 
   it("simultaneous mode: keys route per side", () => {
-    const match = createSplitDuelMatch({ mode: "simultaneous", words: WORDS });
+    const match = createSplitDuelMatch({
+      mode: "simultaneous",
+      words: [WORDS, WORDS],
+    });
     match.startCountdown(0);
     match.begin(BALANCE.countdownMs);
     //P1 (left half) types 2 words, P2 (right half) 1 word
@@ -82,7 +85,10 @@ describe("split-duel match (idea G19 phase 1)", () => {
   });
 
   it("simultaneous mode: the earlier finisher wins with the margin", () => {
-    const match = createSplitDuelMatch({ mode: "simultaneous", words: WORDS });
+    const match = createSplitDuelMatch({
+      mode: "simultaneous",
+      words: [WORDS, WORDS],
+    });
     match.startCountdown(0);
     match.begin(BALANCE.countdownMs);
     const t = { v: BALANCE.countdownMs };
@@ -102,7 +108,7 @@ describe("split-duel match (idea G19 phase 1)", () => {
   });
 
   it("the wrong key resets the partial and dents the accuracy", () => {
-    const match = createSplitDuelMatch({ mode: "turn", words: WORDS });
+    const match = createSplitDuelMatch({ mode: "turn", words: [WORDS, WORDS] });
     match.startCountdown(0);
     match.begin(BALANCE.countdownMs);
     match.feedKey("c", "KeyA", BALANCE.countdownMs + 10);
@@ -115,7 +121,7 @@ describe("split-duel match (idea G19 phase 1)", () => {
   });
 
   it("an exact tie breaks on accuracy", () => {
-    const match = createSplitDuelMatch({ mode: "turn", words: WORDS });
+    const match = createSplitDuelMatch({ mode: "turn", words: [WORDS, WORDS] });
     match.startCountdown(0);
     match.begin(BALANCE.countdownMs);
     const t = { v: BALANCE.countdownMs };

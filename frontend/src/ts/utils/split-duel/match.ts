@@ -63,15 +63,20 @@ export type SplitDuelMatch = {
 
 export function createSplitDuelMatch(options: {
   mode: DuelMode;
-  words: string[];
+  /** [P1's stream, P2's stream] — mode A passes the same array twice;
+   * mode B builds each side's stream from that half's own letters (doc
+   * §۰.B: a player can only press their own half's keys) */
+  words: [string[], string[]];
   names?: [string, string];
 }): SplitDuelMatch {
-  const words = options.words;
-  if (words.length === 0) throw new Error("split-duel needs words");
+  const streams = options.words;
+  if (streams[0].length === 0 || streams[1].length === 0) {
+    throw new Error("split-duel needs words");
+  }
   const names: [string, string] = options.names ?? ["P1", "P2"];
   const engines: Record<PlayerSlot, StreamEngine> = {
-    1: createStreamEngine({ words }),
-    2: createStreamEngine({ words }),
+    1: createStreamEngine({ words: streams[0] }),
+    2: createStreamEngine({ words: streams[1] }),
   };
   let phase: MatchPhase = "countdown";
   let activeSlot: PlayerSlot | undefined =

@@ -420,6 +420,8 @@ const CRANE_SCORES_KEY = "mtDesktopCraneScores";
 const BEAT_KEYS_SCORES_KEY = "mtDesktopBeatKeysScores";
 //owner: utils/pair-keys/store.ts (idea G18)
 const PAIR_KEYS_STATS_KEY = "mtDesktopPairKeysStats";
+//owner: utils/split-duel/store.ts (idea G19)
+const DUEL_LOCAL_STATS_KEY = "mtDesktopDuelLocalStats";
 //owner: utils/wordle/wordle-store.ts (idea G4) — per-language keys
 const WORDLE_LANGS = ["fa", "en"] as const;
 const wordleStateKey = (lang: string): string => `mtDesktopWordleState_${lang}`;
@@ -532,6 +534,8 @@ export type LocalBackup = {
   beatKeysScores?: Record<string, unknown> | undefined;
   /** schema v3 (idea G18): pair-keys per-mode bests + run history */
   pairKeysStats?: Record<string, unknown> | undefined;
+  /** schema v3 (idea G19): split-duel win counters + match history */
+  duelLocalStats?: Record<string, unknown> | undefined;
   /** schema v3 (idea G4): wordle puzzle state, keyed by language */
   wordleState?: Record<string, unknown> | undefined;
   /** schema v3 (idea G4): wordle career stats, keyed by language */
@@ -579,6 +583,7 @@ export async function exportBackup(): Promise<LocalBackup> {
     craneScores: readJsonSafe(CRANE_SCORES_KEY),
     beatKeysScores: readJsonSafe(BEAT_KEYS_SCORES_KEY),
     pairKeysStats: readJsonSafe(PAIR_KEYS_STATS_KEY),
+    duelLocalStats: readJsonSafe(DUEL_LOCAL_STATS_KEY),
     wordleState: Object.fromEntries(
       WORDLE_LANGS.map((lang) => [lang, readJsonSafe(wordleStateKey(lang))]),
     ),
@@ -954,6 +959,14 @@ export async function importBackup(backup: LocalBackup): Promise<number> {
     window.localStorage.setItem(
       PAIR_KEYS_STATS_KEY,
       JSON.stringify(sanitizeImportedPairKeysStats(backup.pairKeysStats)),
+    );
+  }
+  if (backup.duelLocalStats !== undefined && backup.duelLocalStats !== null) {
+    //audit L4 pattern, same as above
+    const { sanitizeImportedDuelStats } = await import("./split-duel/store");
+    window.localStorage.setItem(
+      DUEL_LOCAL_STATS_KEY,
+      JSON.stringify(sanitizeImportedDuelStats(backup.duelLocalStats)),
     );
   }
   if (backup.wordleState !== undefined && backup.wordleState !== null) {

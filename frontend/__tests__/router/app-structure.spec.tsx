@@ -52,7 +52,7 @@ describe("app structure (home hub sections)", () => {
     expect(sectionHasPicker(practice)).toBe(true);
   });
 
-  it("games has all eighteen entries behind a picker (G24 + G2..G6 + G8..G13 + G17 + G21 + G18)", () => {
+  it("games has all nineteen entries behind a picker (G24 + G2..G6 + G8..G13 + G17 + G21 + G18 + G19)", () => {
     const games = must("games");
     expect(games.route).toBeUndefined();
     expect(games.subSections?.map((sub) => sub.id)).toEqual([
@@ -74,6 +74,7 @@ describe("app structure (home hub sections)", () => {
       "crane",
       "beat-keys",
       "pair-keys",
+      "split-duel",
     ]);
     expect(sectionHasPicker(games)).toBe(true);
     expect(games.subSections?.[0]?.route).toBe("/games/word-blast");

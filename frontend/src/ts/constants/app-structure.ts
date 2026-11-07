@@ -206,6 +206,13 @@ export const APP_SECTIONS: readonly AppSection[] = [
         icon: "fa-clone",
         route: "/games/pair-keys",
       },
+      {
+        id: "split-duel",
+        title: "split duel",
+        description: "two players, one keyboard — halves or turns",
+        icon: "fa-users",
+        route: "/games/split-duel",
+      },
     ],
   },
 ];

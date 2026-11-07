@@ -36,6 +36,7 @@ import { TypePongPage } from "../components/pages/games/type-pong/TypePongPage";
 import { CranePage } from "../components/pages/games/crane/CranePage";
 import { BeatKeysPage } from "../components/pages/games/beat-keys/BeatKeysPage";
 import { PairKeysPage } from "../components/pages/games/pair-keys/PairKeysPage";
+import { SplitDuelPage } from "../components/pages/games/split-duel/SplitDuelPage";
 import { TypeSnakePage } from "../components/pages/games/type-snake/TypeSnakePage";
 import { HomePage } from "../components/pages/home/HomePage";
 import { SectionsPage } from "../components/pages/sections/SectionsPage";
@@ -120,6 +121,7 @@ export type PageName =
   | "crane"
   | "beat-keys"
   | "pair-keys"
+  | "split-duel"
   | "wrapped";
 
 declare module "@tanstack/solid-router" {
@@ -473,6 +475,13 @@ const pairKeys = createRoute({
   component: createRouterPage(PairKeysPage),
 });
 
+const splitDuel = createRoute({
+  getParentRoute: () => userDataRoute,
+  path: "/games/split-duel",
+  staticData: { page: "split-duel" },
+  component: createRouterPage(SplitDuelPage),
+});
+
 const wrapped = createRoute({
   getParentRoute: () => userDataRoute,
   path: "/wrapped",
@@ -641,6 +650,7 @@ export const routeTree = root.addChildren([
     crane,
     beatKeys,
     pairKeys,
+    splitDuel,
     wrapped,
     login,
     account,
