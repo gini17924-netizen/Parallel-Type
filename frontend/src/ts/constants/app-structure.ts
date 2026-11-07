@@ -116,6 +116,13 @@ export const APP_SECTIONS: readonly AppSection[] = [
         route: "/games/wordle",
       },
       {
+        id: "balloon-pop",
+        title: "balloon pop",
+        description: "pop rising balloons — your weak letters first",
+        icon: "fa-circle",
+        route: "/games/balloon-pop",
+      },
+      {
         id: "deck-runner",
         title: "deck runner",
         description: "a typing roguelite — quotas, gold, jokers",

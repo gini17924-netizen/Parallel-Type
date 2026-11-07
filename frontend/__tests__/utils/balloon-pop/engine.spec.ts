@@ -159,3 +159,25 @@ describe("balloon engine (idea G6 phase 1)", () => {
     expect(engine.state().bubbles[0]?.y ?? 100).toBeLessThan(before);
   });
 });
+
+describe("balloon engine hear-it slowdown (idea G6 phase 3)", () => {
+  it("spawnExtraMs stretches the spawn cadence", () => {
+    const plain = createBalloonEngine({
+      spawn: makeSpawn(["alpha"]),
+      letters: ["a"],
+    });
+    const slowed = createBalloonEngine({
+      spawn: makeSpawn(["alpha"]),
+      letters: ["a"],
+      spawnExtraMs: 2000,
+    });
+    //the stage-1 cadence is 2200ms: plain spawns the second balloon at
+    //2200ms, the slowed one only at 4200ms
+    plain.tick(2200);
+    slowed.tick(2200);
+    expect(plain.state().bubbles).toHaveLength(2);
+    expect(slowed.state().bubbles).toHaveLength(1);
+    slowed.tick(2000);
+    expect(slowed.state().bubbles).toHaveLength(2);
+  });
+});

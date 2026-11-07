@@ -75,6 +75,9 @@ export function createBalloonEngine(options: {
   letters: string[];
   startStage?: number;
   lives?: number;
+  /** the hear-it TTS mode's cadence slowdown (idea G6, phase 3): spoken
+   * balloons need time; 0/undefined keeps the plain cadence */
+  spawnExtraMs?: number;
 }): BalloonEngine {
   let phase: BalloonPhase = "running";
   let score = 0;
@@ -91,6 +94,7 @@ export function createBalloonEngine(options: {
   let paused = false;
   let nextId = 1;
   let spawnAcc = 0;
+  const spawnExtraMs = options.spawnExtraMs ?? 0;
 
   const bubbles: Balloon[] = [];
 
@@ -99,10 +103,12 @@ export function createBalloonEngine(options: {
   }
 
   function spawnInterval(): number {
-    return Math.max(
-      400,
-      (BALANCE.stageSpawnMs[stage - 1] ?? BALANCE.stageSpawnMs[0]) -
-        (level() - 1) * BALANCE.spawnLevelStepMs,
+    return (
+      Math.max(
+        400,
+        (BALANCE.stageSpawnMs[stage - 1] ?? BALANCE.stageSpawnMs[0]) -
+          (level() - 1) * BALANCE.spawnLevelStepMs,
+      ) + (spawnExtraMs ?? 0)
     );
   }
 

@@ -36,6 +36,8 @@ export const BALANCE = {
   /** spawn cadence, ms between spawns, per stage (shrinks with level) */
   stageSpawnMs: [2200, 2000, 1800, 1600] as const,
   spawnLevelStepMs: 60,
+  /** the hear-it TTS mode slows the cadence: spoken balloons need time */
+  hearItSpawnExtraMs: 800,
   maxLives: 5,
 } as const;
 
