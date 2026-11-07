@@ -119,3 +119,78 @@ export function spawnSpeed(level: number, difficulty: Difficulty): number {
 export function spawnIntervalMs(level: number, difficulty: Difficulty): number {
   return Math.max(900, (3500 - level * 250) * DIFFICULTY_SPAWN[difficulty]);
 }
+
+// ---------------------------------------------------------------------------
+// Word Blast v2 (idea G1): combo, boss, heart and the level fix. Every
+// tunable of the new mechanics lives in BALANCE — the GamesPage consumes
+// these instead of hardcoding numbers.
+// ---------------------------------------------------------------------------
+
+export const BALANCE = {
+  /** combo streak tiers: the highest tier whose `n` <= the streak wins */
+  comboTiers: [
+    { n: 0, m: 1 },
+    { n: 5, m: 1.5 },
+    { n: 10, m: 2 },
+    { n: 20, m: 3 },
+  ],
+  /** a wrong key on the current word breaks the combo (accuracy > speed) */
+  comboBreakOnWrongKey: true,
+  /** boss word: guaranteed once per level-up, worth ×5, falls slower */
+  bossScoreMult: 5,
+  bossSpeedMult: 0.6,
+  /** a heart word may spawn on every Nth spawn with this chance (+1 life) */
+  heartEveryNSpawns: 40,
+  heartChance: 0.35,
+  maxLives: 5,
+  /** points per level (level = floor(score / levelStep) + 1) */
+  levelStep: 500,
+} as const;
+
+/** the multiplier of the combo streak's active tier */
+export function comboMult(combo: number): number {
+  let mult = 1;
+  for (const tier of BALANCE.comboTiers) {
+    if (combo >= tier.n) mult = tier.m;
+  }
+  return mult;
+}
+
+/**
+ * v2 level derivation: every levelStep points is a level. Replaces the old
+ * `score % 500 === 0` check that only fired on exact multiples (a word worth
+ * 20 could jump straight past 500 without a level-up).
+ */
+export function levelForScore(score: number): number {
+  return Math.floor(score / BALANCE.levelStep) + 1;
+}
+
+/**
+ * The boss word of a level-up: the longest phrase of the pool; on easy
+ * (which builds no phrases) the longest single word. undefined when both
+ * pools are empty.
+ */
+export function pickBossWord(pools: WordPools): string | undefined {
+  const longest = (list: string[]): string | undefined =>
+    list.reduce<string | undefined>(
+      (best, word) =>
+        best === undefined || word.length > best.length ? word : best,
+      undefined,
+    );
+  return longest(pools.phrasePool) ?? longest(pools.wordPool);
+}
+
+/**
+ * A heart word may appear on every Nth spawn with heartChance. The roll
+ * comes from the injected rng so tests are deterministic; only the multiples
+ * of heartEveryNSpawns consume a roll.
+ */
+export function shouldSpawnHeart(
+  spawnCount: number,
+  rng: () => number,
+): boolean {
+  if (spawnCount <= 0 || spawnCount % BALANCE.heartEveryNSpawns !== 0) {
+    return false;
+  }
+  return rng() < BALANCE.heartChance;
+}

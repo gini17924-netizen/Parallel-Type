@@ -2,8 +2,12 @@ import { describe, it, expect } from "vitest";
 
 import {
   buildWordPools,
+  comboMult,
   isDifficulty,
+  levelForScore,
+  pickBossWord,
   pickTarget,
+  shouldSpawnHeart,
   spawnIntervalMs,
   spawnSpeed,
 } from "../../src/ts/utils/word-blast";
@@ -101,5 +105,75 @@ describe("isDifficulty", () => {
     expect(isDifficulty("hard")).toBe(true);
     expect(isDifficulty("extreme")).toBe(false);
     expect(isDifficulty(null)).toBe(false);
+  });
+});
+
+describe("word-blast v2 engine (idea G1)", () => {
+  it("combo tiers hit exactly at their boundaries", () => {
+    expect(comboMult(0)).toBe(1);
+    expect(comboMult(4)).toBe(1);
+    expect(comboMult(5)).toBe(1.5);
+    expect(comboMult(9)).toBe(1.5);
+    expect(comboMult(10)).toBe(2);
+    expect(comboMult(19)).toBe(2);
+    expect(comboMult(20)).toBe(3);
+    expect(comboMult(100)).toBe(3);
+  });
+
+  it("levelForScore derives a level from every levelStep (fixes the modulo skip)", () => {
+    expect(levelForScore(0)).toBe(1);
+    expect(levelForScore(499)).toBe(1);
+    expect(levelForScore(500)).toBe(2);
+    expect(levelForScore(999)).toBe(2);
+    expect(levelForScore(1001)).toBe(3);
+  });
+
+  it("pickBossWord takes the longest phrase, else the longest word", () => {
+    const pools = buildWordPools(WORDS, "hard"); //hard builds phrases
+    const boss = pickBossWord(pools);
+    expect(boss).toBeDefined();
+    expect(boss).toContain(" ");
+    const bossLen = (boss ?? "").length;
+    for (const phrase of pools.phrasePool) {
+      expect(phrase.length).toBeLessThanOrEqual(bossLen);
+    }
+    //easy builds no phrases: the longest single word is the boss
+    const easyBoss = pickBossWord(buildWordPools(WORDS, "easy"));
+    expect(easyBoss).toBeDefined();
+    expect(easyBoss).not.toContain(" ");
+    expect(
+      buildWordPools(WORDS, "easy").wordPool.every(
+        (w) => w.length <= (easyBoss ?? "").length,
+      ),
+    ).toBe(true);
+    //empty pools: no boss at all
+    expect(pickBossWord({ wordPool: [], phrasePool: [] })).toBeUndefined();
+  });
+
+  it("shouldSpawnHeart rolls only on every Nth spawn, with the injected rng", () => {
+    const always = (): number => 0; //always under heartChance
+    const never = (): number => 1;
+    expect(shouldSpawnHeart(0, always)).toBe(false);
+    expect(shouldSpawnHeart(39, always)).toBe(false);
+    expect(shouldSpawnHeart(41, always)).toBe(false);
+    expect(shouldSpawnHeart(40, always)).toBe(true); //40th spawn, lucky roll
+    expect(shouldSpawnHeart(40, never)).toBe(false); //unlucky roll
+    expect(shouldSpawnHeart(80, always)).toBe(true); //next window
+  });
+
+  it("shouldSpawnHeart consumes a roll only at the multiples of 40 (200-sample)", () => {
+    let rolls = 0;
+    let hearts = 0;
+    let count = 0;
+    const rng = (): number => {
+      rolls++;
+      return (count++ % 10) / 10; //0, 0.1, ..., 0.9 cycling
+    };
+    for (let spawn = 1; spawn <= 200; spawn++) {
+      if (shouldSpawnHeart(spawn, rng)) hearts++;
+    }
+    //five windows in 200 spawns (40, 80, 120, 160, 200), rolls 0/0.1/0.2/0.3/0.4
+    expect(rolls).toBe(5);
+    expect(hearts).toBe(4); //0.4 is not below heartChance (0.35)
   });
 });
