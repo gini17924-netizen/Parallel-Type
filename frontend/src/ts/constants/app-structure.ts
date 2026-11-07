@@ -213,6 +213,13 @@ export const APP_SECTIONS: readonly AppSection[] = [
         icon: "fa-users",
         route: "/games/split-duel",
       },
+      {
+        id: "maze-runner",
+        title: "maze runner",
+        description: "the runner walks — you type the gates open",
+        icon: "fa-dungeon",
+        route: "/games/maze-runner",
+      },
     ],
   },
 ];

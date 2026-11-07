@@ -422,6 +422,8 @@ const BEAT_KEYS_SCORES_KEY = "mtDesktopBeatKeysScores";
 const PAIR_KEYS_STATS_KEY = "mtDesktopPairKeysStats";
 //owner: utils/split-duel/store.ts (idea G19)
 const DUEL_LOCAL_STATS_KEY = "mtDesktopDuelLocalStats";
+//owner: utils/maze-runner/store.ts (idea G14)
+const MAZE_SCORES_KEY = "mtDesktopMazeScores";
 //owner: utils/wordle/wordle-store.ts (idea G4) — per-language keys
 const WORDLE_LANGS = ["fa", "en"] as const;
 const wordleStateKey = (lang: string): string => `mtDesktopWordleState_${lang}`;
@@ -536,6 +538,8 @@ export type LocalBackup = {
   pairKeysStats?: Record<string, unknown> | undefined;
   /** schema v3 (idea G19): split-duel win counters + match history */
   duelLocalStats?: Record<string, unknown> | undefined;
+  /** schema v3 (idea G14): maze-runner per-level best times + history */
+  mazeScores?: Record<string, unknown> | undefined;
   /** schema v3 (idea G4): wordle puzzle state, keyed by language */
   wordleState?: Record<string, unknown> | undefined;
   /** schema v3 (idea G4): wordle career stats, keyed by language */
@@ -584,6 +588,7 @@ export async function exportBackup(): Promise<LocalBackup> {
     beatKeysScores: readJsonSafe(BEAT_KEYS_SCORES_KEY),
     pairKeysStats: readJsonSafe(PAIR_KEYS_STATS_KEY),
     duelLocalStats: readJsonSafe(DUEL_LOCAL_STATS_KEY),
+    mazeScores: readJsonSafe(MAZE_SCORES_KEY),
     wordleState: Object.fromEntries(
       WORDLE_LANGS.map((lang) => [lang, readJsonSafe(wordleStateKey(lang))]),
     ),
@@ -967,6 +972,14 @@ export async function importBackup(backup: LocalBackup): Promise<number> {
     window.localStorage.setItem(
       DUEL_LOCAL_STATS_KEY,
       JSON.stringify(sanitizeImportedDuelStats(backup.duelLocalStats)),
+    );
+  }
+  if (backup.mazeScores !== undefined && backup.mazeScores !== null) {
+    //audit L4 pattern, same as above
+    const { sanitizeImportedMazeScores } = await import("./maze-runner/store");
+    window.localStorage.setItem(
+      MAZE_SCORES_KEY,
+      JSON.stringify(sanitizeImportedMazeScores(backup.mazeScores)),
     );
   }
   if (backup.wordleState !== undefined && backup.wordleState !== null) {
