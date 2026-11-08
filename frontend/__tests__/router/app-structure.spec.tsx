@@ -134,7 +134,7 @@ describe("home hub routing", () => {
     expect(text).toContain("back to home");
   });
 
-  it("the games picker renders all seven games (G24 + G2 + G3 + G5 + G4 + G6)", async () => {
+  it("the games picker (legacy direct URL) still renders its cards", async () => {
     const app = renderApp();
     await app.settle();
     await app.router.navigate({

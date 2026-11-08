@@ -115,7 +115,7 @@ export const APP_SECTIONS: readonly AppSection[] = [
       {
         id: "wordle",
         title: "wordle",
-        description: "one daily 5-letter puzzle — فارسی و english",
+        description: "one daily 5-letter puzzle — persian and english",
         icon: "fa-font",
         route: "/games/wordle",
       },
