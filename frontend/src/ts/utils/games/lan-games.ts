@@ -3,6 +3,7 @@ import { lanBotDuel } from "../bot-duel/lan";
 import { lanSprint } from "../sprint/lan";
 import { lanGhostGp } from "../ghost-gp/lan";
 import { lanSplitDuel } from "../split-duel/lan";
+import { lanMaze } from "../maze-runner/lan";
 
 /**
  * The LAN games barrel (online wave, phase 1): importing this module
@@ -15,3 +16,4 @@ registerLanGame(lanBotDuel);
 registerLanGame(lanSprint);
 registerLanGame(lanGhostGp);
 registerLanGame(lanSplitDuel);
+registerLanGame(lanMaze);
