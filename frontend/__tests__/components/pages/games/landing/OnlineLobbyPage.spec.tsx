@@ -253,7 +253,33 @@ describe("online lobby (LAN, phase 3 — discovery)", () => {
     ).toBe(true);
   });
 
-  it("the connected host can start a bot duel and ships the words", async () => {
+  it("the picker lists registered games plus the soon roadmap", async () => {
+    const { container } = render(() => <OnlineLobbyPage />);
+    [...container.querySelectorAll("button")]
+      .find((b) => (b.textContent ?? "").includes("host a match"))
+      ?.click();
+    await vi.waitFor(() => {
+      expect(container.querySelector('[data-testid="ol-code"]')).not.toBeNull();
+    });
+    tauri.fire("lan://peer-joined", { name: "P2" });
+    await vi.waitFor(() => {
+      expect(
+        container.querySelector('[data-testid="ol-start-match"]'),
+      ).not.toBeNull();
+    });
+    //the registry's games are the selectable cards
+    const text = pageText(container);
+    expect(text).toContain("online game");
+    expect(text).toContain("bot duel"); //registered (selectable)
+    expect(
+      container.querySelector('[data-testid="ol-soon-games"]')?.textContent,
+    ).toContain("sprint");
+    expect(
+      container.querySelector('[data-testid="ol-soon-games"]')?.textContent,
+    ).toContain("type pong");
+  });
+
+  it("the connected host can start the selected game and ships the words", async () => {
     const { container } = render(() => <OnlineLobbyPage />);
     [...container.querySelectorAll("button")]
       .find((b) => (b.textContent ?? "").includes("host a match"))
@@ -268,7 +294,7 @@ describe("online lobby (LAN, phase 3 — discovery)", () => {
       ).not.toBeNull();
     });
     [...container.querySelectorAll("button")]
-      .find((b) => (b.textContent ?? "").includes("start bot duel"))
+      .find((b) => (b.textContent ?? "").includes("start match"))
       ?.click();
     await vi.waitFor(() => {
       const send = tauri.invokes.find(
@@ -278,6 +304,7 @@ describe("online lobby (LAN, phase 3 — discovery)", () => {
       expect(message["type"]).toBe("start");
       expect(message["gameId"]).toBe("bot-duel");
       expect(message["from"]).toBe("P1");
+      expect(message["params"]).toEqual({ length: 30 });
       expect(Array.isArray(message["words"])).toBe(true);
       expect(message["words"]).toHaveLength(30); //standard, fallback pool
     });

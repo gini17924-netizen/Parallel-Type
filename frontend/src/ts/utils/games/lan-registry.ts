@@ -10,6 +10,8 @@
  * filled by module loads, never by page mounts).
  */
 
+import type { FaSolidIcon } from "../../types/font-awesome";
+
 /** the games that have an online mode — grows one entry per phase */
 export type LanGameId = "bot-duel";
 
@@ -32,7 +34,7 @@ export type LanPlayable = {
   route: string;
   /** the lobby picker card (English, per the standing rule) */
   label: string;
-  icon: string;
+  icon: FaSolidIcon;
   /** host side: settings (race length, pool words, ...) -> the start
    * payload. Pure — the lobby fetches any pool and passes it in. */
   buildStart(settings: Record<string, unknown>): LanStartPayload;

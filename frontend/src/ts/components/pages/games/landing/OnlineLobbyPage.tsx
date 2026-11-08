@@ -23,14 +23,41 @@ import {
   getLanMatch,
   sendLanMatchStart,
 } from "../../../../states/lan-match";
-import { buildRaceWords } from "../../../../utils/bot-duel/duel-words";
 import { cn } from "../../../../utils/cn";
-import { type LanStartPayload } from "../../../../utils/games/lan-registry";
+import {
+  getLanGame,
+  getLanGames,
+  type LanGameId,
+} from "../../../../utils/games/lan-registry";
 import { cachedFetchJson } from "../../../../utils/json-data";
 import { Button } from "../../../common/Button";
 import { H2 } from "../../../common/Headers";
 
 type LobbyView = "menu" | "hosting" | "joining";
+
+/** the council's online roadmap shown as soon-chips (COUNCIL_ONLINE_ALL_GAMES) */
+const SOON_ONLINE_GAMES = [
+  "sprint",
+  "ghost gp",
+  "split duel",
+  "maze runner",
+  "nitro run",
+  "climber",
+  "runner",
+  "word blast",
+  "stack attack",
+  "balloon pop",
+  "pair keys",
+  "wordle",
+  "type snake",
+  "letter strike",
+  "lane defense",
+  "fruit slash",
+  "firefight",
+  "crane",
+  "beat keys",
+  "type pong",
+];
 
 function HudCell(props: {
   label: string;
@@ -133,32 +160,37 @@ export function OnlineLobbyPage(): JSXElement {
     }
   };
 
-  //the host builds ONE word sequence and ships it in the start message —
-  //no seed needed, both sides type the exact same words
+  //the host builds the start through the registry contract and ships it —
+  //both sides play the exact same seeded stream
   const [matchLength, setMatchLength] = createSignal(30);
-  const startBotDuel = async (): Promise<void> => {
-    let pool: string[] = [];
+  const [selectedGame, setSelectedGame] = createSignal<LanGameId>(
+    getLanGames()[0]?.gameId ?? "bot-duel",
+  );
+  const fetchWordPool = async (): Promise<string[]> => {
     try {
       const data = await cachedFetchJson<{ words: string[] }>(
         `/languages/${Config.language}.json`,
       );
-      pool = data.words;
+      return data.words;
     } catch {
-      pool = [];
+      return [];
     }
-    const words = buildRaceWords(pool, matchLength());
-    const start: LanStartPayload = {
-      gameId: "bot-duel",
-      params: { length: matchLength() },
-      words,
-    };
+  };
+  const startMatch = async (): Promise<void> => {
+    const playable = getLanGame(selectedGame());
+    if (playable === undefined) return;
+    let settings: Record<string, unknown> = {};
+    if (playable.gameId === "bot-duel") {
+      settings = { length: matchLength(), words: await fetchWordPool() };
+    }
+    const start = playable.buildStart(settings);
     sendLanMatchStart(start, playerName());
     armLanMatch({
       role: "host",
       peerName: getLanPeerName() ?? "P2",
       start,
     });
-    void navigate({ to: "/games/bot-duel" });
+    void navigate({ to: playable.route });
   };
 
   const Nearby = (): JSXElement => {
@@ -291,38 +323,70 @@ export function OnlineLobbyPage(): JSXElement {
             }
           >
             <div class="grid gap-2" data-testid="ol-start-match">
-              <div class="text-xs text-sub">race length (bot duel)</div>
-              <div class="grid grid-cols-3 gap-2">
-                <Button
-                  text="quick"
-                  class={cn(
-                    "w-full",
-                    matchLength() === 15 && "bg-main text-bg",
+              <div class="text-xs text-sub">online game</div>
+              <div class="grid grid-cols-2 gap-2">
+                <For each={getLanGames()}>
+                  {(game) => (
+                    <Button
+                      text={game.label}
+                      fa={{ icon: game.icon }}
+                      class={cn(
+                        "w-full",
+                        selectedGame() === game.gameId && "bg-main text-bg",
+                      )}
+                      onClick={() => setSelectedGame(game.gameId)}
+                    />
                   )}
-                  onClick={() => setMatchLength(15)}
-                />
-                <Button
-                  text="standard"
-                  class={cn(
-                    "w-full",
-                    matchLength() === 30 && "bg-main text-bg",
-                  )}
-                  onClick={() => setMatchLength(30)}
-                />
-                <Button
-                  text="long"
-                  class={cn(
-                    "w-full",
-                    matchLength() === 60 && "bg-main text-bg",
-                  )}
-                  onClick={() => setMatchLength(60)}
-                />
+                </For>
               </div>
+              <div class="grid gap-1">
+                <div class="text-xs text-sub">more online games soon</div>
+                <div class="flex flex-wrap gap-1" data-testid="ol-soon-games">
+                  <For each={SOON_ONLINE_GAMES}>
+                    {(soon) => (
+                      <span class="rounded-full bg-bg px-2 py-0.5 text-[0.65rem] text-sub">
+                        {soon}
+                      </span>
+                    )}
+                  </For>
+                </div>
+              </div>
+              <Show when={selectedGame() === "bot-duel"}>
+                <div class="grid gap-1">
+                  <div class="text-xs text-sub">race length</div>
+                  <div class="grid grid-cols-3 gap-2">
+                    <Button
+                      text="quick"
+                      class={cn(
+                        "w-full",
+                        matchLength() === 15 && "bg-main text-bg",
+                      )}
+                      onClick={() => setMatchLength(15)}
+                    />
+                    <Button
+                      text="standard"
+                      class={cn(
+                        "w-full",
+                        matchLength() === 30 && "bg-main text-bg",
+                      )}
+                      onClick={() => setMatchLength(30)}
+                    />
+                    <Button
+                      text="long"
+                      class={cn(
+                        "w-full",
+                        matchLength() === 60 && "bg-main text-bg",
+                      )}
+                      onClick={() => setMatchLength(60)}
+                    />
+                  </div>
+                </div>
+              </Show>
               <Button
-                text="start bot duel"
+                text="start match"
                 fa={{ icon: "fa-flag-checkered" }}
                 class="w-full"
-                onClick={() => void startBotDuel()}
+                onClick={() => void startMatch()}
               />
             </div>
           </Show>
