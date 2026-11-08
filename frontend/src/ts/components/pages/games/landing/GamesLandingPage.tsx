@@ -43,7 +43,7 @@ export function GamesLandingPage(): JSXElement {
             onClick={() => setView("offline")}
             data-testid="gl-offline"
           >
-            <i class="fas fa-plug-circle-check text-4xl text-sub transition-colors duration-125 group-hover:text-bg"></i>
+            <i class="fas fa-plug text-4xl text-sub transition-colors duration-125 group-hover:text-bg"></i>
             <div class="text-xl font-bold text-main group-hover:text-bg">
               Offline Games
             </div>
@@ -90,7 +90,7 @@ export function GamesLandingPage(): JSXElement {
     return (
       <section class="grid gap-8">
         <div class="text-center">
-          <i class="fas fa-plug-circle-check text-3xl text-main"></i>
+          <i class="fas fa-plug text-3xl text-main"></i>
           <div class="text-3xl font-bold text-main">offline games</div>
           <div class="text-sub">every game in six skill categories</div>
         </div>

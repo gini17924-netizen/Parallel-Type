@@ -5,9 +5,16 @@
 //! Tauri commands and receives peer traffic as Tauri events:
 //!
 //! - `lan://peer-joined` { name }        the client completed the join
+//!                                       (the ack carries the HOST's name)
 //! - `lan://peer-message` { message }    a JSON message from the peer
 //! - `lan://peer-left` { reason }        the peer disconnected
 //! - `lan://client-error` { error }      client-side socket error
+//!
+//! Hardening (phase 5): the join handshake ends with the host's
+//! `{type:"joined", name}` ack (no ack in 5s -> join failed); the host
+//! releases the slot when no valid join arrives in 10s; every relayed
+//! message must be a JSON object with a string `type` — a violation
+//! closes the connection.
 //!
 //! Only ONE live connection is supported (two players, one match).
 //! Messages are size-capped and must be JSON objects. No persistence.
@@ -39,14 +46,26 @@ const DISCOVERY_APP_TAG: &str = "paralleltype-lan-v1";
 const DISCOVERY_INTERVAL_MS: u64 = 1000;
 /// a session not heard from for this long disappears from the list
 const DISCOVERY_STALE_MS: u64 = 5000;
+/// the join handshake must complete within this window or the slot is
+/// released (a silent client must not pin the one connection forever)
+const JOIN_TIMEOUT_SECS: u64 = 10;
+/// the client waits this long for the host's joined ack
+const ACK_TIMEOUT_SECS: u64 = 5;
 
 pub struct LanState {
     pub host: Mutex<Option<HostHandle>>,
-    pub client: Mutex<Option<mpsc::UnboundedSender<String>>>,
+    pub client: Mutex<Option<ClientHandle>>,
     /// live discovery results by session id (pruned on every read)
     pub discovered: Mutex<HashMap<String, DiscoveredSession>>,
     /// shuts the discovery listener down; None = not listening
     pub discovery: Mutex<Option<oneshot::Sender<()>>>,
+}
+
+/// the client side of a live connection: the send channel plus the read
+/// loop's task (aborted on disconnect so the socket halves die with it)
+pub struct ClientHandle {
+    tx: mpsc::UnboundedSender<String>,
+    read_task: tauri::async_runtime::JoinHandle<()>,
 }
 
 #[derive(Clone, Debug, PartialEq)]
@@ -224,8 +243,37 @@ pub fn lan_send_message(state: State<'_, LanState>, message: Value) -> Result<()
     }
 }
 
+/// a relayed peer message must be a JSON object carrying a string type —
+/// anything else is a protocol violation and closes the connection
+fn is_valid_message(line: &str) -> bool {
+    match serde_json::from_str::<Value>(line) {
+        Ok(value) => value.is_object() && value["type"].is_string(),
+        Err(_) => false,
+    }
+}
+
+/// the client waits for the host's `{type:"joined", name}` ack and
+/// returns the host's name — a rejected code or a silent host fails here
+async fn await_join_ack<R>(lines: &mut tokio::io::Lines<BufReader<R>>) -> Result<String, String>
+where
+    R: tokio::io::AsyncRead + Unpin,
+{
+    let line = tokio::time::timeout(Duration::from_secs(ACK_TIMEOUT_SECS), lines.next_line())
+        .await
+        .map_err(|_| "lan: join timed out".to_string())?
+        .map_err(|_| "lan: join failed (connection dropped)".to_string())?;
+    let parsed: Option<Value> = line.and_then(|line| serde_json::from_str(&line).ok());
+    match parsed {
+        Some(value) if value["type"] == "joined" => {
+            Ok(value["name"].as_str().unwrap_or("the host").to_string())
+        }
+        _ => Err("lan: join rejected".into()),
+    }
+}
+
 /// connects this device to a host (the client side): validates the join
-/// code, then relays host messages as `lan://peer-message` events
+/// code through the host's joined ack, then relays host messages as
+/// `lan://peer-message` events
 #[tauri::command]
 pub async fn lan_connect_client(
     app: AppHandle,
@@ -251,16 +299,20 @@ pub async fn lan_connect_client(
         .write_all(format!("{}\n", join).as_bytes())
         .await
         .map_err(|e| format!("lan: join failed ({e})"))?;
+
+    let mut lines = BufReader::new(read).lines();
+    let host_name = await_join_ack(&mut lines).await?;
+
     let (tx, mut rx) = mpsc::unbounded_channel::<String>();
 
     let app2 = app.clone();
-    tauri::async_runtime::spawn(async move {
-        let mut lines = BufReader::new(read).lines();
+    let read_task = tauri::async_runtime::spawn(async move {
         loop {
             match lines.next_line().await {
                 Ok(Some(line)) => {
-                    if line.len() > MAX_MESSAGE_BYTES {
-                        continue;
+                    if line.len() > MAX_MESSAGE_BYTES || !is_valid_message(&line) {
+                        emit(&app2, "lan://client-error", serde_json::json!({ "error": "protocol violation" }));
+                        break;
                     }
                     if let Ok(message) = serde_json::from_str::<Value>(&line) {
                         emit(&app2, "lan://peer-message", serde_json::json!({ "message": message }));
@@ -287,8 +339,8 @@ pub async fn lan_connect_client(
     if guard.is_some() {
         return Err("lan: already connected".into()); //a race with a parallel connect
     }
-    *guard = Some(tx);
-    emit(&app, "lan://peer-joined", serde_json::json!({ "name": name }));
+    *guard = Some(ClientHandle { tx, read_task });
+    emit(&app, "lan://peer-joined", serde_json::json!({ "name": host_name }));
     Ok(serde_json::json!({ "connected": true, "addr": addr }))
 }
 
@@ -301,16 +353,18 @@ pub fn lan_client_send(state: State<'_, LanState>, message: Value) -> Result<(),
     }
     text.push('\n');
     let guard = state.client.lock().map_err(|_| "lan state poisoned")?;
-    match &guard.as_ref().ok_or("lan: not connected")? {
+    match &guard.as_ref().ok_or("lan: not connected")?.tx {
         tx => tx.send(text).map_err(|_| "lan: not connected".into()),
     }
 }
 
-/// drops the client connection
+/// drops the client connection (the read loop's task is aborted with it)
 #[tauri::command]
 pub fn lan_disconnect_client(state: State<'_, LanState>) -> Result<(), String> {
     let mut guard = state.client.lock().map_err(|_| "lan state poisoned")?;
-    guard.take();
+    if let Some(handle) = guard.take() {
+        handle.read_task.abort();
+    }
     Ok(())
 }
 
@@ -326,16 +380,36 @@ pub async fn lan_start_discovery(
     if guard.is_some() {
         return Ok(());
     }
-    let sock = std::net::UdpSocket::bind(("0.0.0.0", DISCOVERY_PORT))
-        .map_err(|e| format!("lan: discovery bind failed ({e})"))?;
-    sock.set_nonblocking(true)
-        .map_err(|e| format!("lan: discovery bind failed ({e})"))?;
-    let sock = tokio::net::UdpSocket::from_std(sock)
-        .map_err(|e| format!("lan: discovery bind failed ({e})"))?;
+    let sock = bind_discovery_socket()?;
     let (shutdown_tx, shutdown_rx) = oneshot::channel();
     tauri::async_runtime::spawn(run_discovery(app, sock, shutdown_rx));
     *guard = Some(shutdown_tx);
     Ok(())
+}
+
+/// binds the UDP discovery port; SO_REUSEADDR lets a second listener
+/// (diagnostics, another app instance) share the broadcast port
+fn bind_discovery_socket() -> Result<tokio::net::UdpSocket, String> {
+    let socket = socket2::Socket::new(
+        socket2::Domain::IPV4,
+        socket2::Type::DGRAM,
+        Some(socket2::Protocol::UDP),
+    )
+    .map_err(|e| format!("lan: discovery bind failed ({e})"))?;
+    socket
+        .set_reuse_address(true)
+        .map_err(|e| format!("lan: discovery bind failed ({e})"))?;
+    let bind_addr: std::net::SocketAddr = "0.0.0.0:51988"
+        .parse()
+        .expect("a fixed valid bind addr");
+    socket
+        .bind(&bind_addr.into())
+        .map_err(|e| format!("lan: discovery bind failed ({e})"))?;
+    socket
+        .set_nonblocking(true)
+        .map_err(|e| format!("lan: discovery bind failed ({e})"))?;
+    tokio::net::UdpSocket::from_std(socket.into())
+        .map_err(|e| format!("lan: discovery bind failed ({e})"))
 }
 
 /// stops the discovery listener and forgets the list
@@ -488,10 +562,12 @@ async fn run_host(
     let (read, mut write) = tokio::io::split(stream);
     let mut lines = BufReader::new(read).lines();
 
-    // the first line must be a valid join with the session's code
+    // the first line must be a valid join with the session's code; a
+    // silent or wrong client is released so the slot does not pin forever
     let joined = loop {
         tokio::select! {
             _ = &mut shutdown_rx => return,
+            _ = tokio::time::sleep(Duration::from_secs(JOIN_TIMEOUT_SECS)) => return,
             line = lines.next_line() => match line {
                 Ok(Some(line)) => {
                     let parsed: Result<Value, _> = serde_json::from_str(&line);
@@ -506,17 +582,29 @@ async fn run_host(
             },
         }
     };
+    // the joined ack completes the handshake — the client shows the
+    // HOST's name only after receiving it
+    let ack = serde_json::json!({ "type": "joined", "name": host_name, "sessionId": session_id });
+    if write
+        .write_all(format!("{}\n", ack).as_bytes())
+        .await
+        .is_err()
+    {
+        return;
+    }
     emit(&app, "lan://peer-joined", serde_json::json!({ "name": joined, "host": host_name, "sessionId": session_id }));
     beacon.stop(); //the match is found — no more broadcasting
 
-    // forward peer messages to the frontend
+    // forward peer messages to the frontend; a protocol violation (no
+    // string type, oversize) closes the connection
     let app2 = app.clone();
     let read_task = tauri::async_runtime::spawn(async move {
         loop {
             match lines.next_line().await {
                 Ok(Some(line)) => {
-                    if line.len() > MAX_MESSAGE_BYTES {
-                        continue;
+                    if line.len() > MAX_MESSAGE_BYTES || !is_valid_message(&line) {
+                        emit(&app2, "lan://peer-left", serde_json::json!({ "reason": "protocol violation" }));
+                        break;
                     }
                     if let Ok(message) = serde_json::from_str::<Value>(&line) {
                         emit(&app2, "lan://peer-message", serde_json::json!({ "message": message }));
@@ -624,5 +712,46 @@ mod tests {
         assert_eq!(session.name, "HOST1");
         assert_eq!(session.code, "ABCD");
         assert_eq!(session.port, 51987);
+    }
+
+    #[test]
+    fn message_validation_requires_a_typed_object() {
+        assert!(is_valid_message(r#"{"type":"progress","wordIndex":1}"#));
+        assert!(is_valid_message(r#"{"type":"finished","finishMs":null}"#));
+        assert!(!is_valid_message(r#"{"wordIndex":1}"#), "no type");
+        assert!(!is_valid_message(r#"{"type":42}"#), "type not a string");
+        assert!(!is_valid_message(r#"[1,2,3]"#), "not an object");
+        assert!(!is_valid_message("garbage"), "not even json");
+    }
+
+    #[tokio::test]
+    async fn the_join_ack_carries_the_host_name() {
+        let (client_side, mut host_side) = tokio::io::duplex(1024);
+        let fake_host = tokio::spawn(async move {
+            host_side
+                .write_all(br#"{"type":"joined","name":"HOST1"}"#)
+                .await
+                .expect("write the ack");
+            host_side.write_all(b"\n").await.expect("write newline");
+        });
+        let mut lines = BufReader::new(client_side).lines();
+        let host = await_join_ack(&mut lines).await.expect("acked");
+        assert_eq!(host, "HOST1");
+        fake_host.await.expect("fake host task");
+    }
+
+    #[tokio::test]
+    async fn a_non_ack_reply_rejects_the_join() {
+        let (client_side, mut host_side) = tokio::io::duplex(1024);
+        let mut lines = BufReader::new(client_side).lines();
+        host_side
+            .write_all(br#"{"type":"progress","wordIndex":1}"#)
+            .await
+            .expect("write a non-ack");
+        host_side.write_all(b"\n").await.expect("write newline");
+        assert!(
+            await_join_ack(&mut lines).await.is_err(),
+            "anything but joined must fail the handshake"
+        );
     }
 }

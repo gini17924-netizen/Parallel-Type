@@ -18,7 +18,11 @@ import {
   getLanPeerName,
   type LanDiscovered,
 } from "../../../../states/lan";
-import { armLanMatch, sendLanMatchStart } from "../../../../states/lan-match";
+import {
+  armLanMatch,
+  getLanMatch,
+  sendLanMatchStart,
+} from "../../../../states/lan-match";
 import { buildRaceWords } from "../../../../utils/bot-duel/duel-words";
 import { cn } from "../../../../utils/cn";
 import { cachedFetchJson } from "../../../../utils/json-data";
@@ -75,6 +79,11 @@ export function OnlineLobbyPage(): JSXElement {
       clearInterval(poll);
       clearTimeout(waited);
       lanStopDiscovery();
+      //abandoning the lobby with a live-but-unused connection drops it
+      //(a connection carrying an armed match keeps living)
+      if (getLanMatch() === undefined && getLanRole() !== "none") {
+        lanLeave();
+      }
     });
   }
 

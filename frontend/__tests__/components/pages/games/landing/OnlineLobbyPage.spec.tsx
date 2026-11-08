@@ -236,6 +236,23 @@ describe("online lobby (LAN, phase 3 — discovery)", () => {
     expect(pageText(container)).toContain("connected vs HOST9");
   });
 
+  it("abandoning the lobby with an unused connection drops it", async () => {
+    const { container, unmount } = render(() => <OnlineLobbyPage />);
+    [...container.querySelectorAll("button")]
+      .find((b) => (b.textContent ?? "").includes("host a match"))
+      ?.click();
+    await vi.waitFor(() => {
+      expect(container.querySelector('[data-testid="ol-code"]')).not.toBeNull();
+    });
+    unmount();
+    expect(tauri.invokes.some((entry) => entry.cmd === "lan_stop_host")).toBe(
+      true,
+    );
+    expect(
+      tauri.invokes.some((entry) => entry.cmd === "lan_stop_discovery"),
+    ).toBe(true);
+  });
+
   it("the connected host can start a bot duel and ships the words", async () => {
     const { container } = render(() => <OnlineLobbyPage />);
     [...container.querySelectorAll("button")]

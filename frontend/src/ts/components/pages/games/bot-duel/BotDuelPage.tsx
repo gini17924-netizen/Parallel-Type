@@ -144,6 +144,24 @@ export function BotDuelPage(): JSXElement {
 
   onCleanup(stopTimers);
 
+  //leaving mid-race (header back, route change) tells the peer the race
+  //ended without a completion and disarms — they are never left waiting
+  onCleanup(() => {
+    if (getLanMatch() === undefined) return;
+    if (
+      pagePhase() !== "countdown" &&
+      pagePhase() !== "duel" &&
+      pagePhase() !== "awaiting"
+    ) {
+      return;
+    }
+    if (!myFinishSent) {
+      myFinishSent = true;
+      sendLanMatchFinished(null, 0);
+    }
+    clearLanMatch();
+  });
+
   const accuracy = (state: DuelState): number => {
     const attempts = state.playerCorrectChars + state.playerWrongChars;
     return attempts === 0
@@ -509,6 +527,15 @@ export function BotDuelPage(): JSXElement {
   const ResultOverlay = (): JSXElement => {
     const won = resultPhase() === "playerWon";
     const draw = resultPhase() === "draw";
+    //full class names: tailwind cannot generate dynamic grid-cols values
+    const resultCols = (): string => {
+      const extra =
+        (onlineResult()?.margin !== undefined ? 1 : 0) +
+        (onlineResult()?.opponentAcc !== undefined ? 1 : 0);
+      if (extra === 2) return "grid-cols-5";
+      if (extra === 1) return "grid-cols-4";
+      return "grid-cols-3";
+    };
     return (
       <section class="grid gap-4 rounded bg-sub-alt p-6 text-center">
         <div
@@ -519,14 +546,7 @@ export function BotDuelPage(): JSXElement {
         >
           {won ? "you win!" : draw ? "draw" : `${opponentLabel()} wins`}
         </div>
-        <div
-          class={cn(
-            "grid gap-2",
-            onlineResult()?.margin !== undefined
-              ? "grid-cols-4"
-              : "grid-cols-3",
-          )}
-        >
+        <div class={cn("grid gap-2", resultCols())}>
           <div class="rounded bg-bg p-3">
             <div class="text-xl font-bold text-main tabular-nums">
               {resultFinishMs() === undefined
@@ -556,6 +576,14 @@ export function BotDuelPage(): JSXElement {
                 {onlineResult()?.margin}
               </div>
               <div class="text-xs text-sub">margin</div>
+            </div>
+          </Show>
+          <Show when={onlineResult()?.opponentAcc !== undefined}>
+            <div class="rounded bg-bg p-3" data-testid="bd-opp-acc">
+              <div class="text-xl font-bold text-main tabular-nums">
+                {onlineResult()?.opponentAcc}%
+              </div>
+              <div class="text-xs text-sub">opponent</div>
             </div>
           </Show>
         </div>

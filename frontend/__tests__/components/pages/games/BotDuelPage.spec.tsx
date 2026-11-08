@@ -320,4 +320,24 @@ describe("bot duel online (LAN phase 4)", () => {
     expect(pageText(app)).toContain("the opponent left");
     expect(pageText(app)).toContain("start race"); //back at the picker
   });
+
+  it("navigating away mid-race tells the peer and disarms", async () => {
+    const { app, invokes } = await armOnlineMatch();
+    expect(currentWord(app)).not.toBe("");
+
+    await app.router.navigate({ to: "/games" });
+    await vi.advanceTimersByTimeAsync(0);
+
+    const finishes = invokes.filter(
+      (entry) =>
+        entry.cmd === "lan_send_message" &&
+        (entry.args["message"] as Record<string, unknown>)["type"] ===
+          "finished",
+    );
+    expect(finishes).toHaveLength(1);
+    const leaveFinish = finishes[0]?.args["message"] as
+      | Record<string, unknown>
+      | undefined;
+    expect(leaveFinish?.["finishMs"]).toBeNull();
+  });
 });
