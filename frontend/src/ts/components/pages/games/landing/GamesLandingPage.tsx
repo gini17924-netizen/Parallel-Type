@@ -51,30 +51,27 @@ export function GamesLandingPage(): JSXElement {
               23 games in 6 skill categories — everything runs on this machine
             </div>
           </button>
-          <div
-            class="flex flex-col items-center gap-3 rounded bg-sub-alt p-8 text-center opacity-60"
+          <Link
+            to="/games/online"
+            class="group flex flex-col items-center gap-3 rounded bg-sub-alt p-8 text-center transition-[background,color,transform] duration-125 hover:bg-text"
             data-testid="gl-online"
           >
-            <i class="fas fa-globe text-4xl text-sub"></i>
+            <i class="fas fa-globe text-4xl text-sub transition-colors duration-125 group-hover:text-bg"></i>
             <div class="flex items-center gap-2">
-              <div class="text-xl font-bold text-sub">Online Games</div>
+              <div class="text-xl font-bold text-main group-hover:text-bg">
+                Online Games
+              </div>
               <span
-                class="rounded-full bg-sub px-2 py-0.5 text-[0.65rem] font-bold text-main uppercase"
+                class="rounded-full bg-main px-2 py-0.5 text-[0.65rem] font-bold text-bg uppercase"
                 data-testid="gl-online-badge"
               >
-                coming soon
+                beta
               </span>
             </div>
-            <div class="text-sm text-sub">
-              live opponents and leaderboards — later
+            <div class="text-sm text-sub group-hover:text-bg">
+              live opponents on your local network — no servers, no internet
             </div>
-            <Button
-              text="enter"
-              fa={{ icon: "fa-lock" }}
-              disabled={true}
-              class="w-auto"
-            />
-          </div>
+          </Link>
         </div>
         <button
           type="button"

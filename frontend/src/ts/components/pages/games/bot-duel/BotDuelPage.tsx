@@ -2,6 +2,7 @@ import {
   For,
   JSXElement,
   Show,
+  createEffect,
   createSignal,
   onCleanup,
   onMount,
@@ -10,6 +11,20 @@ import {
 import { Config } from "../../../../config/store";
 import { playTimeWarning } from "../../../../controllers/sound-controller";
 import { navigate } from "../../../../router/navigate";
+import { isLanConnected, lanPreFillName } from "../../../../states/lan";
+import {
+  armLanMatch,
+  clearLanMatch,
+  getLanMatch,
+  getRemoteFinished,
+  getRemoteProgress,
+  getRematchAsked,
+  sendLanMatchFinished,
+  sendLanMatchProgress,
+  sendLanMatchRematch,
+  sendLanMatchStart,
+  type LanMatch,
+} from "../../../../states/lan-match";
 import {
   completeDailyBotDuel,
   takePendingDailyStage,
@@ -17,9 +32,18 @@ import {
 import {
   createDuelEngine,
   type DuelEngine,
+  type DuelPhase,
   type DuelState,
 } from "../../../../utils/bot-duel/duel-engine";
 import { recordDuelResult } from "../../../../utils/bot-duel/duel-store";
+import {
+  FALLBACK_WORDS,
+  buildRaceWords,
+} from "../../../../utils/bot-duel/duel-words";
+import {
+  createRemotePacer,
+  type RemotePacer,
+} from "../../../../utils/bot-duel/remote-pacer";
 import { cn } from "../../../../utils/cn";
 import { cachedFetchJson } from "../../../../utils/json-data";
 import { Button } from "../../../common/Button";
@@ -27,14 +51,6 @@ import { H2 } from "../../../common/Headers";
 
 const TICK_MS = 50;
 const COUNTDOWN_STEP_MS = 900;
-const FALLBACK_WORDS = [
-  "parallel",
-  "typing",
-  "speed",
-  "focus",
-  "rhythm",
-  "words",
-];
 
 const BOT_TIERS = [40, 60, 80, 100, 120, 140];
 const RACE_LENGTHS = [
@@ -43,17 +59,16 @@ const RACE_LENGTHS = [
   { id: "long", label: "long", words: 60 },
 ] as const;
 
-type PagePhase = "picker" | "countdown" | "duel" | "result";
+type PagePhase = "picker" | "countdown" | "duel" | "awaiting" | "result";
 
-/** fills the race to the requested length by cycling the language pool */
-function buildRaceWords(pool: string[], raceWords: number): string[] {
-  const source = pool.length > 0 ? pool : FALLBACK_WORDS;
-  const out: string[] = [];
-  for (let i = 0; i < raceWords; i++) {
-    out.push(source[i % source.length] ?? "typo");
-  }
-  return out;
-}
+/** the online verdict once the peer's finish is known (the engine's own
+ * phase can be stale — their crossing may predate my completion) */
+type OnlineResult = {
+  phase: DuelPhase;
+  winnerAtMs: number | undefined;
+  margin: string | undefined;
+  opponentAcc: number | undefined;
+};
 
 function ProgressBar(props: {
   label: string;
@@ -81,9 +96,16 @@ function ProgressBar(props: {
  * sequence. The UI owns the typing buffer and the timers; the pure engine
  * (utils/bot-duel) owns the race state. A window blur during the race voids
  * it without recording anything (anti clock-cheat, per the idea doc).
+ *
+ * Online (LAN phase 4): with a lan match armed the opponent replaces the
+ * bot — a RemotePacer feeds the engine from the relayed progress, the
+ * words come from the host's start message, and the finish verdict is the
+ * comparison of the two reported finish times. Nothing is recorded.
  */
 export function BotDuelPage(): JSXElement {
-  const [pagePhase, setPagePhase] = createSignal<PagePhase>("picker");
+  const [pagePhase, setPagePhase] = createSignal<PagePhase>(
+    getLanMatch() !== undefined ? "countdown" : "picker",
+  );
   const [botWpm, setBotWpm] = createSignal(60);
   const [raceLength, setRaceLength] = createSignal<number>(30);
   const [wordList, setWordList] = createSignal<string[]>([]);
@@ -95,8 +117,18 @@ export function BotDuelPage(): JSXElement {
   const [wordErrors, setWordErrors] = createSignal(0);
   const [flash, setFlash] = createSignal(false);
   const [voided, setVoided] = createSignal(false);
+  const [voidText, setVoidText] = createSignal(
+    "race void — the window lost focus, nothing was recorded",
+  );
+  const [onlineResult, setOnlineResult] = createSignal<
+    OnlineResult | undefined
+  >(undefined);
+  const [rematchSent, setRematchSent] = createSignal(false);
 
   let engine: DuelEngine | undefined;
+  let remotePacer: RemotePacer | undefined;
+  let engineStartedAt = 0;
+  let myFinishSent = false;
   let tickTimer: ReturnType<typeof setInterval> | undefined;
   let countdownTimer: ReturnType<typeof setInterval> | undefined;
   let flashTimer: ReturnType<typeof setTimeout> | undefined;
@@ -119,6 +151,10 @@ export function BotDuelPage(): JSXElement {
       : Math.round((state.playerCorrectChars / attempts) * 100);
   };
 
+  /** online matches race over the host's word list, not the picker length */
+  const totalWords = (): number =>
+    getLanMatch() !== undefined ? wordList().length : raceLength();
+
   const startCountdown = (): void => {
     setPagePhase("countdown");
     setCountdown(3);
@@ -136,8 +172,14 @@ export function BotDuelPage(): JSXElement {
   };
 
   const beginDuel = (): void => {
-    engine = createDuelEngine({ words: wordList(), botWpm: botWpm() });
+    engine = createDuelEngine({
+      words: wordList(),
+      botWpm: botWpm(),
+      pacer: remotePacer,
+    });
     engine.start(performance.now());
+    engineStartedAt = performance.now();
+    myFinishSent = false;
     setTyped(0);
     setWordErrors(0);
     setPagePhase("duel");
@@ -173,8 +215,59 @@ export function BotDuelPage(): JSXElement {
     startCountdown();
   };
 
+  /** the finish verdict in the aligned frames: the smaller reported time
+   * wins; a peer without a completion loses; the exact tie is a draw */
+  const finalizeOnline = (state: DuelState): void => {
+    const remote = getRemoteFinished();
+    const myAt = state.finishedAtMs;
+    let phase: DuelPhase = state.phase;
+    let winnerAtMs: number | undefined = myAt;
+    let margin: string | undefined;
+    if (phase === "playerWon" && remote !== undefined) {
+      const theirAt = remote.finishMs;
+      if (theirAt === null) {
+        phase = "playerWon";
+      } else if (myAt === undefined || theirAt < myAt) {
+        phase = "botWon";
+        winnerAtMs = theirAt;
+      } else if (theirAt === myAt) {
+        phase = "draw";
+      } else {
+        phase = "playerWon";
+      }
+      if (theirAt !== null && myAt !== undefined) {
+        margin = `${(Math.abs(myAt - theirAt) / 1000).toFixed(2)}s`;
+      }
+    }
+    setOnlineResult({
+      phase,
+      winnerAtMs,
+      margin,
+      opponentAcc: remote?.acc,
+    });
+    setPagePhase("result");
+  };
+
+  const endOnlineRace = (state: DuelState): void => {
+    if (!myFinishSent) {
+      myFinishSent = true;
+      sendLanMatchFinished(null, accuracy(state));
+    }
+    const remote = getRemoteFinished();
+    if (state.phase === "playerWon" && remote === undefined) {
+      //I crossed first — hold the verdict until their finish lands
+      setPagePhase("awaiting");
+      return;
+    }
+    finalizeOnline(state);
+  };
+
   const endRace = (state: DuelState): void => {
     stopTimers();
+    if (getLanMatch() !== undefined) {
+      endOnlineRace(state);
+      return;
+    }
     const result =
       state.phase === "playerWon"
         ? "won"
@@ -199,6 +292,7 @@ export function BotDuelPage(): JSXElement {
 
   const voidRace = (): void => {
     if (pagePhase() !== "duel" && pagePhase() !== "countdown") return;
+    if (getLanMatch() !== undefined) return; //online: a blur cannot cheat the local clock
     stopTimers();
     engine = undefined;
     setVoided(true);
@@ -234,6 +328,17 @@ export function BotDuelPage(): JSXElement {
         );
         setTyped(0);
         setWordErrors(0);
+        if (remotePacer !== undefined) {
+          const after = engine.state();
+          sendLanMatchProgress(after.playerWordIndex, after.playerCorrectChars);
+          if (after.playerWordIndex >= totalWords() && !myFinishSent) {
+            myFinishSent = true;
+            sendLanMatchFinished(
+              performance.now() - engineStartedAt,
+              accuracy(after),
+            );
+          }
+        }
       } else {
         setTyped(nextTyped);
       }
@@ -252,22 +357,107 @@ export function BotDuelPage(): JSXElement {
     });
   });
 
+  const hostRematch = (match: LanMatch): void => {
+    sendLanMatchStart(match.words, lanPreFillName() || "P1");
+    armLanMatch({
+      role: "host",
+      peerName: match.peerName,
+      gameId: "bot-duel",
+      words: match.words,
+    });
+  };
+
+  //an armed (or re-armed) match IS the online start: the words arrive in
+  //the start message and the countdown begins on mount and on rematch
+  createEffect(() => {
+    const match = getLanMatch();
+    if (match === undefined) {
+      remotePacer = undefined;
+      return;
+    }
+    setOnlineResult(undefined);
+    setRematchSent(false);
+    setVoided(false);
+    setWordList(match.words);
+    remotePacer = createRemotePacer(match.words);
+    startCountdown();
+  });
+
+  //the relayed peer progress feeds the pacer (anchored in OUR frame)
+  createEffect(() => {
+    const progress = getRemoteProgress();
+    if (progress === undefined || remotePacer === undefined) return;
+    remotePacer.onProgress(
+      progress.wordIndex,
+      Math.max(0, progress.arrivalPerf - engineStartedAt),
+    );
+  });
+  createEffect(() => {
+    const finished = getRemoteFinished();
+    if (finished === undefined || remotePacer === undefined) return;
+    remotePacer.onFinished(
+      finished.finishMs,
+      Math.max(0, finished.arrivalPerf - engineStartedAt),
+    );
+  });
+
+  //the host answers a rematch request by re-sending the same words
+  createEffect(() => {
+    const match = getLanMatch();
+    if (match?.role !== "host") return;
+    if (!getRematchAsked()) return;
+    hostRematch(match);
+  });
+
+  //a disconnect during the race voids it — nothing online is recorded
+  createEffect(() => {
+    if (getLanMatch() === undefined) return;
+    if (isLanConnected()) return;
+    if (
+      pagePhase() !== "countdown" &&
+      pagePhase() !== "duel" &&
+      pagePhase() !== "awaiting"
+    ) {
+      return;
+    }
+    stopTimers();
+    clearLanMatch();
+    setVoidText("the opponent left — match voided, nothing was recorded");
+    setVoided(true);
+    setPagePhase("picker");
+  });
+
+  //the peer's finish resolves the held verdict
+  createEffect(() => {
+    if (pagePhase() !== "awaiting") return;
+    if (getRemoteFinished() === undefined) return;
+    const state = duelState();
+    if (state !== undefined) finalizeOnline(state);
+  });
+
   const currentWord = (): string =>
     wordList()[duelState()?.playerWordIndex ?? 0] ?? "";
   const botWord = (): string => {
-    const index = Math.min(duelState()?.botWordIndex ?? 0, raceLength() - 1);
+    const index = Math.min(duelState()?.botWordIndex ?? 0, totalWords() - 1);
     return wordList()[index] ?? "";
   };
   const progress = (wordIndex: number): number =>
-    Math.min(100, Math.round((wordIndex / raceLength()) * 100));
+    Math.min(100, Math.round((wordIndex / totalWords()) * 100));
+  const opponentLabel = (): string => getLanMatch()?.peerName ?? "bot";
+  const resultPhase = (): DuelPhase =>
+    onlineResult()?.phase ?? duelState()?.phase ?? "draw";
+  const resultFinishMs = (): number | undefined =>
+    onlineResult()?.winnerAtMs ?? duelState()?.finishedAtMs;
+  const myAccuracy = (): string => {
+    const state = duelState();
+    return state === undefined ? "—" : `${accuracy(state)}%`;
+  };
 
   const Picker = (): JSXElement => {
     return (
       <section class="grid gap-4 rounded bg-sub-alt p-4">
         <Show when={voided()}>
-          <div class="text-error">
-            race void — the window lost focus, nothing was recorded
-          </div>
+          <div class="text-error">{voidText()}</div>
         </Show>
         <div class="text-sub">bot speed (wpm)</div>
         <div class="grid grid-cols-6 gap-2">
@@ -317,9 +507,8 @@ export function BotDuelPage(): JSXElement {
   };
 
   const ResultOverlay = (): JSXElement => {
-    const state = duelState();
-    const won = state?.phase === "playerWon";
-    const draw = state?.phase === "draw";
+    const won = resultPhase() === "playerWon";
+    const draw = resultPhase() === "draw";
     return (
       <section class="grid gap-4 rounded bg-sub-alt p-6 text-center">
         <div
@@ -328,14 +517,21 @@ export function BotDuelPage(): JSXElement {
             won ? "text-main" : draw ? "text-sub" : "text-error",
           )}
         >
-          {won ? "you win!" : draw ? "draw" : "bot wins"}
+          {won ? "you win!" : draw ? "draw" : `${opponentLabel()} wins`}
         </div>
-        <div class="grid grid-cols-3 gap-2">
+        <div
+          class={cn(
+            "grid gap-2",
+            onlineResult()?.margin !== undefined
+              ? "grid-cols-4"
+              : "grid-cols-3",
+          )}
+        >
           <div class="rounded bg-bg p-3">
             <div class="text-xl font-bold text-main tabular-nums">
-              {state?.finishedAtMs === undefined
+              {resultFinishMs() === undefined
                 ? "—"
-                : `${(state.finishedAtMs / 1000).toFixed(2)}s`}
+                : `${((resultFinishMs() ?? 0) / 1000).toFixed(2)}s`}
             </div>
             <div class="text-xs text-sub">finish</div>
           </div>
@@ -344,36 +540,90 @@ export function BotDuelPage(): JSXElement {
               class="text-xl font-bold text-main tabular-nums"
               data-testid="bd-acc"
             >
-              {state === undefined ? "—" : `${accuracy(state)}%`}
+              {myAccuracy()}
             </div>
             <div class="text-xs text-sub">accuracy</div>
           </div>
           <div class="rounded bg-bg p-3">
             <div class="text-xl font-bold text-main tabular-nums">
-              {state?.momentum ?? 0}
+              {duelState()?.momentum ?? 0}
             </div>
             <div class="text-xs text-sub">momentum</div>
           </div>
+          <Show when={onlineResult()?.margin !== undefined}>
+            <div class="rounded bg-bg p-3" data-testid="bd-margin">
+              <div class="text-xl font-bold text-main tabular-nums">
+                {onlineResult()?.margin}
+              </div>
+              <div class="text-xs text-sub">margin</div>
+            </div>
+          </Show>
         </div>
-        <div class="grid grid-cols-2 gap-2">
-          <Button
-            text="rematch (same words)"
-            fa={{ icon: "fa-redo" }}
-            class="w-full"
-            onClick={() => {
-              setVoided(false);
-              startCountdown();
-            }}
-          />
-          <Button
-            text="change race"
-            fa={{ icon: "fa-sliders-h" }}
-            class="w-full"
-            onClick={() => {
-              setVoided(false);
-              setPagePhase("picker");
-            }}
-          />
+        <Show
+          when={onlineResult()?.opponentAcc !== undefined}
+          fallback={
+            <div class="grid grid-cols-2 gap-2">
+              <Button
+                text="rematch (same words)"
+                fa={{ icon: "fa-redo" }}
+                class="w-full"
+                onClick={() => {
+                  setVoided(false);
+                  startCountdown();
+                }}
+              />
+              <Button
+                text="change race"
+                fa={{ icon: "fa-sliders-h" }}
+                class="w-full"
+                onClick={() => {
+                  setVoided(false);
+                  setPagePhase("picker");
+                }}
+              />
+            </div>
+          }
+        >
+          <div class="grid grid-cols-2 gap-2">
+            <Button
+              text={rematchSent() ? "rematch requested — waiting…" : "rematch"}
+              fa={{ icon: "fa-redo" }}
+              class="w-full"
+              onClick={() => {
+                const match = getLanMatch();
+                if (match === undefined || rematchSent()) return;
+                if (match.role === "host") {
+                  hostRematch(match);
+                } else {
+                  sendLanMatchRematch();
+                  setRematchSent(true);
+                }
+              }}
+            />
+            <Button
+              text="leave to lobby"
+              fa={{ icon: "fa-arrow-left" }}
+              class="w-full"
+              onClick={() => {
+                clearLanMatch();
+                void navigate({ to: "/games/online" });
+              }}
+            />
+          </div>
+        </Show>
+      </section>
+    );
+  };
+
+  const Awaiting = (): JSXElement => {
+    return (
+      <section class="grid place-items-center rounded bg-sub-alt py-16 text-center">
+        <div class="text-2xl font-bold text-main" data-testid="bd-awaiting">
+          waiting for {opponentLabel()} to finish…
+        </div>
+        <div class="pt-2 text-sub">
+          you crossed in {((duelState()?.finishedAtMs ?? 0) / 1000).toFixed(2)}s
+          — the verdict lands when they do
         </div>
       </section>
     );
@@ -382,15 +632,26 @@ export function BotDuelPage(): JSXElement {
   const DuelAndResult = (): JSXElement => {
     const state = (): DuelState | undefined => duelState();
     return (
-      <Show when={pagePhase() === "duel"} fallback={<ResultOverlay />}>
+      <Show
+        when={pagePhase() === "duel"}
+        fallback={
+          <Show when={pagePhase() === "awaiting"} fallback={<ResultOverlay />}>
+            <Awaiting />
+          </Show>
+        }
+      >
         <section class="grid gap-3">
           <ProgressBar
-            label={`you — ${state()?.playerWordIndex ?? 0}/${raceLength()}`}
+            label={`you — ${state()?.playerWordIndex ?? 0}/${totalWords()}`}
             percent={progress(state()?.playerWordIndex ?? 0)}
             tone="main"
           />
           <ProgressBar
-            label={`bot ${botWpm()}wpm — ${state()?.botWordIndex ?? 0}/${raceLength()}`}
+            label={
+              getLanMatch() !== undefined
+                ? `${opponentLabel()} — ${state()?.botWordIndex ?? 0}/${totalWords()}`
+                : `bot ${botWpm()}wpm — ${state()?.botWordIndex ?? 0}/${totalWords()}`
+            }
             percent={progress(state()?.botWordIndex ?? 0)}
             tone="sub"
           />
@@ -422,7 +683,7 @@ export function BotDuelPage(): JSXElement {
             <span>{currentWord().slice(typed())}</span>
           </div>
           <div class="pt-4 text-sm text-sub" dir="auto">
-            bot is typing: {botWord()}
+            {opponentLabel()} is typing: {botWord()}
           </div>
         </section>
       </Show>
@@ -439,6 +700,15 @@ export function BotDuelPage(): JSXElement {
           race.
         </p>
       </section>
+
+      <Show when={getLanMatch() !== undefined}>
+        <div
+          class="rounded bg-sub-alt p-2 text-center text-sm font-bold text-main"
+          data-testid="bd-online-vs"
+        >
+          <i class="fas fa-wifi"></i> online vs {opponentLabel()}
+        </div>
+      </Show>
 
       <Show
         when={pagePhase() === "picker"}

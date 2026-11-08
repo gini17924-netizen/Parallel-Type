@@ -39,12 +39,17 @@ describe("games landing (games reorg, phase 2)", () => {
     ).not.toBeNull();
   });
 
-  it("the Online block is disabled with a coming-soon badge", async () => {
+  it("the Online block links to the LAN lobby (beta)", async () => {
     const app = await openLanding();
     const online = app.container.querySelector('[data-testid="gl-online"]');
-    expect(online?.textContent).toContain("coming soon");
-    const enterBtn = [...(online?.querySelectorAll("button") ?? [])][0];
-    expect(enterBtn?.disabled ?? false).toBe(true);
+    expect(online?.textContent).toContain("beta");
+    //the block itself is the link (the testid sits on the Link)
+    expect(online?.tagName).toBe("A");
+    expect(online?.getAttribute("href")).toBe("/games/online");
+    //the lobby itself renders behind the route
+    await app.router.navigate({ to: "/games/online" });
+    await app.settle();
+    expect(pageText(app)).toContain("host a match");
   });
 
   it("clicking Offline opens the categories view", async () => {

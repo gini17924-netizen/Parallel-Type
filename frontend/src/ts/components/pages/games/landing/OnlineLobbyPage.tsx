@@ -1,7 +1,10 @@
 import { For, JSXElement, Show, createSignal, onCleanup } from "solid-js";
 
+import { Config } from "../../../../config/store";
+import { navigate } from "../../../../router/navigate";
 import {
   getLanDiscovered,
+  getLanRole,
   isLanConnected,
   lanAvailable,
   lanJoin,
@@ -15,6 +18,10 @@ import {
   getLanPeerName,
   type LanDiscovered,
 } from "../../../../states/lan";
+import { armLanMatch, sendLanMatchStart } from "../../../../states/lan-match";
+import { buildRaceWords } from "../../../../utils/bot-duel/duel-words";
+import { cn } from "../../../../utils/cn";
+import { cachedFetchJson } from "../../../../utils/json-data";
 import { Button } from "../../../common/Button";
 import { H2 } from "../../../common/Headers";
 
@@ -114,6 +121,30 @@ export function OnlineLobbyPage(): JSXElement {
     if (!(await connectTo(`${session.ip}:${session.port}`, session.code))) {
       setMessage("could not connect — the match may have ended");
     }
+  };
+
+  //the host builds ONE word sequence and ships it in the start message —
+  //no seed needed, both sides type the exact same words
+  const [matchLength, setMatchLength] = createSignal(30);
+  const startBotDuel = async (): Promise<void> => {
+    let pool: string[] = [];
+    try {
+      const data = await cachedFetchJson<{ words: string[] }>(
+        `/languages/${Config.language}.json`,
+      );
+      pool = data.words;
+    } catch {
+      pool = [];
+    }
+    const words = buildRaceWords(pool, matchLength());
+    sendLanMatchStart(words, playerName());
+    armLanMatch({
+      role: "host",
+      peerName: getLanPeerName() ?? "P2",
+      gameId: "bot-duel",
+      words,
+    });
+    void navigate({ to: "/games/bot-duel" });
   };
 
   const Nearby = (): JSXElement => {
@@ -234,6 +265,53 @@ export function OnlineLobbyPage(): JSXElement {
           >
             connected vs {getLanPeerName() ?? "P2"}
           </div>
+          <Show
+            when={getLanRole() === "host"}
+            fallback={
+              <div
+                class="text-center text-sm text-sub"
+                data-testid="ol-client-waiting"
+              >
+                waiting for the host to start the match…
+              </div>
+            }
+          >
+            <div class="grid gap-2" data-testid="ol-start-match">
+              <div class="text-xs text-sub">race length (bot duel)</div>
+              <div class="grid grid-cols-3 gap-2">
+                <Button
+                  text="quick"
+                  class={cn(
+                    "w-full",
+                    matchLength() === 15 && "bg-main text-bg",
+                  )}
+                  onClick={() => setMatchLength(15)}
+                />
+                <Button
+                  text="standard"
+                  class={cn(
+                    "w-full",
+                    matchLength() === 30 && "bg-main text-bg",
+                  )}
+                  onClick={() => setMatchLength(30)}
+                />
+                <Button
+                  text="long"
+                  class={cn(
+                    "w-full",
+                    matchLength() === 60 && "bg-main text-bg",
+                  )}
+                  onClick={() => setMatchLength(60)}
+                />
+              </div>
+              <Button
+                text="start bot duel"
+                fa={{ icon: "fa-flag-checkered" }}
+                class="w-full"
+                onClick={() => void startBotDuel()}
+              />
+            </div>
+          </Show>
         </Show>
         <Button
           text="cancel hosting"

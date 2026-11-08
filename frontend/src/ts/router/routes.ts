@@ -43,6 +43,7 @@ import { RunnerPage } from "../components/pages/games/runner/RunnerPage";
 import { LyricLinePage } from "../components/pages/games/lyric-line/LyricLinePage";
 import { DailyGauntletPage } from "../components/pages/games/daily-gauntlet/DailyGauntletPage";
 import { GamesLandingPage } from "../components/pages/games/landing/GamesLandingPage";
+import { OnlineLobbyPage } from "../components/pages/games/landing/OnlineLobbyPage";
 import { TypeSnakePage } from "../components/pages/games/type-snake/TypeSnakePage";
 import { HomePage } from "../components/pages/home/HomePage";
 import { SectionsPage } from "../components/pages/sections/SectionsPage";
@@ -134,6 +135,7 @@ export type PageName =
   | "lyric-line"
   | "daily-gauntlet"
   | "games-landing"
+  | "online-lobby"
   | "wrapped";
 
 declare module "@tanstack/solid-router" {
@@ -536,6 +538,13 @@ const gamesLanding = createRoute({
   component: createRouterPage(GamesLandingPage),
 });
 
+const onlineLobby = createRoute({
+  getParentRoute: () => userDataRoute,
+  path: "/games/online",
+  staticData: { page: "online-lobby" },
+  component: createRouterPage(OnlineLobbyPage),
+});
+
 const wrapped = createRoute({
   getParentRoute: () => userDataRoute,
   path: "/wrapped",
@@ -711,6 +720,7 @@ export const routeTree = root.addChildren([
     lyricLine,
     dailyGauntlet,
     gamesLanding,
+    onlineLobby,
     wrapped,
     login,
     account,

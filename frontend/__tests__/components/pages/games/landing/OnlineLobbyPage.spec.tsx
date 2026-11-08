@@ -235,4 +235,34 @@ describe("online lobby (LAN, phase 3 — discovery)", () => {
     tauri.fire("lan://peer-joined", { name: "HOST9" });
     expect(pageText(container)).toContain("connected vs HOST9");
   });
+
+  it("the connected host can start a bot duel and ships the words", async () => {
+    const { container } = render(() => <OnlineLobbyPage />);
+    [...container.querySelectorAll("button")]
+      .find((b) => (b.textContent ?? "").includes("host a match"))
+      ?.click();
+    await vi.waitFor(() => {
+      expect(container.querySelector('[data-testid="ol-code"]')).not.toBeNull();
+    });
+    tauri.fire("lan://peer-joined", { name: "P2" });
+    await vi.waitFor(() => {
+      expect(
+        container.querySelector('[data-testid="ol-start-match"]'),
+      ).not.toBeNull();
+    });
+    [...container.querySelectorAll("button")]
+      .find((b) => (b.textContent ?? "").includes("start bot duel"))
+      ?.click();
+    await vi.waitFor(() => {
+      const send = tauri.invokes.find(
+        (entry) => entry.cmd === "lan_send_message",
+      );
+      const message = send?.args?.["message"] as Record<string, unknown>;
+      expect(message["type"]).toBe("start");
+      expect(message["gameId"]).toBe("bot-duel");
+      expect(message["from"]).toBe("P1");
+      expect(Array.isArray(message["words"])).toBe(true);
+      expect(message["words"]).toHaveLength(30); //standard, fallback pool
+    });
+  });
 });
