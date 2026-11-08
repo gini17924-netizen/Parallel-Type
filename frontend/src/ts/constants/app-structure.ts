@@ -25,6 +25,9 @@ export type AppSection = {
   icon: string;
   /** sections with a single destination link straight to it (no picker) */
   route?: string;
+  /** sections with sub-sections that open a CUSTOM landing instead of the
+   * generic picker page */
+  destination?: string;
   subSections?: readonly AppSubSection[];
 };
 
@@ -79,6 +82,7 @@ export const APP_SECTIONS: readonly AppSection[] = [
     description:
       "typing, but playful — word blast, duels, ghosts & a roguelite",
     icon: "fa-gamepad",
+    destination: "/games",
     subSections: [
       {
         id: "word-blast",
@@ -264,6 +268,7 @@ export function sectionHasPicker(section: AppSection): boolean {
 /** where a section card links to: the picker, its direct destination, or its
  * single sub-section */
 export function sectionDestination(section: AppSection): string {
+  if (section.destination !== undefined) return section.destination;
   if (sectionHasPicker(section)) return `/sections/${section.id}`;
   if (section.route !== undefined) return section.route;
   return section.subSections?.[0]?.route ?? `/sections/${section.id}`;

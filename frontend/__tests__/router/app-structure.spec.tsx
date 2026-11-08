@@ -94,7 +94,8 @@ describe("app structure (home hub sections)", () => {
   it("picker sections link to /sections/<id>, direct ones to their route", () => {
     expect(sectionDestination(must("learning"))).toBe("/sections/learning");
     expect(sectionDestination(must("practice"))).toBe("/sections/practice");
-    expect(sectionDestination(must("games"))).toBe("/sections/games");
+    //games opens its CUSTOM landing (the Offline/Online blocks)
+    expect(sectionDestination(must("games"))).toBe("/games");
   });
 });
 
