@@ -2,7 +2,6 @@ import "fake-indexeddb/auto";
 import { IDBFactory } from "fake-indexeddb";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
-import { registerDailyBotDuel } from "../../../../src/ts/utils/bot-duel/daily";
 import {
   advanceGauntlet,
   createGauntlet,
@@ -15,8 +14,6 @@ import {
   _resetGauntletStoresForTests,
 } from "../../../../src/ts/utils/daily-gauntlet/store";
 import { _resetDailyRegistryForTests } from "../../../../src/ts/utils/games/game-registry";
-import { registerDailySprint } from "../../../../src/ts/utils/sprint/daily";
-import { registerDailyWordBlast } from "../../../../src/ts/utils/word-blast/daily";
 import { App, cleanupApp, renderApp } from "../../../__harness__/app-shell";
 
 function pageText(app: App): string {
@@ -49,9 +46,8 @@ describe("daily gauntlet page (idea G22 phase 4)", () => {
     window.localStorage.clear();
     _resetDailyRegistryForTests();
     _resetGauntletStoresForTests();
-    registerDailyWordBlast();
-    registerDailySprint();
-    registerDailyBotDuel();
+    //KI-43 regression: NO manual registration here — the page mounts and
+    //must register the three wrappers itself
   });
 
   afterEach(() => {
@@ -146,6 +142,36 @@ describe("daily gauntlet page (idea G22 phase 4)", () => {
     const sprint = stage(app, "sprint");
     expect(sprint?.getAttribute("data-status")).toBe("next"); //resume here
     expect(pageText(app)).toContain("600"); //the running total
+  });
+
+  it("KI-44: remounting the page does not double-register (no crash)", async () => {
+    const app1 = await openGauntlet();
+    expect(pageText(app1)).toContain("start today's gauntlet");
+    cleanupApp();
+    //a fresh mount with the registry still holding the first registration
+    const app2 = await openGauntlet();
+    expect(pageText(app2)).not.toContain("already registered");
+    expect(pageText(app2)).toContain("start today's gauntlet");
+  });
+
+  it("KI-45: the word-blast stage navigates to its real route", async () => {
+    const app = await openGauntlet();
+    button(app, "start today's gauntlet")?.click();
+    await app.settle();
+    //find the word-blast stage's run button and click it
+    const stageRow = [
+      ...app.container.querySelectorAll('[data-testid="dg-stage"]'),
+    ].find((el) => el.getAttribute("data-game") === "word-blast");
+    const runBtn = [...(stageRow?.querySelectorAll("button") ?? [])].find((b) =>
+      (b.textContent ?? "").includes("run stage"),
+    );
+    runBtn?.click();
+    await app.settle();
+    //the daily route map points at /games/word-blast (not /games — KI-45):
+    //the word-blast page renders (the harness router may not move location)
+    const text = app.container.textContent ?? "";
+    expect(text).toContain("word blast");
+    expect(text).not.toContain("404");
   });
 
   it("a stale day's state frees the slot and shows a fresh menu", async () => {

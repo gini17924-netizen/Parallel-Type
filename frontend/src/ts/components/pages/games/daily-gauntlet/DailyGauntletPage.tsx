@@ -2,6 +2,7 @@ import { For, JSXElement, Show, createSignal, onMount } from "solid-js";
 
 import { playClick } from "../../../../controllers/sound-controller";
 import { navigate } from "../../../../router/navigate";
+import { registerDailyBotDuel } from "../../../../utils/bot-duel/daily";
 import { cn } from "../../../../utils/cn";
 import { buildDaily, dayKeyOf } from "../../../../utils/daily-gauntlet/compose";
 import {
@@ -23,12 +24,14 @@ import {
   type DailyStage as DailyStageType,
   type DailyStageResult as DailyStageResultType,
 } from "../../../../utils/games/game-registry";
+import { registerDailySprint } from "../../../../utils/sprint/daily";
+import { registerDailyWordBlast } from "../../../../utils/word-blast/daily";
 import { Button } from "../../../common/Button";
 import { H2 } from "../../../common/Headers";
 
 /** where each daily stage's game lives (the launch routes) */
 const GAME_ROUTES: Record<string, string> = {
-  "word-blast": "/games",
+  "word-blast": "/games/word-blast",
   sprint: "/games/sprint",
   "bot-duel": "/games/bot-duel",
 };
@@ -51,6 +54,36 @@ function HudCell(props: { label: string; value: string }): JSXElement {
  * the coordinator, so closing the app between stages resumes cleanly.
  * The day locks after the first stage; the calendar stamps the streak.
  */
+/** KI-43 fix: the wrappers registered themselves only in tests — in
+ * production the registry stayed empty and the day composed 0 stages.
+ * KI-44 fix: idempotent by REGISTRY LOOKUP (no flag) — safe to call from
+ * any mount, any number of times. KI-41 note: onMount is unreliable in
+ * the test harness, so startDay/runStage also call this. */
+function ensureDailyRegistered(): void {
+  if (getDailyPlayable("word-blast") === undefined) {
+    try {
+      registerDailyWordBlast();
+    } catch {
+      /* already registered */
+    }
+  }
+  if (getDailyPlayable("sprint") === undefined) {
+    try {
+      registerDailySprint();
+    } catch {
+      /* already registered */
+    }
+  }
+  if (getDailyPlayable("bot-duel") === undefined) {
+    try {
+      registerDailyBotDuel();
+    } catch {
+      /* already registered */
+    }
+  }
+}
+ensureDailyRegistered(); //at module load: the route imports the page
+
 export function DailyGauntletPage(): JSXElement {
   const [view, setView] = createSignal<View>("loading");
   const [state, setState] = createSignal<GauntletState | undefined>(undefined);
@@ -97,11 +130,20 @@ export function DailyGauntletPage(): JSXElement {
       setView("voided");
       return;
     }
+    if (saved.stages.length === 0) {
+      //KI-43 self-heal: a pre-fix empty day state had no stages and no
+      //escape — drop it and start fresh
+      clearGauntletState();
+      setState(undefined);
+      setView("ready");
+      return;
+    }
     setState(saved as GauntletState);
     setView("running");
   };
 
   onMount(() => {
+    ensureDailyRegistered();
     loadView();
   });
 
@@ -121,7 +163,9 @@ export function DailyGauntletPage(): JSXElement {
 
   const startDay = (): void => {
     if (view() === "complete" || view() === "running") return; //the day lock
+    ensureDailyRegistered();
     const fresh = composeToday();
+    if (fresh.stages.length === 0) return; //nothing registered — refuse
     saveGauntletState(fresh);
     setState(fresh);
     setView("running");
@@ -130,6 +174,7 @@ export function DailyGauntletPage(): JSXElement {
 
   /** arms the pending stage and sends the player to the game's page */
   const runStage = (gameId: string): void => {
+    ensureDailyRegistered();
     const current = state();
     if (current === undefined) return;
     const stageIndex = current.results.length;
