@@ -4,6 +4,7 @@ import { lanSprint } from "../sprint/lan";
 import { lanGhostGp } from "../ghost-gp/lan";
 import { lanSplitDuel } from "../split-duel/lan";
 import { lanMaze } from "../maze-runner/lan";
+import { lanNitro } from "../nitro-run/lan";
 
 /**
  * The LAN games barrel (online wave, phase 1): importing this module
@@ -17,3 +18,4 @@ registerLanGame(lanSprint);
 registerLanGame(lanGhostGp);
 registerLanGame(lanSplitDuel);
 registerLanGame(lanMaze);
+registerLanGame(lanNitro);
