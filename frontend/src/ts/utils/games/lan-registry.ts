@@ -19,7 +19,8 @@ export type LanGameId =
   | "ghost-gp"
   | "split-duel"
   | "maze-runner"
-  | "nitro-run";
+  | "nitro-run"
+  | "climber";
 
 /** what a game's buildStart produces — the caller (the lobby) ships it
  * inside the `start` message; the armed match adds role/peerName/seq */
@@ -43,7 +44,8 @@ export type LanPlayable = {
     | "/games/ghost-gp"
     | "/games/split-duel"
     | "/games/maze-runner"
-    | "/games/nitro-run";
+    | "/games/nitro-run"
+    | "/games/climber";
   /** the lobby picker card (English, per the standing rule) */
   label: string;
   icon: FaSolidIcon;

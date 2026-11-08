@@ -4,6 +4,7 @@ import { lanSprint } from "../sprint/lan";
 import { lanGhostGp } from "../ghost-gp/lan";
 import { lanSplitDuel } from "../split-duel/lan";
 import { lanMaze } from "../maze-runner/lan";
+import { lanClimber } from "../climber/lan";
 import { lanNitro } from "../nitro-run/lan";
 
 /**
@@ -18,4 +19,5 @@ registerLanGame(lanSprint);
 registerLanGame(lanGhostGp);
 registerLanGame(lanSplitDuel);
 registerLanGame(lanMaze);
+registerLanGame(lanClimber);
 registerLanGame(lanNitro);
