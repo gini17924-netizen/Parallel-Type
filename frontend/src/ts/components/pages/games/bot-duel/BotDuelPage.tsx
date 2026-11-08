@@ -385,12 +385,14 @@ export function BotDuelPage(): JSXElement {
   });
 
   const hostRematch = (match: LanMatch): void => {
-    sendLanMatchStart(match.start, lanPreFillName() || "P1");
+    //arm first: a refused start never reaches the wire
     armLanMatch({
       role: "host",
       peerName: match.peerName,
       start: match.start,
     });
+    if (getLanMatch() === undefined) return;
+    sendLanMatchStart(match.start, lanPreFillName() || "P1");
   };
 
   //an armed (or re-armed) match IS the online start: the words arrive in

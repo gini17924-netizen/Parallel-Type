@@ -184,12 +184,17 @@ export function OnlineLobbyPage(): JSXElement {
       settings = { length: matchLength(), words: await fetchWordPool() };
     }
     const start = playable.buildStart(settings);
-    sendLanMatchStart(start, playerName());
+    //arm first: a refused start never reaches the wire
     armLanMatch({
       role: "host",
       peerName: getLanPeerName() ?? "P2",
       start,
     });
+    if (getLanMatch() === undefined) {
+      setMessage("could not start the match — the settings were rejected");
+      return;
+    }
+    sendLanMatchStart(start, playerName());
     void navigate({ to: playable.route });
   };
 

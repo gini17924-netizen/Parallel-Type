@@ -21,6 +21,7 @@ import {
   sendLanMatchRematch,
   sendLanMatchStart,
 } from "../../src/ts/states/lan-match";
+import { _resetLanStateForTests, lanStartHost } from "../../src/ts/states/lan";
 import { type LanStartPayload } from "../../src/ts/utils/games/lan-registry";
 
 function botDuelStart(words: string[], length = words.length): LanStartPayload {
@@ -169,5 +170,55 @@ describe("lan match state (online wave, phase 2 — registry-routed)", () => {
     expect(() => sendLanMatchProgress({ wordIndex: 1 })).not.toThrow();
     expect(() => sendLanMatchFinished(100, 90)).not.toThrow();
     expect(() => sendLanMatchRematch()).not.toThrow();
+  });
+
+  it("sendLanMatchStart ships only registry-valid starts", async () => {
+    //the tauri fake records the invokes; the host role routes the send
+    const invokes: { cmd: string; args: Record<string, unknown> }[] = [];
+    const handlers = new Map<string, ((e: { payload: unknown }) => void)[]>();
+    (window as unknown as { __TAURI__: unknown }).__TAURI__ = {
+      core: {
+        invoke: async (cmd: string, args?: Record<string, unknown>) => {
+          invokes.push({ cmd, args: args ?? {} });
+          if (cmd === "lan_start_host") {
+            return {
+              sessionId: "lan-test/N3DB",
+              code: "N3DB",
+              port: 51987,
+              ip: "192.168.100.24",
+              name: "P1",
+            };
+          }
+          return {};
+        },
+      },
+      event: {
+        listen: async (ev: string, cb: (e: { payload: unknown }) => void) => {
+          const list = handlers.get(ev) ?? [];
+          list.push(cb);
+          handlers.set(ev, list);
+          return () => undefined;
+        },
+      },
+    };
+    try {
+      await lanStartHost("P1");
+      //an invalid start never reaches the wire
+      sendLanMatchStart(
+        { gameId: "bot-duel", params: { length: 0 }, words: [] },
+        "P1",
+      );
+      expect(invokes.some((e) => e.cmd === "lan_send_message")).toBe(false);
+      //a valid start ships with the type + from
+      sendLanMatchStart(botDuelStart(["a", "b"]), "P1");
+      const send = invokes.find((e) => e.cmd === "lan_send_message");
+      const message = send?.args?.["message"] as Record<string, unknown>;
+      expect(message["type"]).toBe("start");
+      expect(message["gameId"]).toBe("bot-duel");
+      expect(message["from"]).toBe("P1");
+    } finally {
+      delete (window as unknown as { __TAURI__?: unknown }).__TAURI__;
+      _resetLanStateForTests();
+    }
   });
 });

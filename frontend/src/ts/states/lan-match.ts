@@ -127,8 +127,14 @@ export function getRematchAsked(): boolean {
   return rematchSignal();
 }
 
-/** host: ships the start (also the rematch re-send) to the peer */
+/** host: ships the start (also the rematch re-send) to the peer — an
+ * invalid start is refused before it can reach the wire */
 export function sendLanMatchStart(start: LanStartPayload, from: string): void {
+  const playable = getLanGame(start.gameId);
+  if (playable === undefined || !playable.validateStart(start)) {
+    console.error("lan: refusing to ship an invalid match start", start.gameId);
+    return;
+  }
   lanSendToPeer({ ...start, type: "start", from });
 }
 
