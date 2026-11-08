@@ -1,6 +1,13 @@
 import { createEffect, createRoot, createSignal } from "solid-js";
 
 import { navigate } from "../router/navigate";
+//KI-43's lesson: the registry is filled by module loads, never by mounts
+import "../utils/games/lan-games";
+import {
+  getLanGame,
+  type LanGameId,
+  type LanStartPayload,
+} from "../utils/games/lan-registry";
 import {
   getLanLastMessage,
   getLanPeerName,
@@ -9,18 +16,18 @@ import {
 } from "./lan";
 
 /**
- * LAN match layer (online bot-duel, phase 4): rides on the lan.ts pipe
- * and turns the raw peer messages into typed match state. The module owns
- * the message consumption through one root effect — whatever page is
- * mounted (the lobby waiting, or the duel racing), an incoming `start`
- * arms the match and navigates both players to the duel.
+ * LAN match layer (online wave, phase 2 — the generic match state): rides
+ * on the lan.ts pipe and turns raw peer messages into typed match state
+ * THROUGH the LanPlayable registry — no game is hard-coded here. The
+ * module owns the message consumption through one root effect — whatever
+ * page is mounted (the lobby waiting, or a game racing), an incoming
+ * `start` arms the match and navigates both players to the game.
  *
- * Protocol (JSON objects through the pipe; the host builds the words so
- * no seed is needed):
- * - start    {type, gameId:"bot-duel", words, from}  host -> client
- * - progress {type, wordIndex, correctChars}         both, per word
- * - finished {type, finishMs|null, acc}              both, race end
- * - rematch  {type}                                  client asks, host starts
+ * Protocol (JSON objects through the pipe):
+ * - start    {type, ...LanStartPayload, from}     host -> client
+ * - progress {type, gameId, state}                 both, per word/tick
+ * - finished {type, finishMs|null, acc}            both, race end
+ * - rematch  {type}                                client asks, host starts
  *
  * Nothing here is persisted — a match is session-only, like the names.
  */
@@ -28,14 +35,16 @@ import {
 export type LanMatch = {
   role: "host" | "client";
   peerName: string;
-  gameId: "bot-duel";
-  words: string[];
-  /** bumped on every arm so a rematch re-triggers the consumers */
+  gameId: LanGameId;
   seq: number;
+  /** the registry-validated start the match was armed with (words/seed/
+   * params) — the game page builds everything from this */
+  start: LanStartPayload;
 };
 
 export type RemoteProgress = {
-  wordIndex: number;
+  /** the peer's decoded progress state (shaped by the game's contract) */
+  state: Record<string, unknown>;
   /** performance.now() at the message arrival — the page anchors it in
    * its own race frame (arrivalPerf - startedAt) */
   arrivalPerf: number;
@@ -69,10 +78,29 @@ function resetDerived(): void {
   setRematchSignal(false);
 }
 
-/** arms (or re-arms) the match; consumers restart from the new seq */
-export function armLanMatch(match: Omit<LanMatch, "seq">): void {
+/** arms (or re-arms) the match; consumers restart from the new seq. An
+ * invalid start is refused (both sides gate through the registry). */
+export function armLanMatch(match: {
+  role: "host" | "client";
+  peerName: string;
+  start: LanStartPayload;
+}): void {
+  const playable = getLanGame(match.start.gameId);
+  if (playable === undefined || !playable.validateStart(match.start)) {
+    console.error(
+      "lan: refusing to arm an invalid match start",
+      match.start.gameId,
+    );
+    return;
+  }
   seqCounter += 1;
-  setMatchSignal({ ...match, seq: seqCounter });
+  setMatchSignal({
+    role: match.role,
+    peerName: match.peerName,
+    gameId: match.start.gameId,
+    seq: seqCounter,
+    start: match.start,
+  });
   resetDerived();
 }
 
@@ -100,16 +128,16 @@ export function getRematchAsked(): boolean {
 }
 
 /** host: ships the start (also the rematch re-send) to the peer */
-export function sendLanMatchStart(words: string[], from: string): void {
-  lanSendToPeer({ type: "start", gameId: "bot-duel", words, from });
+export function sendLanMatchStart(start: LanStartPayload, from: string): void {
+  lanSendToPeer({ ...start, type: "start", from });
 }
 
-/** both sides: per-completed-word progress relay */
-export function sendLanMatchProgress(
-  wordIndex: number,
-  correctChars: number,
-): void {
-  lanSendToPeer({ type: "progress", wordIndex, correctChars });
+/** both sides: the game's encoded progress state — the envelope (type +
+ * gameId) is added here */
+export function sendLanMatchProgress(state: Record<string, unknown>): void {
+  const match = matchSignal();
+  if (match === undefined) return;
+  lanSendToPeer({ type: "progress", gameId: match.gameId, state });
 }
 
 /** both sides: the own race ended — finishMs null when it ended without
@@ -126,37 +154,56 @@ export function sendLanMatchRematch(): void {
   lanSendToPeer({ type: "rematch" });
 }
 
-/** the one place every match message is interpreted — the root effect
- * feeds it from the lan pipe, specs call it directly */
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null && !Array.isArray(value);
+}
+
+/** the one place every match message is interpreted — routed through the
+ * LanPlayable registry; the root effect feeds it, specs call it directly */
 export function handleLanPeerMessage(message: Record<string, unknown>): void {
-  const words = Array.isArray(message["words"])
-    ? (message["words"] as unknown[]).filter(
-        (word): word is string => typeof word === "string",
-      )
-    : [];
-  if (
-    message["type"] === "start" &&
-    message["gameId"] === "bot-duel" &&
-    words.length > 0
-  ) {
+  if (message["type"] === "start") {
+    const gameId = message["gameId"];
+    //the registry lookup IS the validation of a wire-supplied id
+    const playable =
+      typeof gameId === "string" ? getLanGame(gameId as LanGameId) : undefined;
+    if (playable === undefined) return; //an unknown game is dropped
+    const rawWords = Array.isArray(message["words"])
+      ? (message["words"] as unknown[]).filter(
+          (word): word is string => typeof word === "string",
+        )
+      : undefined;
+    const rawSeed = message["seed"];
+    const start: LanStartPayload = {
+      gameId: playable.gameId,
+      seed:
+        typeof rawSeed === "number" && Number.isFinite(rawSeed)
+          ? rawSeed
+          : undefined,
+      params: isRecord(message["params"]) ? message["params"] : {},
+      words:
+        rawWords !== undefined && rawWords.length > 0 ? rawWords : undefined,
+    };
+    if (!playable.validateStart(start)) return; //malformed starts never arm
     armLanMatch({
       role: getLanRole() === "host" ? "host" : "client",
       peerName:
         typeof message["from"] === "string"
           ? message["from"]
           : (getLanPeerName() ?? "P2"),
-      gameId: "bot-duel",
-      words,
+      start,
     });
-    void navigate({ to: "/games/bot-duel" });
+    void navigate({ to: playable.route });
     return;
   }
-  if (matchSignal() === undefined) return; //no live match — ignore
+  const match = matchSignal();
+  if (match === undefined) return; //no live match — ignore
   if (message["type"] === "progress") {
-    const wordIndex = message["wordIndex"];
-    if (typeof wordIndex === "number" && wordIndex >= 0) {
-      setProgressSignal({ wordIndex, arrivalPerf: performance.now() });
-    }
+    if (message["gameId"] !== match.gameId) return; //foreign progress
+    const playable = getLanGame(match.gameId);
+    if (playable === undefined) return;
+    const decoded = playable.decodeProgress(message["state"]);
+    if (decoded === undefined) return; //untrusted shapes never land
+    setProgressSignal({ state: decoded, arrivalPerf: performance.now() });
     return;
   }
   if (message["type"] === "finished") {

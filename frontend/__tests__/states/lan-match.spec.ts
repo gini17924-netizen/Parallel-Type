@@ -21,17 +21,23 @@ import {
   sendLanMatchRematch,
   sendLanMatchStart,
 } from "../../src/ts/states/lan-match";
+import { type LanStartPayload } from "../../src/ts/utils/games/lan-registry";
 
-describe("lan match state (online bot-duel, LAN phase 4)", () => {
+function botDuelStart(words: string[], length = words.length): LanStartPayload {
+  return { gameId: "bot-duel", params: { length }, words };
+}
+
+describe("lan match state (online wave, phase 2 — registry-routed)", () => {
   beforeEach(() => {
     _resetLanMatchForTests();
     navigateMock.mockClear();
   });
 
-  it("a start message arms the match and navigates to the duel", () => {
+  it("a registry-known start arms the match and navigates to its route", () => {
     handleLanPeerMessage({
       type: "start",
       gameId: "bot-duel",
+      params: { length: 2 },
       words: ["alpha", "beta"],
       from: "HOST9",
     });
@@ -39,42 +45,80 @@ describe("lan match state (online bot-duel, LAN phase 4)", () => {
     expect(match?.role).toBe("client"); //no lan role set -> not the host
     expect(match?.peerName).toBe("HOST9");
     expect(match?.gameId).toBe("bot-duel");
-    expect(match?.words).toEqual(["alpha", "beta"]);
+    expect(match?.start.words).toEqual(["alpha", "beta"]);
+    expect(match?.start.params).toEqual({ length: 2 });
     expect(match?.seq).toBe(1);
     expect(navigateMock).toHaveBeenCalledWith({ to: "/games/bot-duel" });
   });
 
-  it("foreign games and malformed words never arm", () => {
-    handleLanPeerMessage({ type: "start", gameId: "other", words: ["a"] });
+  it("unknown games and invalid starts never arm", () => {
+    handleLanPeerMessage({
+      type: "start",
+      gameId: "someone-elses-game",
+      params: {},
+      words: ["a"],
+    });
     expect(getLanMatch()).toBeUndefined();
     expect(navigateMock).not.toHaveBeenCalled();
+    //a bot-duel start without its required params is dropped
+    handleLanPeerMessage({
+      type: "start",
+      gameId: "bot-duel",
+      params: {},
+      words: ["a"],
+    });
+    expect(getLanMatch()).toBeUndefined();
     //non-string words are filtered, not trusted
     handleLanPeerMessage({
       type: "start",
       gameId: "bot-duel",
+      params: { length: 2 },
       words: ["a", 42, "c"],
     });
-    expect(getLanMatch()?.words).toEqual(["a", "c"]);
+    expect(getLanMatch()?.start.words).toEqual(["a", "c"]);
   });
 
   it("progress and finished are ignored without a live match", () => {
-    handleLanPeerMessage({ type: "progress", wordIndex: 3 });
+    handleLanPeerMessage({
+      type: "progress",
+      gameId: "bot-duel",
+      state: { wordIndex: 3, correctChars: 5 },
+    });
     expect(getRemoteProgress()).toBeUndefined();
     handleLanPeerMessage({ type: "finished", finishMs: 100, acc: 90 });
     expect(getRemoteFinished()).toBeUndefined();
   });
 
-  it("progress and finished land once a match is armed", () => {
-    armLanMatch({
-      role: "host",
-      peerName: "P2",
+  it("progress lands decoded once a match is armed — foreign or malformed is dropped", () => {
+    armLanMatch({ role: "host", peerName: "P2", start: botDuelStart(["x"]) });
+    handleLanPeerMessage({
+      type: "progress",
       gameId: "bot-duel",
-      words: ["x"],
+      state: { wordIndex: 3, correctChars: 10 },
     });
-    handleLanPeerMessage({ type: "progress", wordIndex: 3 });
     const progress = getRemoteProgress();
-    expect(progress?.wordIndex).toBe(3);
+    expect(progress?.state).toEqual({ wordIndex: 3, correctChars: 10 });
     expect(typeof progress?.arrivalPerf).toBe("number");
+    //a different gameId's progress never lands in this match
+    handleLanPeerMessage({
+      type: "progress",
+      gameId: "sprint",
+      state: { wordIndex: 9 },
+    });
+    expect(getRemoteProgress()?.state).toEqual({
+      wordIndex: 3,
+      correctChars: 10,
+    });
+    //untrusted state shapes are rejected by the game's decode
+    handleLanPeerMessage({
+      type: "progress",
+      gameId: "bot-duel",
+      state: { wordIndex: "nine" },
+    });
+    expect(getRemoteProgress()?.state).toEqual({
+      wordIndex: 3,
+      correctChars: 10,
+    });
     handleLanPeerMessage({ type: "finished", finishMs: 1234, acc: 90 });
     expect(getRemoteFinished()?.finishMs).toBe(1234);
     expect(getRemoteFinished()?.acc).toBe(90);
@@ -86,32 +130,34 @@ describe("lan match state (online bot-duel, LAN phase 4)", () => {
   });
 
   it("a rematch ask sets the flag; a re-arm resets the derived state", () => {
-    armLanMatch({
-      role: "host",
-      peerName: "P2",
+    armLanMatch({ role: "host", peerName: "P2", start: botDuelStart(["x"]) });
+    handleLanPeerMessage({
+      type: "progress",
       gameId: "bot-duel",
-      words: ["x"],
+      state: { wordIndex: 1 },
     });
-    handleLanPeerMessage({ type: "progress", wordIndex: 1 });
     handleLanPeerMessage({ type: "rematch" });
     expect(getRematchAsked()).toBe(true);
-    armLanMatch({
-      role: "host",
-      peerName: "P2",
-      gameId: "bot-duel",
-      words: ["x"],
-    });
+    armLanMatch({ role: "host", peerName: "P2", start: botDuelStart(["x"]) });
     expect(getRematchAsked()).toBe(false);
     expect(getRemoteProgress()).toBeUndefined();
     expect(getLanMatch()?.seq).toBe(2);
+  });
+
+  it("armLanMatch refuses an invalid start", () => {
+    armLanMatch({
+      role: "host",
+      peerName: "P2",
+      start: { gameId: "bot-duel", params: { length: 2 }, words: [] },
+    });
+    expect(getLanMatch()).toBeUndefined();
   });
 
   it("clearing disarms everything", () => {
     armLanMatch({
       role: "client",
       peerName: "HOST1",
-      gameId: "bot-duel",
-      words: ["x"],
+      start: botDuelStart(["x"]),
     });
     clearLanMatch();
     expect(getLanMatch()).toBeUndefined();
@@ -119,8 +165,8 @@ describe("lan match state (online bot-duel, LAN phase 4)", () => {
   });
 
   it("the senders are safe without the tauri backend", () => {
-    expect(() => sendLanMatchStart(["a"], "P1")).not.toThrow();
-    expect(() => sendLanMatchProgress(1, 2)).not.toThrow();
+    expect(() => sendLanMatchStart(botDuelStart(["a"]), "P1")).not.toThrow();
+    expect(() => sendLanMatchProgress({ wordIndex: 1 })).not.toThrow();
     expect(() => sendLanMatchFinished(100, 90)).not.toThrow();
     expect(() => sendLanMatchRematch()).not.toThrow();
   });

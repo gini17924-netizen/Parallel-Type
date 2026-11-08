@@ -185,8 +185,11 @@ async function armOnlineMatch(): Promise<{
   armLanMatch({
     role: "host",
     peerName: "P2",
-    gameId: "bot-duel",
-    words: ONLINE_WORDS,
+    start: {
+      gameId: "bot-duel",
+      params: { length: ONLINE_WORDS.length },
+      words: ONLINE_WORDS,
+    },
   });
   await vi.advanceTimersByTimeAsync(0); //the match effect -> countdown
   await vi.advanceTimersByTimeAsync(2800); //countdown -> duel

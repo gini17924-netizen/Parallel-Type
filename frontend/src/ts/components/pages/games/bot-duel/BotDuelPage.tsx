@@ -41,6 +41,10 @@ import {
   buildRaceWords,
 } from "../../../../utils/bot-duel/duel-words";
 import {
+  lanBotDuel,
+  type BotDuelProgress,
+} from "../../../../utils/bot-duel/lan";
+import {
   createRemotePacer,
   type RemotePacer,
 } from "../../../../utils/bot-duel/remote-pacer";
@@ -348,7 +352,12 @@ export function BotDuelPage(): JSXElement {
         setWordErrors(0);
         if (remotePacer !== undefined) {
           const after = engine.state();
-          sendLanMatchProgress(after.playerWordIndex, after.playerCorrectChars);
+          sendLanMatchProgress(
+            lanBotDuel.encodeProgress({
+              wordIndex: after.playerWordIndex,
+              correctChars: after.playerCorrectChars,
+            }),
+          );
           if (after.playerWordIndex >= totalWords() && !myFinishSent) {
             myFinishSent = true;
             sendLanMatchFinished(
@@ -376,12 +385,11 @@ export function BotDuelPage(): JSXElement {
   });
 
   const hostRematch = (match: LanMatch): void => {
-    sendLanMatchStart(match.words, lanPreFillName() || "P1");
+    sendLanMatchStart(match.start, lanPreFillName() || "P1");
     armLanMatch({
       role: "host",
       peerName: match.peerName,
-      gameId: "bot-duel",
-      words: match.words,
+      start: match.start,
     });
   };
 
@@ -393,11 +401,12 @@ export function BotDuelPage(): JSXElement {
       remotePacer = undefined;
       return;
     }
+    const words = match.start.words ?? [];
     setOnlineResult(undefined);
     setRematchSent(false);
     setVoided(false);
-    setWordList(match.words);
-    remotePacer = createRemotePacer(match.words);
+    setWordList(words);
+    remotePacer = createRemotePacer(words);
     startCountdown();
   });
 
@@ -405,8 +414,10 @@ export function BotDuelPage(): JSXElement {
   createEffect(() => {
     const progress = getRemoteProgress();
     if (progress === undefined || remotePacer === undefined) return;
+    //the registry decode already shaped this state (BotDuelProgress)
+    const state = progress.state as BotDuelProgress;
     remotePacer.onProgress(
-      progress.wordIndex,
+      state.wordIndex,
       Math.max(0, progress.arrivalPerf - engineStartedAt),
     );
   });

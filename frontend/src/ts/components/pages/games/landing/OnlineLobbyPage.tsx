@@ -25,6 +25,7 @@ import {
 } from "../../../../states/lan-match";
 import { buildRaceWords } from "../../../../utils/bot-duel/duel-words";
 import { cn } from "../../../../utils/cn";
+import { type LanStartPayload } from "../../../../utils/games/lan-registry";
 import { cachedFetchJson } from "../../../../utils/json-data";
 import { Button } from "../../../common/Button";
 import { H2 } from "../../../common/Headers";
@@ -146,12 +147,16 @@ export function OnlineLobbyPage(): JSXElement {
       pool = [];
     }
     const words = buildRaceWords(pool, matchLength());
-    sendLanMatchStart(words, playerName());
+    const start: LanStartPayload = {
+      gameId: "bot-duel",
+      params: { length: matchLength() },
+      words,
+    };
+    sendLanMatchStart(start, playerName());
     armLanMatch({
       role: "host",
       peerName: getLanPeerName() ?? "P2",
-      gameId: "bot-duel",
-      words,
+      start,
     });
     void navigate({ to: "/games/bot-duel" });
   };
