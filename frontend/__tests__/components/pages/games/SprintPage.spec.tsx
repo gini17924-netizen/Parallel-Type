@@ -4,6 +4,15 @@ import { IDBFactory } from "fake-indexeddb";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import {
+  _resetLanStateForTests,
+  lanStartHost,
+} from "../../../../src/ts/states/lan";
+import {
+  _resetLanMatchForTests,
+  armLanMatch,
+  handleLanPeerMessage,
+} from "../../../../src/ts/states/lan-match";
+import {
   _resetSprintStatsForTests,
   SPRINT_STATS_KEY,
 } from "../../../../src/ts/utils/sprint/sprint-stats";
@@ -46,12 +55,13 @@ async function waitMs(ms: number): Promise<void> {
   await new Promise((resolve) => setTimeout(resolve, ms));
 }
 
-describe("sprint page (idea G5 phase 2)", () => {
-  //the controlled clock: the page measures elapsed time with
-  //performance.now(), so the spy IS the test's time machine
-  let fakeNow: number;
-  let nowSpy: ReturnType<typeof vi.spyOn>;
+//the controlled clock: the page measures elapsed time with
+//performance.now(), so the spy IS the test's time machine (shared by
+//the offline and the online describes — module scope for the helpers)
+let fakeNow: number;
+let nowSpy: ReturnType<typeof vi.spyOn>;
 
+describe("sprint page (idea G5 phase 2)", () => {
   beforeEach(() => {
     (globalThis as { indexedDB: unknown }).indexedDB = new IDBFactory();
     window.localStorage.clear();
@@ -205,5 +215,236 @@ describe("sprint page (idea G5 phase 2)", () => {
     expect(pageText(app)).toContain("attempt void — the window lost focus");
     expect(pageText(app)).toContain("start attempt"); //back at the idle screen
     expect(window.localStorage.getItem(SPRINT_STATS_KEY)).toBeNull();
+  });
+});
+
+/** the tauri fake for the online tests: records the invokes and captures
+ * the event listeners so the spec can fire the Rust-side events */
+function installTauriMock(): {
+  invokes: { cmd: string; args: Record<string, unknown> }[];
+  fire: (ev: string, payload: unknown) => void;
+} {
+  const invokes: { cmd: string; args: Record<string, unknown> }[] = [];
+  const handlers = new Map<string, ((e: { payload: unknown }) => void)[]>();
+  (window as unknown as { __TAURI__: unknown }).__TAURI__ = {
+    core: {
+      invoke: async (cmd: string, args?: Record<string, unknown>) => {
+        invokes.push({ cmd, args: args ?? {} });
+        if (cmd === "lan_start_host") {
+          return {
+            sessionId: "lan-test/N3DB",
+            code: "N3DB",
+            port: 51987,
+            ip: "192.168.100.24",
+            name: "P1",
+          };
+        }
+        return {};
+      },
+    },
+    event: {
+      listen: async (ev: string, cb: (e: { payload: unknown }) => void) => {
+        const list = handlers.get(ev) ?? [];
+        list.push(cb);
+        handlers.set(ev, list);
+        return () => undefined;
+      },
+    },
+  };
+  return {
+    invokes,
+    fire: (ev: string, payload: unknown) => {
+      for (const cb of handlers.get(ev) ?? []) cb({ payload });
+    },
+  };
+}
+
+const SPRINT_SEED = 42;
+
+/** arms a host-side sprint match against P2 and returns the recorded invokes */
+async function armOnlineSprint(): Promise<{
+  app: App;
+  invokes: { cmd: string; args: Record<string, unknown> }[];
+  fire: (ev: string, payload: unknown) => void;
+}> {
+  const tauri = installTauriMock();
+  await lanStartHost("HOST1");
+  tauri.fire("lan://peer-joined", { name: "P2" }); //connected
+  const app = await openSprint();
+  armLanMatch({
+    role: "host",
+    peerName: "P2",
+    start: {
+      gameId: "sprint",
+      seed: SPRINT_SEED,
+      params: { lang: "english", words: 60 },
+    },
+  });
+  await waitMs(200); //the stream builds (fallback pool) and the engine arms
+  fakeNow = 5000; //past any arming delay: the race is running
+  await waitMs(120);
+  return { app, invokes: tauri.invokes, fire: tauri.fire };
+}
+
+/** types `count` correct characters at a steady cadence */
+async function typeChars(app: App, count: number): Promise<void> {
+  for (let i = 0; i < count; i++) {
+    fakeNow += 50;
+    const word = currentWord(app);
+    const done = typedPart(app).length;
+    if (word !== "" && done < word.length) {
+      fireEvent.keyDown(window, { key: word[done] });
+    } else {
+      fireEvent.keyDown(window, { key: word[0] ?? "a" });
+    }
+  }
+}
+
+describe("sprint online (online wave, phase 6)", () => {
+  beforeEach(() => {
+    (globalThis as { indexedDB: unknown }).indexedDB = new IDBFactory();
+    window.localStorage.clear();
+    _resetSprintStatsForTests();
+    _resetLanStateForTests();
+    _resetLanMatchForTests();
+    fakeNow = 1000;
+    nowSpy = vi.spyOn(performance, "now").mockImplementation(() => fakeNow);
+  });
+
+  afterEach(() => {
+    (nowSpy as { mockRestore: () => void }).mockRestore();
+    delete (window as unknown as { __TAURI__?: unknown }).__TAURI__;
+    cleanupApp();
+  });
+
+  it("an armed match races the peer: banner, live relay, awaiting, win", async () => {
+    const { app, invokes } = await armOnlineSprint();
+    expect(pageText(app)).toContain("online vs P2");
+    expect(pageText(app)).toContain("wait for GO");
+    expect(currentWord(app)).not.toBe("");
+
+    await typeChars(app, 85);
+    //the live progress was relayed while running
+    const progresses = invokes.filter(
+      (entry) =>
+        entry.cmd === "lan_send_message" &&
+        (entry.args["message"] as Record<string, unknown>)["type"] ===
+          "progress",
+    );
+    expect(progresses.length).toBeGreaterThanOrEqual(1);
+
+    //the horn: the finish lands and the verdict waits for the peer
+    fakeNow += 11000;
+    await waitMs(150);
+    expect(pageText(app)).toContain("waiting for P2");
+    const finishes = invokes.filter(
+      (entry) =>
+        entry.cmd === "lan_send_message" &&
+        (entry.args["message"] as Record<string, unknown>)["type"] ===
+          "finished",
+    );
+    expect(finishes).toHaveLength(1);
+    const winFinish = finishes[0]?.args["message"] as
+      | Record<string, unknown>
+      | undefined;
+    expect(winFinish?.["finishMs"]).toBe(10000);
+
+    //the peer finished weaker -> I win; nothing touched the local stats
+    handleLanPeerMessage({ type: "finished", finishMs: 10000, acc: 80 });
+    await waitMs(80);
+    expect(pageText(app)).toContain("you win!");
+    expect(pageText(app)).toContain("opponent words");
+    expect(window.localStorage.getItem(SPRINT_STATS_KEY)).toBeNull();
+  });
+
+  it("the peer's earlier finish resolves the horn immediately as a loss", async () => {
+    const { app, invokes } = await armOnlineSprint();
+    expect(currentWord(app)).not.toBe("");
+
+    //the peer finished first (their final state + the generic finish)
+    handleLanPeerMessage({
+      type: "progress",
+      gameId: "sprint",
+      state: { words: 999, chars: 4999 },
+    });
+    handleLanPeerMessage({ type: "finished", finishMs: 10000, acc: 90 });
+    await waitMs(80);
+
+    fakeNow += 11000; //my horn: their finish is already known
+    await waitMs(150);
+    expect(pageText(app)).toContain("P2 wins");
+    const finishes = invokes.filter(
+      (entry) =>
+        entry.cmd === "lan_send_message" &&
+        (entry.args["message"] as Record<string, unknown>)["type"] ===
+          "finished",
+    );
+    expect(finishes).toHaveLength(1);
+  });
+
+  it("a disconnect during the race voids it", async () => {
+    const { app, fire } = await armOnlineSprint();
+    expect(currentWord(app)).not.toBe("");
+
+    fire("lan://peer-left", { reason: "disconnected" });
+    await waitMs(80);
+
+    expect(pageText(app)).toContain("the opponent left");
+    expect(pageText(app)).toContain("start attempt"); //back at the idle screen
+  });
+
+  it("a false start online tells the peer the race ended", async () => {
+    const tauri = installTauriMock();
+    await lanStartHost("HOST1");
+    tauri.fire("lan://peer-joined", { name: "P2" });
+    const app = await openSprint();
+    armLanMatch({
+      role: "host",
+      peerName: "P2",
+      start: {
+        gameId: "sprint",
+        seed: SPRINT_SEED,
+        params: { lang: "english", words: 60 },
+      },
+    });
+    await waitMs(200); //armed at fakeNow 1000 — GO is at least 800ms away
+    fireEvent.keyDown(window, { key: "a" }); //before GO: false start
+
+    expect(pageText(app)).toContain("the opponent takes the win");
+    const finishes = tauri.invokes.filter(
+      (entry) =>
+        entry.cmd === "lan_send_message" &&
+        (entry.args["message"] as Record<string, unknown>)["type"] ===
+          "finished",
+    );
+    expect(finishes).toHaveLength(1);
+    const voidFinish = finishes[0]?.args["message"] as
+      | Record<string, unknown>
+      | undefined;
+    expect(voidFinish?.["finishMs"]).toBeNull();
+  });
+
+  it("the host's rematch re-arms both sides with the same seed", async () => {
+    const { app, invokes } = await armOnlineSprint();
+    await typeChars(app, 85);
+    fakeNow += 11000;
+    await waitMs(150);
+    expect(pageText(app)).toContain("waiting for P2");
+    handleLanPeerMessage({ type: "finished", finishMs: 10000, acc: 80 });
+    await waitMs(80);
+    expect(pageText(app)).toContain("you win!");
+
+    button(app, "rematch")?.click();
+    await waitMs(250);
+    //the host re-sent the same start (one start invoke — the arm was local)
+    const starts = invokes.filter(
+      (entry) =>
+        entry.cmd === "lan_send_message" &&
+        (entry.args["message"] as Record<string, unknown>)["type"] === "start",
+    );
+    expect(starts).toHaveLength(1);
+    const message = starts[0]?.args["message"] as Record<string, unknown>;
+    expect(message["seed"]).toBe(SPRINT_SEED);
+    expect(pageText(app)).toContain("wait for GO");
   });
 });

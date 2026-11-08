@@ -1,4 +1,11 @@
-import { JSXElement, Show, createSignal, onCleanup, onMount } from "solid-js";
+import {
+  JSXElement,
+  Show,
+  createEffect,
+  createSignal,
+  onCleanup,
+  onMount,
+} from "solid-js";
 
 import { Config } from "../../../../config/store";
 import {
@@ -6,6 +13,20 @@ import {
   playTimeWarning,
 } from "../../../../controllers/sound-controller";
 import { navigate } from "../../../../router/navigate";
+import { isLanConnected, lanPreFillName } from "../../../../states/lan";
+import {
+  armLanMatch,
+  clearLanMatch,
+  getLanMatch,
+  getRemoteFinished,
+  getRemoteProgress,
+  getRematchAsked,
+  sendLanMatchFinished,
+  sendLanMatchProgress,
+  sendLanMatchRematch,
+  sendLanMatchStart,
+  type LanMatch,
+} from "../../../../states/lan-match";
 import { cn } from "../../../../utils/cn";
 import { createSeededRng } from "../../../../utils/daily-gauntlet/seeded-rng";
 import { cachedFetchJson } from "../../../../utils/json-data";
@@ -13,6 +34,13 @@ import {
   completeDailySprint,
   takePendingDailyStage,
 } from "../../../../utils/sprint/daily";
+import {
+  lanSprint,
+  resolveSprintVerdict,
+  sprintLanStream,
+  type SprintRemoteState,
+  type SprintVerdict,
+} from "../../../../utils/sprint/lan";
 import {
   BALANCE,
   createSprintEngine,
@@ -36,8 +64,15 @@ const FALLBACK_WORDS = [
   "words",
 ];
 
-type PagePhase = "idle" | "arming" | "running" | "result";
+type PagePhase = "idle" | "arming" | "running" | "awaiting" | "result";
 type SprintMode = "free" | "daily";
+
+/** the online verdict once both horns have landed */
+type SprintOnlineResult = {
+  verdict: SprintVerdict;
+  peerWords: number;
+  peerAcc: number;
+};
 
 /** deterministic daily word order: an LCG shuffle seeded by dayKey + lang */
 function seededShuffle(words: string[], seedText: string): string[] {
@@ -94,11 +129,22 @@ export function SprintPage(): JSXElement {
   );
   /** the share button's flash (KI-31: the doc's simple result share) */
   const [copied, setCopied] = createSignal(false);
+  //online (LAN) state — the peer's live words/chars and the horn verdict
+  const [remoteState, setRemoteState] = createSignal<
+    SprintRemoteState | undefined
+  >(undefined);
+  const [onlineResult, setOnlineResult] = createSignal<
+    SprintOnlineResult | undefined
+  >(undefined);
+  const [rematchSent, setRematchSent] = createSignal(false);
 
   let engine: SprintEngine | undefined;
   let wordStream: string[] = [];
   let streamIndex = 0;
   let tickTimer: ReturnType<typeof setInterval> | undefined;
+  let lastSentWords = -1;
+  let lastSentChars = -1;
+  let myFinal: SprintRemoteState | undefined;
   const warningsFired = new Set<number>();
 
   const stopTimers = (): void => {
@@ -108,6 +154,23 @@ export function SprintPage(): JSXElement {
 
   onCleanup(stopTimers);
 
+  const lanMode = (): boolean => getLanMatch()?.gameId === "sprint";
+
+  //leaving mid-race (header back, route change) tells the peer the race
+  //ended without a completion and disarms — they are never left waiting
+  onCleanup(() => {
+    if (getLanMatch()?.gameId !== "sprint") return;
+    if (
+      pagePhase() !== "arming" &&
+      pagePhase() !== "running" &&
+      pagePhase() !== "awaiting"
+    ) {
+      return;
+    }
+    sendLanMatchFinished(null, 0);
+    clearLanMatch();
+  });
+
   const next = (): string => {
     const word = wordStream[streamIndex % wordStream.length] ?? "typo";
     streamIndex += 1;
@@ -116,12 +179,38 @@ export function SprintPage(): JSXElement {
     return word;
   };
 
+  const resolveOnlineResult = (): void => {
+    const finished = getRemoteFinished();
+    if (finished === undefined) return;
+    const mine = myFinal ?? { words: 0, chars: 0 };
+    const theirs = remoteState() ?? { words: 0, chars: 0 };
+    setOnlineResult({
+      verdict: resolveSprintVerdict(mine, theirs),
+      peerWords: theirs.words,
+      peerAcc: finished.acc,
+    });
+    setPagePhase("result");
+  };
+
   const finish = (): void => {
     stopTimers();
     const state = engine?.state();
     const result = state?.result;
     if (state === undefined || state.voided || result === undefined) {
       backToIdle();
+      return;
+    }
+    if (lanMode()) {
+      //the horn online: the final progress + the generic finish land in
+      //TCP order, so the peer resolves the verdict from the last state
+      myFinal = { words: result.wordsComplete, chars: result.raw };
+      sendLanMatchProgress(lanSprint.encodeProgress({ ...myFinal }));
+      sendLanMatchFinished(BALANCE.durationMs, result.accuracy);
+      if (getRemoteFinished() !== undefined) {
+        resolveOnlineResult();
+      } else {
+        setPagePhase("awaiting");
+      }
       return;
     }
     //the best BEFORE this attempt drives the comparison arrow
@@ -190,6 +279,12 @@ export function SprintPage(): JSXElement {
     //ahead of the engine's current word, so no typed char could ever match
     setEngineState(engine.state());
     setPagePhase("arming");
+    startTickLoop();
+  };
+
+  /** the one tick loop both the offline attempt and the online race run:
+   * the GO flip, the final-3s beeps, the online progress relay, the horn */
+  const startTickLoop = (): void => {
     tickTimer = setInterval(() => {
       if (engine === undefined) return;
       const state = engine.tick(performance.now());
@@ -211,6 +306,21 @@ export function SprintPage(): JSXElement {
           }
         }
       }
+      //online: relay the live progress when it moved (the tick batches it)
+      if (
+        lanMode() &&
+        (state.wordsComplete !== lastSentWords ||
+          state.correctChars !== lastSentChars)
+      ) {
+        lastSentWords = state.wordsComplete;
+        lastSentChars = state.correctChars;
+        sendLanMatchProgress(
+          lanSprint.encodeProgress({
+            words: state.wordsComplete,
+            chars: state.correctChars,
+          }),
+        );
+      }
       if (state.phase === "done") finish();
     }, TICK_MS);
   };
@@ -225,12 +335,20 @@ export function SprintPage(): JSXElement {
     setEngineState(engine.state());
     if (feed.falseStart === true) {
       stopTimers();
-      setMessage("false start! attempt void — wait for GO");
+      if (lanMode()) {
+        //the race is dead: the peer takes the win (their awaiting resolves)
+        sendLanMatchFinished(null, 0);
+        clearLanMatch();
+        setMessage("false start! race void — the opponent takes the win");
+      } else {
+        setMessage("false start! attempt void — wait for GO");
+      }
       setPagePhase("idle");
     }
   };
 
   const voidAttempt = (): void => {
+    if (lanMode()) return; //online: the clock is local — a blur cannot cheat
     if (pagePhase() !== "arming" && pagePhase() !== "running") return;
     engine?.voidRace();
     stopTimers();
@@ -245,6 +363,94 @@ export function SprintPage(): JSXElement {
       window.removeEventListener("keydown", handleKey);
       window.removeEventListener("blur", voidAttempt);
     });
+  });
+
+  const hostRematch = (match: LanMatch): void => {
+    //arm first: a refused start never reaches the wire
+    armLanMatch({
+      role: "host",
+      peerName: match.peerName,
+      start: match.start,
+    });
+    if (getLanMatch() === undefined) return;
+    sendLanMatchStart(match.start, lanPreFillName() || "P1");
+  };
+
+  //an armed (or re-armed) sprint match IS the online start: the shared
+  //seed builds the stream, the seeded rng sets the arming delay
+  createEffect(() => {
+    const match = getLanMatch();
+    if (match?.gameId !== "sprint") return;
+    void (async () => {
+      let pool: string[] = [];
+      const lang = match.start.params["lang"];
+      try {
+        const data = await cachedFetchJson<{ words: string[] }>(
+          `/languages/${typeof lang === "string" ? lang : Config.language}.json`,
+        );
+        pool = data.words;
+      } catch {
+        pool = [];
+      }
+      setOnlineResult(undefined);
+      setRematchSent(false);
+      setRemoteState(undefined);
+      lastSentWords = -1;
+      lastSentChars = -1;
+      myFinal = undefined;
+      warningsFired.clear();
+      wordStream = sprintLanStream(pool, match.start.seed ?? 1);
+      streamIndex = 0;
+      engine = createSprintEngine({
+        next,
+        durationMs: BALANCE.durationMs,
+        rng: createSeededRng(match.start.seed ?? 1),
+      });
+      engine.arm(performance.now());
+      setEngineState(engine.state());
+      setPagePhase("arming");
+      startTickLoop();
+    })();
+  });
+
+  //the peer's live progress lands decoded — the HUD reads it inline
+  createEffect(() => {
+    const progress = getRemoteProgress();
+    if (progress === undefined) return;
+    setRemoteState(progress.state as SprintRemoteState);
+  });
+
+  //the peer's finish resolves the held verdict (or arrived before mine)
+  createEffect(() => {
+    if (pagePhase() !== "awaiting") return;
+    if (getRemoteFinished() === undefined) return;
+    resolveOnlineResult();
+  });
+
+  //the host answers a rematch request by re-sending the same start
+  createEffect(() => {
+    const match = getLanMatch();
+    if (match?.role !== "host" || match.gameId !== "sprint") return;
+    if (!getRematchAsked()) return;
+    hostRematch(match);
+  });
+
+  //a disconnect during the race voids it — nothing online is recorded
+  createEffect(() => {
+    if (getLanMatch()?.gameId !== "sprint") return;
+    if (isLanConnected()) return;
+    if (
+      pagePhase() !== "arming" &&
+      pagePhase() !== "running" &&
+      pagePhase() !== "awaiting"
+    ) {
+      return;
+    }
+    stopTimers();
+    engine = undefined;
+    clearLanMatch();
+    setMessage("the opponent left — race void, nothing was recorded");
+    setPagePhase("idle");
   });
 
   const remaining = (): string => {
@@ -347,6 +553,12 @@ export function SprintPage(): JSXElement {
               value={String(Math.round((state()?.chars ?? 0) * 6))}
             />
           </div>
+          <Show when={lanMode()}>
+            <div class="text-center text-sm text-sub" data-testid="sp-remote">
+              {getLanMatch()?.peerName ?? "the opponent"}:{" "}
+              {remoteState()?.words ?? 0} words
+            </div>
+          </Show>
         </section>
       </>
     );
@@ -369,16 +581,55 @@ export function SprintPage(): JSXElement {
     }
   };
 
+  const AwaitingScreen = (): JSXElement => {
+    return (
+      <section class="grid place-items-center rounded bg-sub-alt py-16 text-center">
+        <div class="text-2xl font-bold text-main" data-testid="sp-awaiting">
+          waiting for {getLanMatch()?.peerName ?? "the opponent"} to finish…
+        </div>
+        <div class="pt-2 text-sub">
+          your final: {myFinal?.words ?? 0} words — the verdict lands when they
+          do
+        </div>
+      </section>
+    );
+  };
+
   const ResultScreen = (): JSXElement => {
     const result = engine?.state().result;
     const previous = previousBest();
     const better = previous === undefined || (result?.wpm ?? 0) >= previous;
+    const online = (): SprintOnlineResult | undefined => onlineResult();
+    const verdict = (): SprintVerdict | undefined => online()?.verdict;
     return (
       <section class="grid gap-4 rounded bg-sub-alt p-6 text-center">
-        <div class="text-4xl font-bold text-main">
-          {result?.wpm ?? 0}
-          <span class="text-xl text-sub"> wpm</span>
-        </div>
+        <Show
+          when={online() !== undefined}
+          fallback={
+            <div class="text-4xl font-bold text-main">
+              {result?.wpm ?? 0}
+              <span class="text-xl text-sub"> wpm</span>
+            </div>
+          }
+        >
+          <div
+            class={cn(
+              "text-4xl font-bold",
+              verdict() === "won"
+                ? "text-main"
+                : verdict() === "draw"
+                  ? "text-sub"
+                  : "text-error",
+            )}
+            data-testid="sp-verdict"
+          >
+            {verdict() === "won"
+              ? "you win!"
+              : verdict() === "draw"
+                ? "draw"
+                : `${getLanMatch()?.peerName ?? "the opponent"} wins`}
+          </div>
+        </Show>
         <Show when={previous !== undefined}>
           <div
             class={cn("text-sm", better ? "text-main" : "text-error")}
@@ -387,31 +638,80 @@ export function SprintPage(): JSXElement {
             {better ? "▲" : "▼"} best {previous} → {result?.wpm}
           </div>
         </Show>
-        <div class="grid grid-cols-3 gap-2">
+        <div
+          class={cn(
+            "grid gap-2",
+            online() !== undefined ? "grid-cols-5" : "grid-cols-3",
+          )}
+        >
           <HudCell label="raw" value={String(result?.raw ?? 0)} />
           <HudCell label="accuracy" value={`${result?.accuracy ?? 0}%`} />
           <HudCell label="words" value={String(result?.wordsComplete ?? 0)} />
+          <Show when={online() !== undefined}>
+            <HudCell
+              label="opponent words"
+              value={String(online()?.peerWords ?? 0)}
+            />
+            <HudCell
+              label="opponent acc"
+              value={`${online()?.peerAcc ?? 0}%`}
+            />
+          </Show>
         </div>
-        <Show when={mode() === "daily"}>
+        <Show when={online() === undefined && mode() === "daily"}>
           <div class="text-xs text-sub">
             daily sprint — streak {getSprintStats().daily.streak} (best today:{" "}
             {getSprintStats().daily.bestWpm})
           </div>
         </Show>
-        <div class="grid grid-cols-2 gap-2">
-          <Button
-            text={copied() ? "copied!" : "share result"}
-            fa={{ icon: "fa-share-alt" }}
-            class="w-full"
-            onClick={() => void share()}
-          />
-          <Button
-            text="another attempt"
-            fa={{ icon: "fa-redo" }}
-            class="w-full"
-            onClick={() => backToIdle()}
-          />
-        </div>
+        <Show
+          when={online() === undefined}
+          fallback={
+            <div class="grid grid-cols-2 gap-2">
+              <Button
+                text={
+                  rematchSent() ? "rematch requested — waiting…" : "rematch"
+                }
+                fa={{ icon: "fa-redo" }}
+                class="w-full"
+                onClick={() => {
+                  const match = getLanMatch();
+                  if (match === undefined || rematchSent()) return;
+                  if (match.role === "host") {
+                    hostRematch(match);
+                  } else {
+                    sendLanMatchRematch();
+                    setRematchSent(true);
+                  }
+                }}
+              />
+              <Button
+                text="leave to lobby"
+                fa={{ icon: "fa-arrow-left" }}
+                class="w-full"
+                onClick={() => {
+                  clearLanMatch();
+                  void navigate({ to: "/games/online" });
+                }}
+              />
+            </div>
+          }
+        >
+          <div class="grid grid-cols-2 gap-2">
+            <Button
+              text={copied() ? "copied!" : "share result"}
+              fa={{ icon: "fa-share-alt" }}
+              class="w-full"
+              onClick={() => void share()}
+            />
+            <Button
+              text="another attempt"
+              fa={{ icon: "fa-redo" }}
+              class="w-full"
+              onClick={() => backToIdle()}
+            />
+          </div>
+        </Show>
       </section>
     );
   };
@@ -426,6 +726,15 @@ export function SprintPage(): JSXElement {
         </p>
       </section>
 
+      <Show when={lanMode()}>
+        <div
+          class="rounded bg-sub-alt p-2 text-center text-sm font-bold text-main"
+          data-testid="sp-online-vs"
+        >
+          <i class="fas fa-bolt"></i> online vs {getLanMatch()?.peerName ?? "…"}
+        </div>
+      </Show>
+
       <Show when={pagePhase() !== "idle"} fallback={<IdleScreen />}>
         <Show
           when={pagePhase() !== "arming"}
@@ -438,7 +747,17 @@ export function SprintPage(): JSXElement {
             </div>
           }
         >
-          <Show when={pagePhase() === "running"} fallback={<ResultScreen />}>
+          <Show
+            when={pagePhase() === "running"}
+            fallback={
+              <Show
+                when={pagePhase() === "awaiting"}
+                fallback={<ResultScreen />}
+              >
+                <AwaitingScreen />
+              </Show>
+            }
+          >
             <RunningScreen />
           </Show>
         </Show>

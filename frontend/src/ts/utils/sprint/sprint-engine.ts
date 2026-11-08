@@ -40,6 +40,8 @@ export type SprintState = {
   currentWord: string;
   typed: number;
   chars: number;
+  /** momentary-correct characters — live, for the online progress relay */
+  correctChars: number;
   wordsComplete: number;
   voided: boolean;
   result: SprintResult | undefined;
@@ -112,6 +114,7 @@ export function createSprintEngine(options: {
       currentWord,
       typed,
       chars,
+      correctChars,
       wordsComplete,
       voided,
       result,
