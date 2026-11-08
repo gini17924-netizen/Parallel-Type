@@ -10,7 +10,10 @@ import {
 import { Config } from "../../../../config/store";
 import { playTimeWarning } from "../../../../controllers/sound-controller";
 import { navigate } from "../../../../router/navigate";
-import { completeDailyBotDuel } from "../../../../utils/bot-duel/daily";
+import {
+  completeDailyBotDuel,
+  takePendingDailyStage,
+} from "../../../../utils/bot-duel/daily";
 import {
   createDuelEngine,
   type DuelEngine,
@@ -149,6 +152,14 @@ export function BotDuelPage(): JSXElement {
 
   const startRace = async (): Promise<void> => {
     setVoided(false);
+    //KI-40: a pending gauntlet stage locks the tier and length to the
+    //day's table (the word order cycles deterministically already)
+    const stage = takePendingDailyStage("bot-duel");
+    if (stage !== undefined) {
+      const params = stage.params as { botWpm?: number; words?: number };
+      if (params.botWpm !== undefined) setBotWpm(params.botWpm);
+      if (params.words !== undefined) setRaceLength(params.words);
+    }
     if (wordList().length !== raceLength()) {
       try {
         const data = await cachedFetchJson<{ words: string[] }>(

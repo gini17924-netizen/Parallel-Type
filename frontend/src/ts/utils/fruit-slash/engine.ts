@@ -85,7 +85,8 @@ export function createFruitSlashEngine(options: {
   let escaped = 0;
   let bombsTyped = 0;
   let elapsedMs = 0;
-  let spawnAcc = 0;
+  //the first fruit launches on the FIRST tick (no dead second at start)
+  let spawnAcc: number = BALANCE.spawnIntervalStartMs;
   let nextId = 1;
   const fruits: FlyingFruit[] = [];
 

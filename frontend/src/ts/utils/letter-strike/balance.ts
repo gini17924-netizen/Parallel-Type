@@ -7,7 +7,7 @@ export const BALANCE = {
   /** ships die (a life) when their top reaches this vh */
   shipYLimitVh: 94,
   /** ships enter from above the arena */
-  spawnYStartVh: -6,
+  spawnYStartVh: -2,
   /** vertical stagger between the ships of one wave */
   shipSpacingVh: 9,
   lives: 3,

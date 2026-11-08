@@ -7,8 +7,12 @@ import {
 } from "../../../../controllers/sound-controller";
 import { navigate } from "../../../../router/navigate";
 import { cn } from "../../../../utils/cn";
+import { createSeededRng } from "../../../../utils/daily-gauntlet/seeded-rng";
 import { cachedFetchJson } from "../../../../utils/json-data";
-import { completeDailySprint } from "../../../../utils/sprint/daily";
+import {
+  completeDailySprint,
+  takePendingDailyStage,
+} from "../../../../utils/sprint/daily";
 import {
   BALANCE,
   createSprintEngine,
@@ -152,6 +156,10 @@ export function SprintPage(): JSXElement {
   const startAttempt = async (): Promise<void> => {
     setMessage(undefined);
     warningsFired.clear();
+    //KI-40: a pending gauntlet stage seeds the word stream and the arming
+    //delay from the stage's hash — the day replays identically
+    const gauntletStage = takePendingDailyStage("sprint");
+    const stageSeed = gauntletStage?.seed;
     if (wordStream.length === 0) {
       try {
         const data = await cachedFetchJson<{ words: string[] }>(
@@ -161,7 +169,9 @@ export function SprintPage(): JSXElement {
       } catch {
         wordStream = FALLBACK_WORDS;
       }
-      if (mode() === "daily") {
+      if (stageSeed !== undefined) {
+        wordStream = seededShuffle(wordStream, String(stageSeed));
+      } else if (mode() === "daily") {
         wordStream = seededShuffle(
           wordStream,
           `${dayKeyOf(Date.now())}:${Config.language}`,
@@ -172,7 +182,7 @@ export function SprintPage(): JSXElement {
     engine = createSprintEngine({
       next,
       durationMs: BALANCE.durationMs,
-      rng: Math.random,
+      rng: stageSeed !== undefined ? createSeededRng(stageSeed) : Math.random,
     });
     engine.arm(performance.now());
     //KI-35: the engine's construction already consumed next() (which sets

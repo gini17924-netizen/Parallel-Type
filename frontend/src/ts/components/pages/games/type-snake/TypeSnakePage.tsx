@@ -188,6 +188,10 @@ export function TypeSnakePage(): JSXElement {
           style={{
             width: `${BALANCE.cols * CELL_PX}px`,
             height: `${BALANCE.rows * CELL_PX}px`,
+            //KI-48: faint cell lines so the board reads as a grid
+            "background-image":
+              "linear-gradient(color-mix(in srgb, var(--sub-color) 35%, transparent) 1px, transparent 1px), linear-gradient(90deg, color-mix(in srgb, var(--sub-color) 35%, transparent) 1px, transparent 1px)",
+            "background-size": `${CELL_PX}px ${CELL_PX}px`,
           }}
         >
           <For each={engineState()?.snake ?? []}>

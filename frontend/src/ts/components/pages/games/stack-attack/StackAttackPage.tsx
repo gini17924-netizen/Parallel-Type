@@ -218,6 +218,10 @@ export function StackAttackPage(): JSXElement {
             width: `${gridWidthRem}rem`,
             height: `${gridHeightRem}rem`,
             "border-color": "var(--sub-color)",
+            //KI-48: faint cell lines so the playfield reads as a grid
+            "background-image":
+              "linear-gradient(color-mix(in srgb, var(--sub-color) 35%, transparent) 1px, transparent 1px), linear-gradient(90deg, color-mix(in srgb, var(--sub-color) 35%, transparent) 1px, transparent 1px)",
+            "background-size": `${CELL_REM}rem ${CELL_REM}rem`,
           }}
         >
           <Show when={engineState()?.falling !== undefined}>

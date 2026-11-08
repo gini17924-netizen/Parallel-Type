@@ -11,6 +11,7 @@ import { Config } from "../../../config/store";
 import { playClick, playError } from "../../../controllers/sound-controller";
 import { navigate } from "../../../router/navigate";
 import { cn } from "../../../utils/cn";
+import { createSeededRng } from "../../../utils/daily-gauntlet/seeded-rng";
 import { cachedFetchJson } from "../../../utils/json-data";
 import {
   BALANCE,
@@ -31,7 +32,10 @@ import {
   getWordBlastBest,
   recordWordBlastGame,
 } from "../../../utils/word-blast-scores";
-import { completeDailyWordBlast } from "../../../utils/word-blast/daily";
+import {
+  completeDailyWordBlast,
+  takePendingDailyStage,
+} from "../../../utils/word-blast/daily";
 import { Button } from "../../common/Button";
 import { H2 } from "../../common/Headers";
 
@@ -119,15 +123,19 @@ export function GamesPage(): JSXElement {
 
   onCleanup(stopTimers);
 
+  //KI-40: in a daily stage this is the seeded LCG; outside it Math.random
+  let runRng: () => number = Math.random;
+  const rng = (): number => runRng();
+
   const spawn = (): void => {
     spawnCount++;
     //v2 (idea G1): on the heart windows a short glowing word may spawn —
     //completing it grants a life
     let text: string | undefined;
     let isHeart = false;
-    if (shouldSpawnHeart(spawnCount, Math.random)) {
+    if (shouldSpawnHeart(spawnCount, rng)) {
       const short = pools.wordPool.filter((word) => word.length <= 5);
-      const picked = short[Math.floor(Math.random() * short.length)];
+      const picked = short[Math.floor(rng() * short.length)];
       if (picked !== undefined) {
         text = picked;
         isHeart = true;
@@ -142,7 +150,7 @@ export function GamesPage(): JSXElement {
         text,
         typed: 0,
         top: 0,
-        left: 5 + Math.random() * 80,
+        left: 5 + rng() * 80,
         speed: spawnSpeed(level(), difficulty()),
         isHeart,
       },
@@ -212,6 +220,18 @@ export function GamesPage(): JSXElement {
   };
 
   const start = async (): Promise<void> => {
+    //KI-40: a pending daily stage seeds the whole run and locks the
+    //difficulty to the day's table
+    const dailyStage = takePendingDailyStage("word-blast");
+    if (dailyStage !== undefined) {
+      runRng = createSeededRng(dailyStage.seed);
+      selectDifficulty(
+        (dailyStage.params as { difficulty?: Difficulty }).difficulty ??
+          "normal",
+      );
+    } else {
+      runRng = Math.random;
+    }
     try {
       const data = await cachedFetchJson<{ words: string[] }>(
         `/languages/${Config.language}.json`,
@@ -305,7 +325,7 @@ export function GamesPage(): JSXElement {
             text: bossText,
             typed: 0,
             top: 0,
-            left: 5 + Math.random() * 80,
+            left: 5 + rng() * 80,
             speed: spawnSpeed(nextLevel, difficulty()) * BALANCE.bossSpeedMult,
             isBoss: true,
           });
