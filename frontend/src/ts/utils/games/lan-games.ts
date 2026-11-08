@@ -6,6 +6,7 @@ import { lanSplitDuel } from "../split-duel/lan";
 import { lanMaze } from "../maze-runner/lan";
 import { lanClimber } from "../climber/lan";
 import { lanRunner } from "../runner/lan";
+import { lanWordBlast } from "../word-blast/lan";
 import { lanNitro } from "../nitro-run/lan";
 
 /**
@@ -22,4 +23,5 @@ registerLanGame(lanSplitDuel);
 registerLanGame(lanMaze);
 registerLanGame(lanClimber);
 registerLanGame(lanRunner);
+registerLanGame(lanWordBlast);
 registerLanGame(lanNitro);

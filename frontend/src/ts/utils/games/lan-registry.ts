@@ -21,7 +21,8 @@ export type LanGameId =
   | "maze-runner"
   | "nitro-run"
   | "climber"
-  | "runner";
+  | "runner"
+  | "word-blast";
 
 /** what a game's buildStart produces — the caller (the lobby) ships it
  * inside the `start` message; the armed match adds role/peerName/seq */
@@ -47,7 +48,8 @@ export type LanPlayable = {
     | "/games/maze-runner"
     | "/games/nitro-run"
     | "/games/climber"
-    | "/games/runner";
+    | "/games/runner"
+    | "/games/word-blast";
   /** the lobby picker card (English, per the standing rule) */
   label: string;
   icon: FaSolidIcon;
