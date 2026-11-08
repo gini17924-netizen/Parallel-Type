@@ -299,7 +299,8 @@ export function ClimberPage(): JSXElement {
                   : "border-sub bg-bg/60",
               )}
               style={{
-                left: `${50 - PLATFORM_W / 2}px`,
+                //KI-47: 50 here was 50 PIXELS, not 50% — center properly
+                left: `calc(50% - ${PLATFORM_W / 2}px)`,
                 bottom: `${topOf(platform.index)}px`,
                 width: `${PLATFORM_W}px`,
                 height: `${PLATFORM_H}px`,
@@ -327,7 +328,7 @@ export function ClimberPage(): JSXElement {
           style={{
             width: "22px",
             height: "22px",
-            left: `${50 - 11}px`,
+            left: "calc(50% - 11px)",
             bottom: `${topOf(index()) + PLATFORM_H - 8}px`,
             transition: "bottom 200ms ease",
           }}
