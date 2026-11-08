@@ -13,7 +13,7 @@
 import type { FaSolidIcon } from "../../types/font-awesome";
 
 /** the games that have an online mode — grows one entry per phase */
-export type LanGameId = "bot-duel";
+export type LanGameId = "bot-duel" | "sprint";
 
 /** what a game's buildStart produces — the caller (the lobby) ships it
  * inside the `start` message; the armed match adds role/peerName/seq */
@@ -31,7 +31,7 @@ export type LanStartPayload = {
 export type LanPlayable = {
   gameId: LanGameId;
   /** where BOTH players navigate when the match starts */
-  route: string;
+  route: "/games/bot-duel" | "/games/sprint";
   /** the lobby picker card (English, per the standing rule) */
   label: string;
   icon: FaSolidIcon;

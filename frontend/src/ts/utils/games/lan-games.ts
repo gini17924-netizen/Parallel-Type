@@ -1,5 +1,6 @@
 import { registerLanGame } from "./lan-registry";
 import { lanBotDuel } from "../bot-duel/lan";
+import { lanSprint } from "../sprint/lan";
 
 /**
  * The LAN games barrel (online wave, phase 1): importing this module
@@ -9,3 +10,4 @@ import { lanBotDuel } from "../bot-duel/lan";
  */
 
 registerLanGame(lanBotDuel);
+registerLanGame(lanSprint);
