@@ -2591,10 +2591,11 @@ dependencies = [
 
 [[package]]
 name = "paralleltype"
-version = "0.25.0"
+version = "0.26.0"
 dependencies = [
  "serde",
  "serde_json",
+ "socket2",
  "tauri",
  "tauri-build",
  "tauri-plugin-global-shortcut",
