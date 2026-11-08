@@ -1,6 +1,12 @@
-import { JSXElement, Show, createSignal } from "solid-js";
+import { Link } from "@tanstack/solid-router";
+import { For, JSXElement, Show, createSignal } from "solid-js";
 
 import { navigate } from "../../../../router/navigate";
+import { getGauntletStats } from "../../../../utils/daily-gauntlet/store";
+import {
+  GAME_CATEGORIES,
+  gamesOfCategory,
+} from "../../../../utils/games/game-categories";
 import { Button } from "../../../common/Button";
 
 type LandingView = "blocks" | "offline";
@@ -83,15 +89,75 @@ export function GamesLandingPage(): JSXElement {
   };
 
   const Offline = (): JSXElement => {
+    const stats = getGauntletStats();
     return (
-      <section class="grid gap-6">
+      <section class="grid gap-8">
         <div class="text-center">
           <i class="fas fa-plug-circle-check text-3xl text-main"></i>
           <div class="text-3xl font-bold text-main">offline games</div>
-          <div class="text-sub">
-            placeholder — the categories arrive in the next phase
-          </div>
+          <div class="text-sub">every game in six skill categories</div>
         </div>
+        {/*the pinned Daily Gauntlet banner (the owner's placement)*/}
+        <Link
+          to="/games/daily-gauntlet"
+          class="group flex items-center gap-4 rounded border-2 border-main bg-sub-alt p-5 transition-[background] duration-125 hover:bg-text"
+          data-testid="gl-daily"
+        >
+          <i class="fas fa-shield-alt text-3xl text-main transition-colors duration-125 group-hover:text-bg"></i>
+          <div class="grid flex-1 gap-0.5 text-left">
+            <div class="flex items-center gap-2">
+              <span class="text-xl font-bold text-main group-hover:text-bg">
+                Daily Gauntlet
+              </span>
+              <Show when={stats.streak > 0}>
+                <span
+                  class="text-sm font-bold text-error"
+                  data-testid="gl-daily-streak"
+                >
+                  🔥 {stats.streak}
+                </span>
+              </Show>
+            </div>
+            <div class="text-sm text-sub group-hover:text-bg">
+              the three-stage composite challenge of the day — the calendar
+              remembers your streak
+            </div>
+          </div>
+          <i class="fas fa-chevron-right text-sub transition-colors duration-125 group-hover:text-bg"></i>
+        </Link>
+        {/*the six skill categories (every game exactly once)*/}
+        <For each={GAME_CATEGORIES}>
+          {(category) => (
+            <div class="grid gap-3" data-testid="gl-category">
+              <div class="flex items-baseline gap-3">
+                <i class={`fas ${category.icon} text-main`}></i>
+                <div class="text-lg font-bold text-main">{category.title}</div>
+                <div class="text-xs text-sub">{category.description}</div>
+              </div>
+              <div class="grid w-full grid-cols-1 gap-3 md:grid-cols-3">
+                <For each={gamesOfCategory(category.id)}>
+                  {(card) => (
+                    <Link
+                      to={card.route}
+                      class="group flex flex-col items-center gap-2 rounded bg-sub-alt p-6 text-center transition-[background,color] duration-125 hover:bg-text"
+                      data-testid="gl-game-card"
+                    >
+                      <i
+                        class={`fas ${card.icon} text-3xl text-sub transition-colors duration-125 group-hover:text-bg`}
+                      ></i>
+                      <div class="font-bold text-main group-hover:text-bg">
+                        {card.title}
+                      </div>
+                      <div class="text-xs text-sub group-hover:text-bg">
+                        {card.description}
+                      </div>
+                    </Link>
+                  )}
+                </For>
+              </div>
+            </div>
+          )}
+        </For>
         <Button
           text="back"
           fa={{ icon: "fa-arrow-left" }}
