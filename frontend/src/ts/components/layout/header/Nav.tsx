@@ -12,6 +12,7 @@ import { restartTestEvent } from "../../../events/test";
 import { createEffectOn } from "../../../hooks/effects";
 import { useRefWithUtils } from "../../../hooks/useRefWithUtils";
 import { getServerConfigurationQueryOptions } from "../../../queries/server-configuration";
+import { getRouter } from "../../../router/instance";
 import {
   getAccountButtonSpinner,
   getAnimatedLevel,
@@ -77,6 +78,24 @@ export function Nav(): JSXElement {
 
   return (
     <nav class={cn("z-5 flex w-full items-center gap-1 md:gap-2")}>
+      {/* back returns to wherever the user came from — every page except
+          the home hub itself (there it would exit the app's history) */}
+      <Show when={getRoutePage() !== "home"}>
+        <Button
+          variant="text"
+          fa={{
+            icon: "fa-arrow-left",
+            fixedWidth: true,
+          }}
+          dataset={{
+            "data-nav-item": "back",
+          }}
+          class={buttonClass()}
+          onClick={() => {
+            getRouter()?.history.back();
+          }}
+        />
+      </Show>
       {/* home is one click away everywhere else; on the home hub itself it
           would just point at the current page */}
       <Show when={getRoutePage() !== "home"}>
