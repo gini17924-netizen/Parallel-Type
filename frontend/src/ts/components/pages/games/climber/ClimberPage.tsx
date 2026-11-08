@@ -2,6 +2,7 @@ import {
   For,
   JSXElement,
   Show,
+  createEffect,
   createSignal,
   onCleanup,
   onMount,
@@ -9,12 +10,34 @@ import {
 
 import { Config } from "../../../../config/store";
 import { playClick, playError } from "../../../../controllers/sound-controller";
+import { navigate } from "../../../../router/navigate";
+import { isLanConnected, lanPreFillName } from "../../../../states/lan";
+import {
+  armLanMatch,
+  clearLanMatch,
+  getLanMatch,
+  getRemoteFinished,
+  getRemoteProgress,
+  getRematchAsked,
+  sendLanMatchFinished,
+  sendLanMatchProgress,
+  sendLanMatchRematch,
+  sendLanMatchStart,
+  type LanMatch,
+} from "../../../../states/lan-match";
 import { BALANCE } from "../../../../utils/climber/balance";
 import {
   createClimberEngine,
   type ClimberEngine,
   type ClimberState,
 } from "../../../../utils/climber/engine";
+import {
+  climberLanWordFor,
+  lanClimber,
+  resolveClimberVerdict,
+  type ClimberRemoteState,
+  type ClimberVerdict,
+} from "../../../../utils/climber/lan";
 import {
   getClimberBestHeight,
   getClimberBestScore,
@@ -54,7 +77,15 @@ const FALLBACK_WORDS = [
   "lark",
 ];
 
-type PagePhase = "menu" | "playing" | "result";
+type PagePhase = "menu" | "playing" | "awaiting" | "result";
+
+/** the online verdict once both climbers have reported */
+type ClimberOnlineResult = {
+  verdict: ClimberVerdict;
+  myHeight: number;
+  theirHeight: number;
+  theirTimeMs: number | null;
+};
 
 function HudCell(props: {
   label: string;
@@ -83,7 +114,9 @@ function HudCell(props: {
  * unlocked (weak) letters, 30% of the time. A window blur pauses.
  */
 export function ClimberPage(): JSXElement {
-  const [pagePhase, setPagePhase] = createSignal<PagePhase>("menu");
+  const [pagePhase, setPagePhase] = createSignal<PagePhase>(
+    getLanMatch()?.gameId === "climber" ? "playing" : "menu",
+  );
   const [engineState, setEngineState] = createSignal<ClimberState | undefined>(
     undefined,
   );
@@ -91,10 +124,25 @@ export function ClimberPage(): JSXElement {
   const [paused, setPaused] = createSignal(false);
   const [newRecord, setNewRecord] = createSignal(false);
   const [message, setMessage] = createSignal<string | undefined>(undefined);
+  //online (LAN) state — the peer's climb on the same seeded platforms
+  const [remoteState, setRemoteState] = createSignal<
+    ClimberRemoteState | undefined
+  >(undefined);
+  const [onlineResult, setOnlineResult] = createSignal<
+    ClimberOnlineResult | undefined
+  >(undefined);
+  const [rematchSent, setRematchSent] = createSignal(false);
 
   let engine: ClimberEngine | undefined;
   let tickTimer: ReturnType<typeof setInterval> | undefined;
   let flashTimer: ReturnType<typeof setTimeout> | undefined;
+  //reactive: the banner and the tick both read the live target
+  const [targetH, setTargetH] = createSignal(Number.MAX_SAFE_INTEGER);
+  let runStart = 0;
+  let myFinish: { finishMs: number } | undefined;
+  let myFinishSent = false;
+  let lastSentHeight = -1;
+  let lastSentScore = -1;
 
   const stopTimers = (): void => {
     if (tickTimer !== undefined) clearInterval(tickTimer);
@@ -104,6 +152,99 @@ export function ClimberPage(): JSXElement {
   };
 
   onCleanup(stopTimers);
+
+  //leaving mid-climb (header back, route change) tells the peer the
+  //race ended without a finish and disarms — they are never left waiting
+  onCleanup(() => {
+    if (getLanMatch()?.gameId !== "climber") return;
+    if (pagePhase() !== "playing" && pagePhase() !== "awaiting") return;
+    sendLanMatchFinished(null, 0);
+    clearLanMatch();
+  });
+
+  const lanMode = (): boolean => getLanMatch()?.gameId === "climber";
+
+  const resolveOnlineResult = (): void => {
+    const finished = getRemoteFinished();
+    if (myFinish !== undefined) {
+      //I reached the target: the lower finish time wins
+      if (finished === undefined) return;
+      setOnlineResult({
+        verdict: resolveClimberVerdict(myFinish, {
+          finishMs: finished.finishMs ?? Number.MAX_SAFE_INTEGER,
+        }),
+        myHeight: engineState()?.platformIndex ?? 0,
+        theirHeight: remoteState()?.height ?? 0,
+        theirTimeMs: finished.finishMs,
+      });
+    } else {
+      //I died before the target — I can never finish: they win
+      setOnlineResult({
+        verdict: "lost",
+        myHeight: engineState()?.platformIndex ?? 0,
+        theirHeight: remoteState()?.height ?? 0,
+        theirTimeMs: finished?.finishMs ?? null,
+      });
+    }
+    setPagePhase("result");
+  };
+
+  const myFinishNow = (): void => {
+    if (myFinishSent) return;
+    myFinishSent = true;
+    myFinish = { finishMs: Date.now() - runStart };
+    const state = engine?.state();
+    sendLanMatchProgress(
+      lanClimber.encodeProgress({
+        height: state?.platformIndex ?? 0,
+        score: state?.score ?? 0,
+      }),
+    );
+    sendLanMatchFinished(myFinish.finishMs, 100);
+    if (getRemoteFinished() !== undefined) {
+      resolveOnlineResult();
+    } else {
+      setPagePhase("awaiting");
+    }
+  };
+
+  /** the one tick loop both the offline climb and the online race share */
+  const startTickLoop = (): void => {
+    tickTimer = setInterval(() => {
+      if (engine === undefined || paused()) return;
+      const before = engine.state();
+      const state = engine.tick(TICK_MS);
+      setEngineState(state);
+      if (state.totalFalls > before.totalFalls) {
+        setFallFlash(true);
+        if (flashTimer !== undefined) clearTimeout(flashTimer);
+        flashTimer = setTimeout(() => setFallFlash(false), 400);
+        void playError();
+      }
+      //online: relay the climb when it moved
+      if (
+        lanMode() &&
+        (state.platformIndex !== lastSentHeight ||
+          state.score !== lastSentScore)
+      ) {
+        lastSentHeight = state.platformIndex;
+        lastSentScore = state.score;
+        sendLanMatchProgress(
+          lanClimber.encodeProgress({
+            height: state.platformIndex,
+            score: state.score,
+          }),
+        );
+      }
+      //online: the target height ends the race (death would lose it)
+      if (lanMode() && state.platformIndex >= targetH()) {
+        stopTimers();
+        myFinishNow();
+        return;
+      }
+      if (state.phase === "done") endRun();
+    }, TICK_MS);
+  };
 
   const startRun = async (): Promise<void> => {
     setMessage(undefined);
@@ -122,12 +263,12 @@ export function ClimberPage(): JSXElement {
     }
     //the stage≥2 weak-letter pool (read-only, the G9 pattern): pseudo
     //words from the unlocked letters
-    const unlocked = [...unlockedLetters(Config.language)].filter((ch) =>
+    const unlocked = Array.from(unlockedLetters(Config.language)).filter((ch) =>
       /\p{L}/u.test(ch),
     );
     const weakPool =
       unlocked.length >= 2
-        ? generatePseudoWords(unlocked.join(""), 20, pool)
+        ? generatePseudoWords(unlocked.join(""), 20, [...pool])
         : pool;
     let platformCounter = 0;
     const wordFor = (index: number): string => {
@@ -142,24 +283,27 @@ export function ClimberPage(): JSXElement {
     engine = createClimberEngine({ wordFor });
     setEngineState(engine.state());
     setPagePhase("playing");
-    tickTimer = setInterval(() => {
-      if (engine === undefined || paused()) return;
-      const before = engine.state();
-      const state = engine.tick(TICK_MS);
-      setEngineState(state);
-      if (state.totalFalls > before.totalFalls) {
-        setFallFlash(true);
-        if (flashTimer !== undefined) clearTimeout(flashTimer);
-        flashTimer = setTimeout(() => setFallFlash(false), 400);
-        void playError();
-      }
-      if (state.phase === "done") endRun();
-    }, TICK_MS);
+    startTickLoop();
   };
 
   const endRun = (): void => {
     stopTimers();
     const state = engine?.state();
+    if (lanMode()) {
+      //died before the target — I can never finish: the peer takes it
+      if (!myFinishSent) {
+        myFinishSent = true;
+        sendLanMatchFinished(null, 0);
+      }
+      setOnlineResult({
+        verdict: "lost",
+        myHeight: state?.platformIndex ?? 0,
+        theirHeight: remoteState()?.height ?? 0,
+        theirTimeMs: getRemoteFinished()?.finishMs ?? null,
+      });
+      setPagePhase("result");
+      return;
+    }
     if (state?.result !== undefined) {
       const { isNewHeightRecord, isNewScoreRecord } = recordClimberRun({
         height: state.result.height,
@@ -191,6 +335,7 @@ export function ClimberPage(): JSXElement {
     window.addEventListener("keydown", handleKey);
     const onBlur = (): void => {
       if (pagePhase() !== "playing") return;
+      if (lanMode()) return; //online: the timers keep draining — no pause
       setPaused(true);
     };
     const onFocus = (): void => {
@@ -205,7 +350,105 @@ export function ClimberPage(): JSXElement {
     });
   });
 
+  const hostRematch = (match: LanMatch): void => {
+    //arm first: a refused start never reaches the wire
+    armLanMatch({
+      role: "host",
+      peerName: match.peerName,
+      start: match.start,
+    });
+    if (getLanMatch() === undefined) return;
+    sendLanMatchStart(match.start, lanPreFillName() || "P1");
+  };
+
+  //an armed (or re-armed) climber match IS the online start: the seed
+  //builds the identical platforms, the race to the target height begins
+  createEffect(() => {
+    const match = getLanMatch();
+    if (match?.gameId !== "climber") return;
+    void (async () => {
+      const lang =
+        typeof match.start.params["lang"] === "string"
+          ? match.start.params["lang"]
+          : "english";
+      const height = match.start.params["height"];
+      let pool: string[] = FALLBACK_WORDS;
+      try {
+        const data = await cachedFetchJson<{ words: string[] }>(
+          `/languages/${lang}.json`,
+        );
+        const filtered = [
+          ...new Set(data.words.map((word) => word.toLowerCase())),
+        ].filter((word) => /^\p{L}{3,6}$/u.test(word));
+        if (filtered.length >= 30) pool = filtered;
+      } catch {
+        //offline fallback list
+      }
+      setOnlineResult(undefined);
+      setRematchSent(false);
+      setRemoteState(undefined);
+      setNewRecord(false);
+      setPaused(false);
+      myFinish = undefined;
+      myFinishSent = false;
+      lastSentHeight = -1;
+      lastSentScore = -1;
+      setTargetH(
+        typeof height === "number" && height > 0 ? Math.floor(height) : 30,
+      );
+      runStart = Date.now();
+      engine = createClimberEngine({
+        wordFor: climberLanWordFor(pool, match.start.seed ?? 1),
+      });
+      setEngineState(engine.state());
+      setPagePhase("playing");
+      startTickLoop();
+    })();
+  });
+
+  //the relayed peer progress lands decoded — the HUD reads it inline
+  createEffect(() => {
+    const progress = getRemoteProgress();
+    if (progress === undefined) return;
+    setRemoteState(progress.state as ClimberRemoteState);
+  });
+
+  //the peer's finish resolves the held verdict (or arrived before mine)
+  createEffect(() => {
+    if (pagePhase() !== "awaiting") return;
+    if (getRemoteFinished() === undefined) return;
+    resolveOnlineResult();
+  });
+
+  //the host answers a rematch request by re-sending the same start
+  createEffect(() => {
+    const match = getLanMatch();
+    if (match?.role !== "host" || match.gameId !== "climber") return;
+    if (!getRematchAsked()) return;
+    hostRematch(match);
+  });
+
+  //a disconnect during the climb voids it — nothing online is recorded
+  createEffect(() => {
+    if (getLanMatch()?.gameId !== "climber") return;
+    if (isLanConnected()) return;
+    if (pagePhase() !== "playing" && pagePhase() !== "awaiting") return;
+    stopTimers();
+    engine = undefined;
+    clearLanMatch();
+    setMessage("the opponent left — race void, nothing was recorded");
+    setPagePhase("menu");
+  });
+
   const backToMenu = (): void => {
+    if (lanMode()) {
+      //leaving online: the same clean leave
+      if (!myFinishSent) {
+        myFinishSent = true;
+        sendLanMatchFinished(null, 0);
+      }
+      clearLanMatch();
+    }
     stopTimers();
     engine = undefined;
     setEngineState(undefined);
@@ -336,6 +579,28 @@ export function ClimberPage(): JSXElement {
         >
           ▲
         </div>
+        {/*online: the peer's marker when they are inside my window*/}
+        <Show
+          when={
+            lanMode() &&
+            (remoteState()?.height ?? -1) >= lowest() &&
+            (remoteState()?.height ?? -1) <= lowest() + platforms().length
+          }
+        >
+          <div
+            class="absolute grid place-items-center rounded-full border-2 border-error bg-bg/40 text-[9px] font-bold text-error"
+            style={{
+              width: "20px",
+              height: "20px",
+              right: "calc(50% - 11px)",
+              bottom: `${topOf(remoteState()?.height ?? 0) + PLATFORM_H - 8}px`,
+              transition: "bottom 200ms ease",
+            }}
+            data-testid="cl-peer"
+          >
+            ▲
+          </div>
+        </Show>
         {/*the pressure ring (conic-gradient)*/}
         <div
           class="absolute grid place-items-center rounded-full"
@@ -383,6 +648,94 @@ export function ClimberPage(): JSXElement {
           type it to jump — a wrong key restarts the word
         </div>
       </div>
+    );
+  };
+
+  const AwaitingScreen = (): JSXElement => {
+    return (
+      <section class="grid place-items-center rounded bg-sub-alt py-16 text-center">
+        <div class="text-2xl font-bold text-main" data-testid="cl-awaiting">
+          you reached {targetH()} in{" "}
+          {((myFinish?.finishMs ?? 0) / 1000).toFixed(1)}s — waiting for{" "}
+          {getLanMatch()?.peerName ?? "the opponent"}…
+        </div>
+      </section>
+    );
+  };
+
+  const OnlineResultScreen = (): JSXElement => {
+    const online = (): ClimberOnlineResult | undefined => onlineResult();
+    const verdict = online()?.verdict;
+    return (
+      <section class="grid gap-4 rounded bg-sub-alt p-6 text-center">
+        <div
+          class={cn(
+            "text-3xl font-bold",
+            verdict === "won"
+              ? "text-main"
+              : verdict === "draw"
+                ? "text-sub"
+                : "text-error",
+          )}
+          data-testid="cl-verdict"
+        >
+          {verdict === "won"
+            ? "you win!"
+            : verdict === "draw"
+              ? "draw"
+              : verdict === "lost" && myFinish === undefined
+                ? `you fell — ${getLanMatch()?.peerName ?? "the opponent"} takes it`
+                : `${getLanMatch()?.peerName ?? "the opponent"} wins`}
+        </div>
+        <div class="grid grid-cols-2 gap-2">
+          <div class="rounded bg-bg p-3">
+            <div class="text-xl font-bold text-main tabular-nums">
+              {online()?.myHeight ?? 0} ·{" "}
+              {myFinish !== undefined
+                ? `${((myFinish.finishMs ?? 0) / 1000).toFixed(1)}s`
+                : "fell"}
+            </div>
+            <div class="text-xs text-sub">you</div>
+          </div>
+          <div class="rounded bg-bg p-3">
+            <div class="text-xl font-bold text-main tabular-nums">
+              {online()?.theirHeight ?? 0} ·{" "}
+              {online()?.theirTimeMs === null
+                ? "climbing"
+                : `${((online()?.theirTimeMs ?? 0) / 1000).toFixed(1)}s`}
+            </div>
+            <div class="text-xs text-sub">
+              {getLanMatch()?.peerName ?? "the opponent"}
+            </div>
+          </div>
+        </div>
+        <div class="grid grid-cols-2 gap-2">
+          <Button
+            text={rematchSent() ? "rematch requested — waiting…" : "rematch"}
+            fa={{ icon: "fa-redo" }}
+            class="w-full"
+            onClick={() => {
+              const match = getLanMatch();
+              if (match === undefined || rematchSent()) return;
+              if (match.role === "host") {
+                hostRematch(match);
+              } else {
+                sendLanMatchRematch();
+                setRematchSent(true);
+              }
+            }}
+          />
+          <Button
+            text="leave to lobby"
+            fa={{ icon: "fa-arrow-left" }}
+            class="w-full"
+            onClick={() => {
+              clearLanMatch();
+              void navigate({ to: "/games/online" });
+            }}
+          />
+        </div>
+      </section>
     );
   };
 
@@ -447,8 +800,31 @@ export function ClimberPage(): JSXElement {
           jump, the clock is the fall.
         </p>
       </section>
+      <Show when={lanMode()}>
+        <div
+          class="rounded bg-sub-alt p-2 text-center text-sm font-bold text-main"
+          data-testid="cl-online-vs"
+        >
+          <i class="fas fa-arrow-up"></i> online vs{" "}
+          {getLanMatch()?.peerName ?? "…"} — first to {targetH()} platforms wins
+        </div>
+      </Show>
       <Show when={pagePhase() !== "menu"} fallback={<Menu />}>
-        <Show when={pagePhase() === "playing"} fallback={<ResultScreen />}>
+        <Show
+          when={pagePhase() === "playing"}
+          fallback={
+            <Show
+              when={pagePhase() === "awaiting"}
+              fallback={
+                <Show when={lanMode()} fallback={<ResultScreen />}>
+                  <OnlineResultScreen />
+                </Show>
+              }
+            >
+              <AwaitingScreen />
+            </Show>
+          }
+        >
           <div class="grid grid-cols-4 gap-2" aria-label="sky climber hud">
             <HudCell
               label="height"
