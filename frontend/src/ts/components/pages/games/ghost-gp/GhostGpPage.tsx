@@ -2,18 +2,43 @@ import {
   For,
   JSXElement,
   Show,
+  createEffect,
   createSignal,
   onCleanup,
   onMount,
 } from "solid-js";
 
-import type { DuelState } from "../../../../utils/bot-duel/duel-engine";
+import type { BotDuelProgress } from "../../../../utils/bot-duel/lan";
 
 import { Config } from "../../../../config/store";
 import { playTimeWarning } from "../../../../controllers/sound-controller";
 import { getLocalPB } from "../../../../db";
+import { navigate } from "../../../../router/navigate";
+import { isLanConnected, lanPreFillName } from "../../../../states/lan";
+import {
+  armLanMatch,
+  clearLanMatch,
+  getLanMatch,
+  getRemoteFinished,
+  getRemoteProgress,
+  getRematchAsked,
+  sendLanMatchFinished,
+  sendLanMatchProgress,
+  sendLanMatchRematch,
+  sendLanMatchStart,
+  type LanMatch,
+} from "../../../../states/lan-match";
 import { getLastResult } from "../../../../states/snapshot";
 import { getActiveFunboxes } from "../../../../test/funbox/list";
+import {
+  createDuelEngine,
+  type DuelState,
+  type DuelPhase,
+} from "../../../../utils/bot-duel/duel-engine";
+import {
+  createRemotePacer,
+  type RemotePacer,
+} from "../../../../utils/bot-duel/remote-pacer";
 import { cn } from "../../../../utils/cn";
 import {
   curveGhostFromChartData,
@@ -24,6 +49,7 @@ import {
 } from "../../../../utils/ghost-gp/ghost-source";
 import { createGpEngine } from "../../../../utils/ghost-gp/gp-engine";
 import { recordGhostRace } from "../../../../utils/ghost-gp/gp-store";
+import { gpLanStream, lanGhostGp } from "../../../../utils/ghost-gp/lan";
 import { cachedFetchJson } from "../../../../utils/json-data";
 import { loadLocalHeavyResult } from "../../../../utils/local-persistence";
 import * as Misc from "../../../../utils/misc";
@@ -47,8 +73,17 @@ const RACE_LENGTHS = [
   { id: "long", label: "long", words: 60 },
 ] as const;
 
-type PagePhase = "picker" | "countdown" | "duel" | "result";
+type PagePhase = "picker" | "countdown" | "duel" | "awaiting" | "result";
 type GhostKind = "last" | "pb";
+
+/** the online verdict once the peer's finish is known (the engine's own
+ * phase can be stale — their crossing may predate my completion) */
+type GpOnlineResult = {
+  phase: DuelPhase;
+  winnerAtMs: number | undefined;
+  margin: string | undefined;
+  opponentAcc: number | undefined;
+};
 
 /** fills the race to the requested length by cycling the language pool */
 function buildRaceWords(pool: string[], raceWords: number): string[] {
@@ -67,7 +102,9 @@ function buildRaceWords(pool: string[], raceWords: number): string[] {
  * recording anything. The game never writes results/PBs/XP.
  */
 export function GhostGpPage(): JSXElement {
-  const [pagePhase, setPagePhase] = createSignal<PagePhase>("picker");
+  const [pagePhase, setPagePhase] = createSignal<PagePhase>(
+    getLanMatch()?.gameId === "ghost-gp" ? "countdown" : "picker",
+  );
   const [ghostKind, setGhostKind] = createSignal<GhostKind>("last");
   const [raceLength, setRaceLength] = createSignal<number>(20);
   const [wordList, setWordList] = createSignal<string[]>([]);
@@ -84,8 +121,19 @@ export function GhostGpPage(): JSXElement {
   );
   const [ghost, setGhost] = createSignal<Ghost | undefined>(undefined);
   const [ghostLabel, setGhostLabel] = createSignal("ghost");
+  const [voidText, setVoidText] = createSignal(
+    "race void — the window lost focus, nothing was recorded",
+  );
+  //online (LAN) state — the opponent replaces the ghost
+  const [onlineResult, setOnlineResult] = createSignal<
+    GpOnlineResult | undefined
+  >(undefined);
+  const [rematchSent, setRematchSent] = createSignal(false);
 
   let engine: ReturnType<typeof createGpEngine> | undefined;
+  let remotePacer: RemotePacer | undefined;
+  let engineStartedAt = 0;
+  let myFinishSent = false;
   let tickTimer: ReturnType<typeof setInterval> | undefined;
   let countdownTimer: ReturnType<typeof setInterval> | undefined;
   let flashTimer: ReturnType<typeof setTimeout> | undefined;
@@ -100,6 +148,30 @@ export function GhostGpPage(): JSXElement {
   };
 
   onCleanup(stopTimers);
+
+  //leaving mid-race (header back, route change) tells the peer the race
+  //ended without a completion and disarms — they are never left waiting
+  onCleanup(() => {
+    if (getLanMatch()?.gameId !== "ghost-gp") return;
+    if (
+      pagePhase() !== "countdown" &&
+      pagePhase() !== "duel" &&
+      pagePhase() !== "awaiting"
+    ) {
+      return;
+    }
+    if (!myFinishSent) {
+      myFinishSent = true;
+      sendLanMatchFinished(null, 0);
+    }
+    clearLanMatch();
+  });
+
+  const lanMode = (): boolean => getLanMatch()?.gameId === "ghost-gp";
+
+  /** online matches race over the host's seeded length, not the picker's */
+  const totalWords = (): number =>
+    lanMode() ? wordList().length : raceLength();
 
   /** live accuracy percent (0 while nothing was typed) */
   const accuracy = (state: DuelState): number => {
@@ -162,14 +234,8 @@ export function GhostGpPage(): JSXElement {
     return g.kind === "curve" ? g.averageWpm : g.wpm;
   };
 
-  const startCountdown = (date: string | undefined): void => {
-    const g = ghost();
-    if (g === undefined) return;
-    setGhostLabel(
-      `${g.label} · ${ghostWpm()}wpm${date !== undefined ? ` · ${date}` : ""}${
-        g.kind === "curve" ? " (curve)" : ""
-      }`,
-    );
+  /** the shared countdown mechanics (offline ghosts and the online peer) */
+  const runCountdown = (): void => {
     setPagePhase("countdown");
     setCountdown(3);
     void playTimeWarning();
@@ -185,11 +251,34 @@ export function GhostGpPage(): JSXElement {
     }, COUNTDOWN_STEP_MS);
   };
 
-  const beginDuel = (): void => {
+  const startCountdown = (date: string | undefined): void => {
     const g = ghost();
     if (g === undefined) return;
-    engine = createGpEngine({ words: wordList(), ghost: g });
+    setGhostLabel(
+      `${g.label} · ${ghostWpm()}wpm${date !== undefined ? ` · ${date}` : ""}${
+        g.kind === "curve" ? " (curve)" : ""
+      }`,
+    );
+    runCountdown();
+  };
+
+  const beginDuel = (): void => {
+    if (lanMode()) {
+      remotePacer = createRemotePacer(wordList());
+      engine = createDuelEngine({
+        words: wordList(),
+        botWpm: 0,
+        pacer: remotePacer,
+      });
+    } else {
+      const g = ghost();
+      if (g === undefined) return;
+      remotePacer = undefined;
+      engine = createGpEngine({ words: wordList(), ghost: g });
+    }
     engine.start(performance.now());
+    engineStartedAt = performance.now();
+    myFinishSent = false;
     setTyped(0);
     setWordErrors(0);
     setPagePhase("duel");
@@ -229,21 +318,72 @@ export function GhostGpPage(): JSXElement {
     //phase 3: the last-run ghost tries the record's real per-second curve
     //(the heavy store's chartData) — stripped rows, "toolong" charts and
     //short bursts fall back to the constant ghost of the result's wpm
-    let ghost: Ghost = resolved.ghost;
+    let resolvedGhost: Ghost = resolved.ghost;
     if (ghostKind() === "last" && last !== undefined) {
       const heavy = await loadLocalHeavyResult(last._id);
-      ghost = curveGhostFromChartData(
+      resolvedGhost = curveGhostFromChartData(
         heavy?.chartData,
         resolved.ghost.wpm,
         resolved.ghost.label,
       );
     }
-    setGhost(ghost);
+    setGhost(resolvedGhost);
     startCountdown(date);
+  };
+
+  /** the finish verdict in the aligned frames: the smaller reported time
+   * wins; a peer without a completion loses; the exact tie is a draw */
+  const finalizeOnline = (state: DuelState): void => {
+    const remote = getRemoteFinished();
+    const myAt = state.finishedAtMs;
+    let phase: DuelPhase = state.phase;
+    let winnerAtMs: number | undefined = myAt;
+    let margin: string | undefined;
+    if (phase === "playerWon" && remote !== undefined) {
+      const theirAt = remote.finishMs;
+      if (theirAt === null) {
+        phase = "playerWon";
+      } else if (myAt === undefined || theirAt < myAt) {
+        phase = "botWon";
+        winnerAtMs = theirAt;
+      } else if (theirAt === myAt) {
+        phase = "draw";
+      } else {
+        phase = "playerWon";
+      }
+      if (theirAt !== null && myAt !== undefined) {
+        margin = `${(Math.abs(myAt - theirAt) / 1000).toFixed(2)}s`;
+      }
+    }
+    setOnlineResult({
+      phase,
+      winnerAtMs,
+      margin,
+      opponentAcc: remote?.acc,
+    });
+    setPagePhase("result");
+  };
+
+  const endOnlineRace = (state: DuelState): void => {
+    if (!myFinishSent) {
+      myFinishSent = true;
+      sendLanMatchFinished(null, accuracy(state));
+    }
+    const remote = getRemoteFinished();
+    if (state.phase === "playerWon" && remote === undefined) {
+      //I crossed first — hold the verdict until their finish lands
+      setPagePhase("awaiting");
+      return;
+    }
+    finalizeOnline(state);
   };
 
   const endRace = (state: DuelState): void => {
     stopTimers();
+    if (lanMode()) {
+      endOnlineRace(state);
+      return;
+    }
     const result =
       state.phase === "playerWon"
         ? "won"
@@ -261,6 +401,7 @@ export function GhostGpPage(): JSXElement {
   };
 
   const voidRace = (): void => {
+    if (lanMode()) return; //online: a blur cannot cheat the local clock
     if (pagePhase() !== "duel" && pagePhase() !== "countdown") return;
     stopTimers();
     engine = undefined;
@@ -297,6 +438,22 @@ export function GhostGpPage(): JSXElement {
         );
         setTyped(0);
         setWordErrors(0);
+        if (remotePacer !== undefined) {
+          const after = engine.state();
+          sendLanMatchProgress(
+            lanGhostGp.encodeProgress({
+              wordIndex: after.playerWordIndex,
+              correctChars: after.playerCorrectChars,
+            }),
+          );
+          if (after.playerWordIndex >= totalWords() && !myFinishSent) {
+            myFinishSent = true;
+            sendLanMatchFinished(
+              performance.now() - engineStartedAt,
+              accuracy(after),
+            );
+          }
+        }
       } else {
         setTyped(nextTyped);
       }
@@ -315,23 +472,121 @@ export function GhostGpPage(): JSXElement {
     });
   });
 
+  const hostRematch = (match: LanMatch): void => {
+    //arm first: a refused start never reaches the wire
+    armLanMatch({
+      role: "host",
+      peerName: match.peerName,
+      start: match.start,
+    });
+    if (getLanMatch() === undefined) return;
+    sendLanMatchStart(match.start, lanPreFillName() || "P1");
+  };
+
+  //an armed (or re-armed) gp match IS the online start: the seed builds
+  //the shared stream, the remote pacer replaces the ghost, the countdown
+  //begins on mount and on rematch
+  createEffect(() => {
+    const match = getLanMatch();
+    if (match?.gameId !== "ghost-gp") return;
+    void (async () => {
+      let pool: string[] = [];
+      const lang = match.start.params["lang"];
+      try {
+        const data = await cachedFetchJson<{ words: string[] }>(
+          `/languages/${typeof lang === "string" ? lang : Config.language}.json`,
+        );
+        pool = data.words;
+      } catch {
+        pool = [];
+      }
+      setOnlineResult(undefined);
+      setRematchSent(false);
+      setVoided(false);
+      setWordList(gpLanStream(pool, match.start.seed ?? 1));
+      remotePacer = createRemotePacer(wordList());
+      setGhostLabel(`${match.peerName} — online`);
+      runCountdown();
+    })();
+  });
+
+  //the relayed peer progress feeds the remote pacer (our race frame)
+  createEffect(() => {
+    const progress = getRemoteProgress();
+    if (progress === undefined || remotePacer === undefined) return;
+    //the registry decode already shaped this state (the word-index pair)
+    const state = progress.state as BotDuelProgress;
+    remotePacer.onProgress(
+      state.wordIndex,
+      Math.max(0, progress.arrivalPerf - engineStartedAt),
+    );
+  });
+  createEffect(() => {
+    const finished = getRemoteFinished();
+    if (finished === undefined || remotePacer === undefined) return;
+    remotePacer.onFinished(
+      finished.finishMs,
+      Math.max(0, finished.arrivalPerf - engineStartedAt),
+    );
+  });
+
+  //the peer's finish resolves the held verdict
+  createEffect(() => {
+    if (pagePhase() !== "awaiting") return;
+    if (getRemoteFinished() === undefined) return;
+    const state = duelState();
+    if (state !== undefined) finalizeOnline(state);
+  });
+
+  //the host answers a rematch request by re-sending the same start
+  createEffect(() => {
+    const match = getLanMatch();
+    if (match?.role !== "host" || match.gameId !== "ghost-gp") return;
+    if (!getRematchAsked()) return;
+    hostRematch(match);
+  });
+
+  //a disconnect during the race voids it — nothing online is recorded
+  createEffect(() => {
+    if (getLanMatch()?.gameId !== "ghost-gp") return;
+    if (isLanConnected()) return;
+    if (
+      pagePhase() !== "countdown" &&
+      pagePhase() !== "duel" &&
+      pagePhase() !== "awaiting"
+    ) {
+      return;
+    }
+    stopTimers();
+    engine = undefined;
+    remotePacer = undefined;
+    clearLanMatch();
+    setVoidText("the opponent left — race void, nothing was recorded");
+    setVoided(true);
+    setPagePhase("picker");
+  });
+
   const currentWord = (): string =>
     wordList()[duelState()?.playerWordIndex ?? 0] ?? "";
   const ghostWord = (): string => {
-    const index = Math.min(duelState()?.botWordIndex ?? 0, raceLength() - 1);
+    const index = Math.min(duelState()?.botWordIndex ?? 0, totalWords() - 1);
     return wordList()[index] ?? "";
   };
   const progress = (wordIndex: number): number =>
-    Math.min(100, Math.round((wordIndex / raceLength()) * 100));
+    Math.min(100, Math.round((wordIndex / totalWords()) * 100));
+
+  const opponentLabel = (): string => getLanMatch()?.peerName ?? "the ghost";
+  const resultPhase = (): DuelPhase =>
+    onlineResult()?.phase ?? duelState()?.phase ?? "draw";
+  const resultFinishMs = (): number | undefined =>
+    onlineResult()?.winnerAtMs ?? duelState()?.finishedAtMs;
 
   const GhostPicker = (): JSXElement => {
     const last = getLastResult();
     return (
       <section class="grid gap-4 rounded bg-sub-alt p-4">
         <Show when={voided()}>
-          <div class="text-error">
-            race void — the window lost focus, nothing was recorded
-          </div>
+          <div class="text-error">{voidText()}</div>
         </Show>
         <Show when={sourceMessage() !== undefined}>
           <div class="text-error">{sourceMessage()}</div>
@@ -381,10 +636,25 @@ export function GhostGpPage(): JSXElement {
     );
   };
 
+  const AwaitingScreen = (): JSXElement => {
+    return (
+      <section class="grid place-items-center rounded bg-sub-alt py-16 text-center">
+        <div class="text-2xl font-bold text-main" data-testid="gp-awaiting">
+          waiting for {opponentLabel()} to finish…
+        </div>
+        <div class="pt-2 text-sub">
+          you crossed in {((duelState()?.finishedAtMs ?? 0) / 1000).toFixed(2)}s
+          — the verdict lands when they do
+        </div>
+      </section>
+    );
+  };
+
   const ResultOverlay = (): JSXElement => {
     const state = duelState();
-    const won = state?.phase === "playerWon";
-    const draw = state?.phase === "draw";
+    const online = (): GpOnlineResult | undefined => onlineResult();
+    const won = resultPhase() === "playerWon";
+    const draw = resultPhase() === "draw";
     return (
       <section class="grid gap-4 rounded bg-sub-alt p-6 text-center">
         <div
@@ -393,14 +663,29 @@ export function GhostGpPage(): JSXElement {
             won ? "text-main" : draw ? "text-sub" : "text-error",
           )}
         >
-          {won ? "you beat the ghost!" : draw ? "dead heat" : "the ghost wins"}
+          {won
+            ? lanMode()
+              ? "you win!"
+              : "you beat the ghost!"
+            : draw
+              ? lanMode()
+                ? "draw"
+                : "dead heat"
+              : lanMode()
+                ? `${opponentLabel()} wins`
+                : "the ghost wins"}
         </div>
-        <div class="grid grid-cols-3 gap-2">
+        <div
+          class={cn(
+            "grid gap-2",
+            online()?.margin !== undefined ? "grid-cols-4" : "grid-cols-3",
+          )}
+        >
           <div class="rounded bg-bg p-3">
             <div class="text-xl font-bold text-main tabular-nums">
-              {state?.finishedAtMs === undefined
+              {resultFinishMs() === undefined
                 ? "—"
-                : `${(state.finishedAtMs / 1000).toFixed(2)}s`}
+                : `${((resultFinishMs() ?? 0) / 1000).toFixed(2)}s`}
             </div>
             <div class="text-xs text-sub">finish</div>
           </div>
@@ -410,36 +695,88 @@ export function GhostGpPage(): JSXElement {
             </div>
             <div class="text-xs text-sub">accuracy</div>
           </div>
-          <div class="rounded bg-bg p-3">
-            <div class="text-xl font-bold text-main tabular-nums">
-              {ghostWpm()}
+          <Show
+            when={online() !== undefined}
+            fallback={
+              <div class="rounded bg-bg p-3">
+                <div class="text-xl font-bold text-main tabular-nums">
+                  {ghostWpm()}
+                </div>
+                <div class="text-xs text-sub">ghost wpm</div>
+              </div>
+            }
+          >
+            <div class="rounded bg-bg p-3" data-testid="gp-margin">
+              <div class="text-xl font-bold text-main tabular-nums">
+                {online()?.margin}
+              </div>
+              <div class="text-xs text-sub">margin</div>
             </div>
-            <div class="text-xs text-sub">ghost wpm</div>
+            <div class="rounded bg-bg p-3">
+              <div class="text-xl font-bold text-main tabular-nums">
+                {online()?.opponentAcc ?? 0}%
+              </div>
+              <div class="text-xs text-sub">opponent</div>
+            </div>
+          </Show>
+        </div>
+        <Show
+          when={online() === undefined}
+          fallback={
+            <div class="grid grid-cols-2 gap-2">
+              <Button
+                text={
+                  rematchSent() ? "rematch requested — waiting…" : "rematch"
+                }
+                fa={{ icon: "fa-redo" }}
+                class="w-full"
+                onClick={() => {
+                  const match = getLanMatch();
+                  if (match === undefined || rematchSent()) return;
+                  if (match.role === "host") {
+                    hostRematch(match);
+                  } else {
+                    sendLanMatchRematch();
+                    setRematchSent(true);
+                  }
+                }}
+              />
+              <Button
+                text="leave to lobby"
+                fa={{ icon: "fa-arrow-left" }}
+                class="w-full"
+                onClick={() => {
+                  clearLanMatch();
+                  void navigate({ to: "/games/online" });
+                }}
+              />
+            </div>
+          }
+        >
+          <div class="text-xs text-sub">
+            want a fresh ghost? type a new test — your latest run becomes it
           </div>
-        </div>
-        <div class="text-xs text-sub">
-          want a fresh ghost? type a new test — your latest run becomes it
-        </div>
-        <div class="grid grid-cols-2 gap-2">
-          <Button
-            text="rematch (same words)"
-            fa={{ icon: "fa-redo" }}
-            class="w-full"
-            onClick={() => {
-              setVoided(false);
-              startCountdown(undefined);
-            }}
-          />
-          <Button
-            text="change race"
-            fa={{ icon: "fa-sliders-h" }}
-            class="w-full"
-            onClick={() => {
-              setVoided(false);
-              setPagePhase("picker");
-            }}
-          />
-        </div>
+          <div class="grid grid-cols-2 gap-2">
+            <Button
+              text="rematch (same words)"
+              fa={{ icon: "fa-redo" }}
+              class="w-full"
+              onClick={() => {
+                setVoided(false);
+                startCountdown(undefined);
+              }}
+            />
+            <Button
+              text="change race"
+              fa={{ icon: "fa-sliders-h" }}
+              class="w-full"
+              onClick={() => {
+                setVoided(false);
+                setPagePhase("picker");
+              }}
+            />
+          </div>
+        </Show>
       </section>
     );
   };
@@ -447,7 +784,14 @@ export function GhostGpPage(): JSXElement {
   const DuelAndResult = (): JSXElement => {
     const state = (): DuelState | undefined => duelState();
     return (
-      <Show when={pagePhase() === "duel"} fallback={<ResultOverlay />}>
+      <Show
+        when={pagePhase() === "duel"}
+        fallback={
+          <Show when={pagePhase() === "awaiting"} fallback={<ResultOverlay />}>
+            <AwaitingScreen />
+          </Show>
+        }
+      >
         <section class="grid gap-2">
           <div
             class="relative h-10 w-full rounded bg-sub-alt"
@@ -463,8 +807,18 @@ export function GhostGpPage(): JSXElement {
               class="absolute top-4 grid place-items-center text-sub"
               style={{ left: `${progress(state()?.botWordIndex ?? 0)}%` }}
             >
-              <i class="fas fa-ghost" title={ghostLabel()}></i>
-              <span class="text-[0.6rem]">{ghostWpm()}wpm</span>
+              <Show
+                when={lanMode()}
+                fallback={
+                  <>
+                    <i class="fas fa-ghost" title={ghostLabel()}></i>
+                    <span class="text-[0.6rem]">{ghostWpm()}wpm</span>
+                  </>
+                }
+              >
+                <i class="fas fa-user-friends" title={ghostLabel()}></i>
+                <span class="text-[0.6rem]">{opponentLabel()}</span>
+              </Show>
             </div>
           </div>
           <div class="text-center text-lg">
@@ -494,7 +848,8 @@ export function GhostGpPage(): JSXElement {
             <span>{currentWord().slice(typed())}</span>
           </div>
           <div class="pt-4 text-sm text-sub" dir="auto">
-            ghost is typing: {ghostWord()}
+            {lanMode() ? `${opponentLabel()} is typing` : "ghost is typing"}:{" "}
+            {ghostWord()}
           </div>
         </section>
       </Show>
@@ -510,6 +865,15 @@ export function GhostGpPage(): JSXElement {
           same word sequence you type. Nothing here touches your results.
         </p>
       </section>
+
+      <Show when={lanMode()}>
+        <div
+          class="rounded bg-sub-alt p-2 text-center text-sm font-bold text-main"
+          data-testid="gp-online-vs"
+        >
+          <i class="fas fa-user-friends"></i> online vs {opponentLabel()}
+        </div>
+      </Show>
 
       <Show
         when={pagePhase() === "picker"}

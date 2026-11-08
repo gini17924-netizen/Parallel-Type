@@ -7,6 +7,15 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import type { SnapshotResult } from "../../../../src/ts/constants/default-snapshot";
 
+import {
+  _resetLanStateForTests,
+  lanStartHost,
+} from "../../../../src/ts/states/lan";
+import {
+  _resetLanMatchForTests,
+  armLanMatch,
+  handleLanPeerMessage,
+} from "../../../../src/ts/states/lan-match";
 import { setLastResult } from "../../../../src/ts/states/snapshot";
 import {
   _resetGhostGpStatsForTests,
@@ -155,5 +164,177 @@ describe("ghost gp page (idea G3 phase 2)", () => {
     expect(pageText(app)).toContain("race void");
     expect(pageText(app)).toContain("start race"); //back at the picker
     expect(window.localStorage.getItem(GHOST_GP_STATS_KEY)).toBeNull();
+  });
+});
+
+/** the tauri fake for the online tests: records the invokes and captures
+ * the event listeners so the spec can fire the Rust-side events */
+function installTauriMock(): {
+  invokes: { cmd: string; args: Record<string, unknown> }[];
+  fire: (ev: string, payload: unknown) => void;
+} {
+  const invokes: { cmd: string; args: Record<string, unknown> }[] = [];
+  const handlers = new Map<string, ((e: { payload: unknown }) => void)[]>();
+  (window as unknown as { __TAURI__: unknown }).__TAURI__ = {
+    core: {
+      invoke: async (cmd: string, args?: Record<string, unknown>) => {
+        invokes.push({ cmd, args: args ?? {} });
+        if (cmd === "lan_start_host") {
+          return {
+            sessionId: "lan-test/N3DB",
+            code: "N3DB",
+            port: 51987,
+            ip: "192.168.100.24",
+            name: "P1",
+          };
+        }
+        return {};
+      },
+    },
+    event: {
+      listen: async (ev: string, cb: (e: { payload: unknown }) => void) => {
+        const list = handlers.get(ev) ?? [];
+        list.push(cb);
+        handlers.set(ev, list);
+        return () => undefined;
+      },
+    },
+  };
+  return {
+    invokes,
+    fire: (ev: string, payload: unknown) => {
+      for (const cb of handlers.get(ev) ?? []) cb({ payload });
+    },
+  };
+}
+
+const GP_SEED = 42;
+const GP_WORDS = ["ab", "cd", "ef", "gh", "ij"];
+
+/** arms a host-side ghost-gp match against P2 and starts the countdown */
+async function armOnlineGp(): Promise<{
+  app: App;
+  invokes: { cmd: string; args: Record<string, unknown> }[];
+  fire: (ev: string, payload: unknown) => void;
+}> {
+  const tauri = installTauriMock();
+  await lanStartHost("HOST1");
+  tauri.fire("lan://peer-joined", { name: "P2" }); //connected
+  const app = renderApp();
+  await app.settle();
+  await app.router.navigate({ to: "/games/ghost-gp" });
+  await app.settle();
+  vi.useFakeTimers();
+  armLanMatch({
+    role: "host",
+    peerName: "P2",
+    start: {
+      gameId: "ghost-gp",
+      seed: GP_SEED,
+      params: { lang: "english", words: GP_WORDS.length },
+    },
+  });
+  await vi.advanceTimersByTimeAsync(50); //the stream builds (fallback pool)
+  await vi.advanceTimersByTimeAsync(2800); //countdown 3-2-1 -> the race
+  return { app, invokes: tauri.invokes, fire: tauri.fire };
+}
+
+/** types the whole online race word by word */
+async function typeOnlineRace(app: App): Promise<void> {
+  for (let guard = 0; guard < 200; guard++) {
+    if (pageText(app).includes("waiting for P2")) break;
+    const word = currentWord(app);
+    const done = typedPart(app).length;
+    if (word !== "" && done < word.length) {
+      fireEvent.keyDown(window, { key: word[done] });
+    } else {
+      await vi.advanceTimersByTimeAsync(50);
+    }
+  }
+}
+
+describe("ghost gp online (online wave, phase 8)", () => {
+  beforeEach(() => {
+    (globalThis as { indexedDB: unknown }).indexedDB = new IDBFactory();
+    window.localStorage.clear();
+    _resetGhostGpStatsForTests();
+    setLastResult(undefined);
+    _resetLanStateForTests();
+    _resetLanMatchForTests();
+  });
+
+  afterEach(() => {
+    vi.useRealTimers();
+    delete (window as unknown as { __TAURI__?: unknown }).__TAURI__;
+    cleanupApp();
+  });
+
+  it("an armed match races the peer: banner, relay, awaiting, win", async () => {
+    const { app, invokes } = await armOnlineGp();
+    expect(pageText(app)).toContain("online vs P2");
+    expect(currentWord(app)).not.toBe("");
+
+    await typeOnlineRace(app);
+    //the finish was relayed and the verdict waits for the peer
+    expect(pageText(app)).toContain("waiting for P2");
+    const finishes = invokes.filter(
+      (entry) =>
+        entry.cmd === "lan_send_message" &&
+        (entry.args["message"] as Record<string, unknown>)["type"] ===
+          "finished",
+    );
+    expect(finishes).toHaveLength(1);
+    const winFinish = finishes[0]?.args["message"] as
+      | Record<string, unknown>
+      | undefined;
+    expect(winFinish?.["finishMs"]).not.toBeNull();
+    const progresses = invokes.filter(
+      (entry) =>
+        entry.cmd === "lan_send_message" &&
+        (entry.args["message"] as Record<string, unknown>)["type"] ===
+          "progress",
+    );
+    expect(progresses.length).toBeGreaterThanOrEqual(1);
+
+    //the peer finished much later -> I win, with a margin cell shown
+    handleLanPeerMessage({ type: "finished", finishMs: 9_999_999, acc: 88 });
+    await vi.advanceTimersByTimeAsync(0);
+    expect(pageText(app)).toContain("you win!");
+    expect(pageText(app)).toContain("margin");
+    //online matches never touch the local ghost stats
+    expect(window.localStorage.getItem(GHOST_GP_STATS_KEY)).toBeNull();
+  });
+
+  it("the peer crossing first ends the race as a loss", async () => {
+    const { app, invokes } = await armOnlineGp();
+    expect(currentWord(app)).not.toBe("");
+
+    //finishMs 0: the engine judges at >= finishMs on the very next tick
+    handleLanPeerMessage({ type: "finished", finishMs: 0, acc: 90 });
+    await vi.advanceTimersByTimeAsync(60); //a tick judges the crossing
+
+    expect(pageText(app)).toContain("P2 wins");
+    const finishes = invokes.filter(
+      (entry) =>
+        entry.cmd === "lan_send_message" &&
+        (entry.args["message"] as Record<string, unknown>)["type"] ===
+          "finished",
+    );
+    expect(finishes).toHaveLength(1);
+    const lossFinish = finishes[0]?.args["message"] as
+      | Record<string, unknown>
+      | undefined;
+    expect(lossFinish?.["finishMs"]).toBeNull();
+  });
+
+  it("a disconnect during the race voids it", async () => {
+    const { app, fire } = await armOnlineGp();
+    expect(currentWord(app)).not.toBe("");
+
+    fire("lan://peer-left", { reason: "disconnected" });
+    await vi.advanceTimersByTimeAsync(0);
+
+    expect(pageText(app)).toContain("the opponent left");
+    expect(pageText(app)).toContain("start race"); //back at the picker
   });
 });
