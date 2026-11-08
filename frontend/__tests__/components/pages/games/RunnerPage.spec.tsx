@@ -3,6 +3,15 @@ import { IDBFactory } from "fake-indexeddb";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import {
+  _resetLanStateForTests,
+  lanStartHost,
+} from "../../../../src/ts/states/lan";
+import {
+  _resetLanMatchForTests,
+  armLanMatch,
+  handleLanPeerMessage,
+} from "../../../../src/ts/states/lan-match";
+import {
   SKY_SCORES_KEY,
   _resetSkyScoresForTests,
 } from "../../../../src/ts/utils/climber/store";
@@ -128,5 +137,173 @@ describe("endless runner page (idea G15 phase 2, mode B)", () => {
     window.dispatchEvent(new Event("focus"));
     await vi.advanceTimersByTimeAsync(50);
     expect(app.container.querySelector('[data-testid="rn-paused"]')).toBeNull();
+  });
+});
+
+/** the tauri fake for the online tests: records the invokes and captures
+ * the event listeners so the spec can fire the Rust-side events */
+function installTauriMock(): {
+  invokes: { cmd: string; args: Record<string, unknown> }[];
+  fire: (ev: string, payload: unknown) => void;
+} {
+  const invokes: { cmd: string; args: Record<string, unknown> }[] = [];
+  const handlers = new Map<string, ((e: { payload: unknown }) => void)[]>();
+  (window as unknown as { __TAURI__: unknown }).__TAURI__ = {
+    core: {
+      invoke: async (cmd: string, args?: Record<string, unknown>) => {
+        invokes.push({ cmd, args: args ?? {} });
+        if (cmd === "lan_start_host") {
+          return {
+            sessionId: "lan-test/N3DB",
+            code: "N3DB",
+            port: 51987,
+            ip: "192.168.100.24",
+            name: "P1",
+          };
+        }
+        return {};
+      },
+    },
+    event: {
+      listen: async (ev: string, cb: (e: { payload: unknown }) => void) => {
+        const list = handlers.get(ev) ?? [];
+        list.push(cb);
+        handlers.set(ev, list);
+        return () => undefined;
+      },
+    },
+  };
+  return {
+    invokes,
+    fire: (ev: string, payload: unknown) => {
+      for (const cb of handlers.get(ev) ?? []) cb({ payload });
+    },
+  };
+}
+
+async function armOnlineRunner(): Promise<{
+  app: App;
+  invokes: { cmd: string; args: Record<string, unknown> }[];
+  fire: (ev: string, payload: unknown) => void;
+}> {
+  const tauri = installTauriMock();
+  await lanStartHost("HOST1");
+  tauri.fire("lan://peer-joined", { name: "P2" }); //connected
+  const app = await openRunner();
+  vi.useFakeTimers();
+  armLanMatch({
+    role: "host",
+    peerName: "P2",
+    start: {
+      gameId: "runner",
+      seed: 42,
+      params: { lang: "english", meters: 60 }, //a short test target
+    },
+  });
+  await vi.advanceTimersByTimeAsync(60); //the pool builds
+  return { app, invokes: tauri.invokes, fire: tauri.fire };
+}
+
+/** types the active obstacle's word repeatedly until the line or death */
+async function raceToLine(app: App): Promise<void> {
+  for (let guard = 0; guard < 4000; guard++) {
+    if (
+      pageText(app).includes("waiting for") ||
+      app.container.querySelector('[data-testid="rn-verdict"]') !== null
+    ) {
+      return;
+    }
+    const main = app.container.querySelector(
+      '[data-testid="rn-word"] > .text-main',
+    );
+    const word =
+      app.container
+        .querySelector('[data-testid="rn-word"]')
+        ?.getAttribute("data-word") ?? "";
+    if (word !== "") {
+      const ch = word[main?.textContent?.length ?? 0] ?? word[0] ?? "a";
+      window.dispatchEvent(
+        new KeyboardEvent("keydown", {
+          key: ch,
+          code: `Key${ch.toUpperCase()}`,
+        }),
+      );
+    }
+    await vi.advanceTimersByTimeAsync(30);
+  }
+}
+
+describe("runner online (online wave, phase 18)", () => {
+  beforeEach(() => {
+    (globalThis as { indexedDB: unknown }).indexedDB = new IDBFactory();
+    window.localStorage.clear();
+    _resetSkyScoresForTests();
+    _resetLanStateForTests();
+    _resetLanMatchForTests();
+  });
+
+  afterEach(() => {
+    vi.useRealTimers();
+    delete (window as unknown as { __TAURI__?: unknown }).__TAURI__;
+    cleanupApp();
+  });
+
+  it("an armed match races to the line: banner, relay, awaiting, win", async () => {
+    const { app, invokes } = await armOnlineRunner();
+    expect(pageText(app)).toContain("online vs P2");
+    expect(pageText(app)).toContain("first to 60m");
+
+    await raceToLine(app);
+    expect(pageText(app)).toContain("waiting for P2");
+    const finishes = invokes.filter(
+      (entry) =>
+        entry.cmd === "lan_send_message" &&
+        (entry.args["message"] as Record<string, unknown>)["type"] ===
+          "finished",
+    );
+    expect(finishes).toHaveLength(1);
+    const progresses = invokes.filter(
+      (entry) =>
+        entry.cmd === "lan_send_message" &&
+        (entry.args["message"] as Record<string, unknown>)["type"] ===
+          "progress",
+    );
+    expect(progresses.length).toBeGreaterThanOrEqual(1);
+
+    //the peer crosses later -> I win; nothing touched the local stats
+    handleLanPeerMessage({ type: "finished", finishMs: 999_999, acc: 100 });
+    await vi.advanceTimersByTimeAsync(0);
+    expect(pageText(app)).toContain("you win!");
+    expect(window.localStorage.getItem(SKY_SCORES_KEY)).toBeNull();
+  });
+
+  it("my death before the line loses the race immediately", async () => {
+    const { app, invokes } = await armOnlineRunner();
+    expect(pageText(app)).toContain("online vs P2");
+    //never type: three obstacles pass, three hits, dead — the peer wins
+    await vi.advanceTimersByTimeAsync(60000);
+    expect(
+      app.container.querySelector('[data-testid="rn-verdict"]'),
+    ).not.toBeNull();
+    expect(pageText(app)).toContain("P2 takes it");
+    const finishes = invokes.filter(
+      (entry) =>
+        entry.cmd === "lan_send_message" &&
+        (entry.args["message"] as Record<string, unknown>)["type"] ===
+          "finished",
+    );
+    expect(finishes).toHaveLength(1);
+    const lossFinish = finishes[0]?.args["message"] as
+      | Record<string, unknown>
+      | undefined;
+    expect(lossFinish?.["finishMs"]).toBeNull();
+  });
+
+  it("a disconnect during the run voids it", async () => {
+    const { app, fire } = await armOnlineRunner();
+    fire("lan://peer-left", { reason: "disconnected" });
+    await vi.advanceTimersByTimeAsync(0);
+    expect(pageText(app)).toContain("the opponent left");
+    expect(pageText(app)).toContain("start running"); //back at the menu
   });
 });

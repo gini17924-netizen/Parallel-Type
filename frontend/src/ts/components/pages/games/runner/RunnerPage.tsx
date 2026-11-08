@@ -2,6 +2,7 @@ import {
   For,
   JSXElement,
   Show,
+  createEffect,
   createSignal,
   onCleanup,
   onMount,
@@ -9,11 +10,27 @@ import {
 
 import { Config } from "../../../../config/store";
 import { playClick, playError } from "../../../../controllers/sound-controller";
+import { navigate } from "../../../../router/navigate";
+import { isLanConnected, lanPreFillName } from "../../../../states/lan";
+import {
+  armLanMatch,
+  clearLanMatch,
+  getLanMatch,
+  getRemoteFinished,
+  getRemoteProgress,
+  getRematchAsked,
+  sendLanMatchFinished,
+  sendLanMatchProgress,
+  sendLanMatchRematch,
+  sendLanMatchStart,
+  type LanMatch,
+} from "../../../../states/lan-match";
 import {
   getRunnerBestDistanceM,
   recordRunnerRun,
 } from "../../../../utils/climber/store";
 import { cn } from "../../../../utils/cn";
+import { createSeededRng } from "../../../../utils/daily-gauntlet/seeded-rng";
 import { latinCharFromEvent } from "../../../../utils/games/latin-input";
 import { cachedFetchJson } from "../../../../utils/json-data";
 import { BALANCE } from "../../../../utils/runner/balance";
@@ -23,6 +40,13 @@ import {
   type RunnerState,
 } from "../../../../utils/runner/engine";
 import { kindIcon, type ObstacleKind } from "../../../../utils/runner/gen";
+import {
+  lanRunner,
+  resolveRunnerVerdict,
+  runnerLanPickWord,
+  type RunnerRemoteState,
+  type RunnerVerdict,
+} from "../../../../utils/runner/lan";
 import { Button } from "../../../common/Button";
 import { H2 } from "../../../common/Headers";
 
@@ -46,7 +70,16 @@ const FALLBACK_WORDS = [
   "bolt",
 ];
 
-type PagePhase = "menu" | "playing" | "result";
+type PagePhase = "menu" | "playing" | "awaiting" | "result";
+
+/** the online verdict once both runners have reported */
+type RunnerOnlineResult = {
+  verdict: RunnerVerdict;
+  myMeters: number;
+  theirMeters: number;
+  theirLives: number;
+  theirTimeMs: number | null;
+};
 
 function HudCell(props: {
   label: string;
@@ -74,16 +107,33 @@ function HudCell(props: {
  * Distance is the score. The background parallaxes on two layers.
  */
 export function RunnerPage(): JSXElement {
-  const [pagePhase, setPagePhase] = createSignal<PagePhase>("menu");
+  const [pagePhase, setPagePhase] = createSignal<PagePhase>(
+    getLanMatch()?.gameId === "runner" ? "playing" : "menu",
+  );
   const [engineState, setEngineState] = createSignal<RunnerState | undefined>(
     undefined,
   );
   const [paused, setPaused] = createSignal(false);
   const [newRecord, setNewRecord] = createSignal(false);
   const [message, setMessage] = createSignal<string | undefined>(undefined);
+  //online (LAN) state — the peer's run on the same seeded obstacles
+  const [remoteState, setRemoteState] = createSignal<
+    RunnerRemoteState | undefined
+  >(undefined);
+  const [onlineResult, setOnlineResult] = createSignal<
+    RunnerOnlineResult | undefined
+  >(undefined);
+  const [rematchSent, setRematchSent] = createSignal(false);
 
   let engine: RunnerEngine | undefined;
   let tickTimer: ReturnType<typeof setInterval> | undefined;
+  //reactive: the banner and the tick both read the live target
+  const [targetM, setTargetM] = createSignal(Number.MAX_SAFE_INTEGER);
+  let runStart = 0;
+  let myFinish: { finishMs: number } | undefined;
+  let myFinishSent = false;
+  let lastSentMeters = -1;
+  let lastSentLives = -1;
 
   const stopTimers = (): void => {
     if (tickTimer !== undefined) clearInterval(tickTimer);
@@ -91,6 +141,93 @@ export function RunnerPage(): JSXElement {
   };
 
   onCleanup(stopTimers);
+
+  //leaving mid-run (header back, route change) tells the peer the race
+  //ended without a finish and disarms — they are never left waiting
+  onCleanup(() => {
+    if (getLanMatch()?.gameId !== "runner") return;
+    if (pagePhase() !== "playing" && pagePhase() !== "awaiting") return;
+    sendLanMatchFinished(null, 0);
+    clearLanMatch();
+  });
+
+  const lanMode = (): boolean => getLanMatch()?.gameId === "runner";
+
+  const resolveOnlineResult = (): void => {
+    const finished = getRemoteFinished();
+    if (myFinish !== undefined) {
+      //I crossed the line: the lower finish time wins
+      if (finished === undefined) return;
+      setOnlineResult({
+        verdict: resolveRunnerVerdict(myFinish, {
+          finishMs: finished.finishMs ?? Number.MAX_SAFE_INTEGER,
+        }),
+        myMeters: engineState()?.result?.distanceM ?? 0,
+        theirMeters: remoteState()?.meters ?? 0,
+        theirLives: remoteState()?.lives ?? 0,
+        theirTimeMs: finished.finishMs,
+      });
+    } else {
+      //I died (three hits) before the line — I can never finish
+      setOnlineResult({
+        verdict: "lost",
+        myMeters: engineState()?.result?.distanceM ?? 0,
+        theirMeters: remoteState()?.meters ?? 0,
+        theirLives: remoteState()?.lives ?? 0,
+        theirTimeMs: finished?.finishMs ?? null,
+      });
+    }
+    setPagePhase("result");
+  };
+
+  const myFinishNow = (): void => {
+    if (myFinishSent) return;
+    myFinishSent = true;
+    myFinish = { finishMs: Date.now() - runStart };
+    const state = engine?.state();
+    sendLanMatchProgress(
+      lanRunner.encodeProgress({
+        meters: state?.result?.distanceM ?? 0,
+        lives: state?.lives ?? 0,
+      }),
+    );
+    sendLanMatchFinished(myFinish.finishMs, 100);
+    if (getRemoteFinished() !== undefined) {
+      resolveOnlineResult();
+    } else {
+      setPagePhase("awaiting");
+    }
+  };
+
+  /** the one tick loop both the offline run and the online race share */
+  const startTickLoop = (): void => {
+    tickTimer = setInterval(() => {
+      if (engine === undefined || paused()) return;
+      const before = engine.state();
+      const state = engine.tick(TICK_MS);
+      setEngineState(state);
+      if (state.hits > before.hits) void playError();
+      if (state.combo > before.combo) void playClick();
+      //online: relay the run when it moved
+      if (lanMode()) {
+        const meters = Math.floor(state.distancePx / BALANCE.pxPerMeter);
+        if (meters !== lastSentMeters || state.lives !== lastSentLives) {
+          lastSentMeters = meters;
+          lastSentLives = state.lives;
+          sendLanMatchProgress(
+            lanRunner.encodeProgress({ meters, lives: state.lives }),
+          );
+        }
+      }
+      //online: the target line ends the race (death would lose it)
+      if (lanMode() && state.distancePx / BALANCE.pxPerMeter >= targetM()) {
+        stopTimers();
+        myFinishNow();
+        return;
+      }
+      if (state.phase === "done") endRun();
+    }, TICK_MS);
+  };
 
   const startRun = async (): Promise<void> => {
     setMessage(undefined);
@@ -119,20 +256,28 @@ export function RunnerPage(): JSXElement {
     });
     setEngineState(engine.state());
     setPagePhase("playing");
-    tickTimer = setInterval(() => {
-      if (engine === undefined || paused()) return;
-      const before = engine.state();
-      const state = engine.tick(TICK_MS);
-      setEngineState(state);
-      if (state.hits > before.hits) void playError();
-      if (state.combo > before.combo) void playClick();
-      if (state.phase === "done") endRun();
-    }, TICK_MS);
+    startTickLoop();
   };
 
   const endRun = (): void => {
     stopTimers();
     const state = engine?.state();
+    if (lanMode()) {
+      //died (three hits) before the line — I can never finish
+      if (!myFinishSent) {
+        myFinishSent = true;
+        sendLanMatchFinished(null, 0);
+      }
+      setOnlineResult({
+        verdict: "lost",
+        myMeters: state?.result?.distanceM ?? 0,
+        theirMeters: remoteState()?.meters ?? 0,
+        theirLives: remoteState()?.lives ?? 0,
+        theirTimeMs: getRemoteFinished()?.finishMs ?? null,
+      });
+      setPagePhase("result");
+      return;
+    }
     if (state?.result !== undefined) {
       const { isNewRecord } = recordRunnerRun({
         distanceM: state.result.distanceM,
@@ -157,6 +302,7 @@ export function RunnerPage(): JSXElement {
     window.addEventListener("keydown", handleKey);
     const onBlur = (): void => {
       if (pagePhase() !== "playing") return;
+      if (lanMode()) return; //online: the run keeps going — no pause
       setPaused(true);
     };
     const onFocus = (): void => {
@@ -171,7 +317,106 @@ export function RunnerPage(): JSXElement {
     });
   });
 
+  const hostRematch = (match: LanMatch): void => {
+    //arm first: a refused start never reaches the wire
+    armLanMatch({
+      role: "host",
+      peerName: match.peerName,
+      start: match.start,
+    });
+    if (getLanMatch() === undefined) return;
+    sendLanMatchStart(match.start, lanPreFillName() || "P1");
+  };
+
+  //an armed (or re-armed) runner match IS the online start: the seed
+  //spawns the identical obstacles, the race to the line begins
+  createEffect(() => {
+    const match = getLanMatch();
+    if (match?.gameId !== "runner") return;
+    void (async () => {
+      const lang =
+        typeof match.start.params["lang"] === "string"
+          ? match.start.params["lang"]
+          : "english";
+      const meters = match.start.params["meters"];
+      let pool: string[] = FALLBACK_WORDS;
+      try {
+        const data = await cachedFetchJson<{ words: string[] }>(
+          `/languages/${lang}.json`,
+        );
+        const filtered = [
+          ...new Set(data.words.map((word) => word.toLowerCase())),
+        ].filter((word) => /^\p{L}{3,6}$/u.test(word));
+        if (filtered.length >= 30) pool = filtered;
+      } catch {
+        //offline fallback list
+      }
+      setOnlineResult(undefined);
+      setRematchSent(false);
+      setRemoteState(undefined);
+      setNewRecord(false);
+      setPaused(false);
+      myFinish = undefined;
+      myFinishSent = false;
+      lastSentMeters = -1;
+      lastSentLives = -1;
+      setTargetM(
+        typeof meters === "number" && meters > 0 ? Math.floor(meters) : 400,
+      );
+      runStart = Date.now();
+      engine = createRunnerEngine({
+        pickWord: runnerLanPickWord(pool, match.start.seed ?? 1),
+        rng: createSeededRng(match.start.seed ?? 1),
+      });
+      setEngineState(engine.state());
+      setPagePhase("playing");
+      startTickLoop();
+    })();
+  });
+
+  //the relayed peer progress lands decoded — the strip reads it inline
+  createEffect(() => {
+    const progress = getRemoteProgress();
+    if (progress === undefined) return;
+    setRemoteState(progress.state as RunnerRemoteState);
+  });
+
+  //the peer's finish resolves the held verdict (or arrived before mine)
+  createEffect(() => {
+    if (pagePhase() !== "awaiting") return;
+    if (getRemoteFinished() === undefined) return;
+    resolveOnlineResult();
+  });
+
+  //the host answers a rematch request by re-sending the same start
+  createEffect(() => {
+    const match = getLanMatch();
+    if (match?.role !== "host" || match.gameId !== "runner") return;
+    if (!getRematchAsked()) return;
+    hostRematch(match);
+  });
+
+  //a disconnect during the run voids it — nothing online is recorded
+  createEffect(() => {
+    if (getLanMatch()?.gameId !== "runner") return;
+    if (isLanConnected()) return;
+    if (pagePhase() !== "playing" && pagePhase() !== "awaiting") return;
+    stopTimers();
+    engine = undefined;
+    clearLanMatch();
+    setMessage("the opponent left — race void, nothing was recorded");
+    setPagePhase("menu");
+  });
+
   const backToMenu = (): void => {
+    if (lanMode()) {
+      //leaving online: the same clean leave
+      if (!myFinishSent) {
+        myFinishSent = true;
+        sendLanMatchFinished(null, 0);
+      }
+      clearLanMatch();
+    }
     stopTimers();
     engine = undefined;
     setEngineState(undefined);
@@ -292,6 +537,32 @@ export function RunnerPage(): JSXElement {
         >
           ●
         </div>
+        {/*online: the peer's runner marker (their relative progress)*/}
+        <Show when={lanMode()}>
+          {(() => {
+            const rel =
+              (remoteState()?.meters ?? 0) * BALANCE.pxPerMeter -
+              (engineState()?.distancePx ?? 0);
+            const left = 50 + (rel / (BALANCE.pxPerMeter * 40)) * 50;
+            const visible = left > -6 && left < 106;
+            return (
+              <Show when={visible}>
+                <div
+                  class="absolute grid place-items-center rounded-full border-2 border-error bg-bg/30 text-[9px] font-bold text-error"
+                  style={{
+                    left: `${left}%`,
+                    bottom: "30%",
+                    width: "22px",
+                    height: "22px",
+                  }}
+                  data-testid="rn-peer"
+                >
+                  ▲
+                </div>
+              </Show>
+            );
+          })()}
+        </Show>
         <Show when={paused()}>
           <div
             class="absolute inset-0 grid place-items-center bg-bg/70 text-2xl font-bold text-main"
@@ -360,6 +631,94 @@ export function RunnerPage(): JSXElement {
     );
   };
 
+  const AwaitingScreen = (): JSXElement => {
+    return (
+      <section class="grid place-items-center rounded bg-sub-alt py-16 text-center">
+        <div class="text-2xl font-bold text-main" data-testid="rn-awaiting">
+          you crossed in {((myFinish?.finishMs ?? 0) / 1000).toFixed(1)}s —
+          waiting for {getLanMatch()?.peerName ?? "the opponent"}…
+        </div>
+      </section>
+    );
+  };
+
+  const OnlineResultScreen = (): JSXElement => {
+    const online = (): RunnerOnlineResult | undefined => onlineResult();
+    const verdict = online()?.verdict;
+    return (
+      <section class="grid gap-4 rounded bg-sub-alt p-6 text-center">
+        <div
+          class={cn(
+            "text-3xl font-bold",
+            verdict === "won"
+              ? "text-main"
+              : verdict === "draw"
+                ? "text-sub"
+                : "text-error",
+          )}
+          data-testid="rn-verdict"
+        >
+          {verdict === "won"
+            ? "you win!"
+            : verdict === "draw"
+              ? "draw"
+              : verdict === "lost" && myFinish === undefined
+                ? `you fell — ${getLanMatch()?.peerName ?? "the opponent"} takes it`
+                : `${getLanMatch()?.peerName ?? "the opponent"} wins`}
+        </div>
+        <div class="grid grid-cols-2 gap-2">
+          <div class="rounded bg-bg p-3">
+            <div class="text-xl font-bold text-main tabular-nums">
+              {online()?.myMeters ?? 0}m ·{" "}
+              {myFinish !== undefined
+                ? `${((myFinish.finishMs ?? 0) / 1000).toFixed(1)}s`
+                : "fell"}
+            </div>
+            <div class="text-xs text-sub">you</div>
+          </div>
+          <div class="rounded bg-bg p-3">
+            <div class="text-xl font-bold text-main tabular-nums">
+              {online()?.theirMeters ?? 0}m ·{" "}
+              {online()?.theirTimeMs === null
+                ? "running"
+                : `${((online()?.theirTimeMs ?? 0) / 1000).toFixed(1)}s`}
+            </div>
+            <div class="text-xs text-sub">
+              {getLanMatch()?.peerName ?? "the opponent"} ·{" "}
+              {online()?.theirLives ?? 0} ♥
+            </div>
+          </div>
+        </div>
+        <div class="grid grid-cols-2 gap-2">
+          <Button
+            text={rematchSent() ? "rematch requested — waiting…" : "rematch"}
+            fa={{ icon: "fa-redo" }}
+            class="w-full"
+            onClick={() => {
+              const match = getLanMatch();
+              if (match === undefined || rematchSent()) return;
+              if (match.role === "host") {
+                hostRematch(match);
+              } else {
+                sendLanMatchRematch();
+                setRematchSent(true);
+              }
+            }}
+          />
+          <Button
+            text="leave to lobby"
+            fa={{ icon: "fa-arrow-left" }}
+            class="w-full"
+            onClick={() => {
+              clearLanMatch();
+              void navigate({ to: "/games/online" });
+            }}
+          />
+        </div>
+      </section>
+    );
+  };
+
   const ResultScreen = (): JSXElement => {
     const result = engine?.state().result;
     return (
@@ -422,8 +781,31 @@ export function RunnerPage(): JSXElement {
           clears them. jump the ground, slide the air, destroy the drones.
         </p>
       </section>
+      <Show when={lanMode()}>
+        <div
+          class="rounded bg-sub-alt p-2 text-center text-sm font-bold text-main"
+          data-testid="rn-online-vs"
+        >
+          <i class="fas fa-running"></i> online vs{" "}
+          {getLanMatch()?.peerName ?? "…"} — first to {targetM()}m wins
+        </div>
+      </Show>
       <Show when={pagePhase() !== "menu"} fallback={<Menu />}>
-        <Show when={pagePhase() === "playing"} fallback={<ResultScreen />}>
+        <Show
+          when={pagePhase() === "playing"}
+          fallback={
+            <Show
+              when={pagePhase() === "awaiting"}
+              fallback={
+                <Show when={lanMode()} fallback={<ResultScreen />}>
+                  <OnlineResultScreen />
+                </Show>
+              }
+            >
+              <AwaitingScreen />
+            </Show>
+          }
+        >
           <div class="grid grid-cols-4 gap-2" aria-label="endless runner hud">
             <HudCell
               label="distance"
