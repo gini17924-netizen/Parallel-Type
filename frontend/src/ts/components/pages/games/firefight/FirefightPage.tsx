@@ -21,6 +21,7 @@ import {
   getFirefightWins,
   recordFirefightRun,
 } from "../../../../utils/firefight/store";
+import { latinCharFromEvent } from "../../../../utils/games/latin-input";
 import { cachedFetchJson } from "../../../../utils/json-data";
 import { buildCurrentWeakness } from "../../../../utils/smart-drill";
 import { Button } from "../../../common/Button";
@@ -144,7 +145,7 @@ export function FirefightPage(): JSXElement {
     if (event.key.length !== 1) return;
     event.preventDefault();
     const before = engine?.state();
-    const after = engine?.feedKey(event.key);
+    const after = engine?.feedKey(latinCharFromEvent(event.key, event.code));
     if (after === undefined) return;
     if (before !== undefined) {
       if (after.extinguished > before.extinguished) {

@@ -14,6 +14,7 @@ import {
   recordRunnerRun,
 } from "../../../../utils/climber/store";
 import { cn } from "../../../../utils/cn";
+import { latinCharFromEvent } from "../../../../utils/games/latin-input";
 import { cachedFetchJson } from "../../../../utils/json-data";
 import { BALANCE } from "../../../../utils/runner/balance";
 import {
@@ -147,7 +148,7 @@ export function RunnerPage(): JSXElement {
     if (event.ctrlKey || event.metaKey || event.altKey) return;
     if (event.key.length !== 1) return;
     event.preventDefault();
-    const state = engine?.feedKey(event.key);
+    const state = engine?.feedKey(latinCharFromEvent(event.key, event.code));
     if (state === undefined) return;
     setEngineState(state);
   };

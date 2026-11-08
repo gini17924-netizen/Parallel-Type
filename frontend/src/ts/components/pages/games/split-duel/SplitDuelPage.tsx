@@ -10,6 +10,7 @@ import {
 import { Config } from "../../../../config/store";
 import { playClick, playError } from "../../../../controllers/sound-controller";
 import { cn } from "../../../../utils/cn";
+import { latinCharFromEvent } from "../../../../utils/games/latin-input";
 import { cachedFetchJson } from "../../../../utils/json-data";
 import { generatePseudoWords } from "../../../../utils/learn-stats";
 import { BALANCE } from "../../../../utils/split-duel/balance";
@@ -184,7 +185,11 @@ export function SplitDuelPage(): JSXElement {
     if (event.ctrlKey || event.metaKey || event.altKey) return;
     if (event.key.length !== 1) return;
     event.preventDefault();
-    const state = match.feedKey(event.key, event.code, Date.now());
+    const state = match.feedKey(
+      latinCharFromEvent(event.key, event.code),
+      event.code,
+      Date.now(),
+    );
     setMatchState(state);
     if (state.phase === "turn-swap") void playError();
     else void playClick();

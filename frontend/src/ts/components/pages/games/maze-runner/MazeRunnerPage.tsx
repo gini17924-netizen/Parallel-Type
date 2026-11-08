@@ -10,6 +10,7 @@ import {
 import { Config } from "../../../../config/store";
 import { playClick, playError } from "../../../../controllers/sound-controller";
 import { cn } from "../../../../utils/cn";
+import { latinCharFromEvent } from "../../../../utils/games/latin-input";
 import { cachedFetchJson } from "../../../../utils/json-data";
 import { BALANCE } from "../../../../utils/maze-runner/balance";
 import {
@@ -142,7 +143,10 @@ export function MazeRunnerPage(): JSXElement {
     if (event.key.length !== 1) return;
     event.preventDefault();
     const before = engine.state();
-    const state = engine.feedKey(event.key, Date.now() - runStart);
+    const state = engine.feedKey(
+      latinCharFromEvent(event.key, event.code),
+      Date.now() - runStart,
+    );
     setEngineState(state);
     const activeBefore = before.gates[before.activeGateIndex];
     if (state.errors > before.errors) {

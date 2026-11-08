@@ -10,6 +10,7 @@ import {
 import { Config } from "../../../../config/store";
 import { playClick, playError } from "../../../../controllers/sound-controller";
 import { cn } from "../../../../utils/cn";
+import { latinCharFromEvent } from "../../../../utils/games/latin-input";
 import { cachedFetchJson } from "../../../../utils/json-data";
 import { BALANCE } from "../../../../utils/lane-defense/balance";
 import {
@@ -166,7 +167,7 @@ export function LaneDefensePage(): JSXElement {
     if (event.ctrlKey || event.metaKey || event.altKey) return;
     if (event.key.length !== 1) return; //Backspace/Enter: inert in G9
     event.preventDefault();
-    const after = engine?.feedKey(event.key);
+    const after = engine?.feedKey(latinCharFromEvent(event.key, event.code));
     if (after !== undefined) applyState(after);
   };
 

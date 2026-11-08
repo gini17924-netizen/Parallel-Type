@@ -10,6 +10,7 @@ import {
 import { Config } from "../../../../config/store";
 import { playClick, playError } from "../../../../controllers/sound-controller";
 import { cn } from "../../../../utils/cn";
+import { latinCharFromEvent } from "../../../../utils/games/latin-input";
 import { cachedFetchJson } from "../../../../utils/json-data";
 import { BALANCE } from "../../../../utils/type-pong/balance";
 import {
@@ -159,12 +160,16 @@ export function TypePongPage(): JSXElement {
     if (event.key.length !== 1 && event.key !== "Enter") return;
     if (event.key.length === 1) event.preventDefault();
     if (mode() === "breaker" && breakerEngine !== undefined) {
-      const after = breakerEngine.feedKey(event.key);
+      const after = breakerEngine.feedKey(
+        latinCharFromEvent(event.key, event.code),
+      );
       setBreakerState(after);
       return;
     }
     if (pongEngine !== undefined) {
-      const after = pongEngine.feedKey(event.key);
+      const after = pongEngine.feedKey(
+        latinCharFromEvent(event.key, event.code),
+      );
       setPongState(after);
       if (after.playerScore > (pongState()?.playerScore ?? 0)) {
         void playClick();

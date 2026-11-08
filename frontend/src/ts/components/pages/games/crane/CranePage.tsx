@@ -23,6 +23,7 @@ import {
   getCraneHistory,
   recordCraneRun,
 } from "../../../../utils/crane/store";
+import { latinCharFromEvent } from "../../../../utils/games/latin-input";
 import { unlockedLetters } from "../../../../utils/learn-stats";
 import { Button } from "../../../common/Button";
 import { H2 } from "../../../common/Headers";
@@ -145,7 +146,7 @@ export function CranePage(): JSXElement {
     if (event.key.length !== 1) return;
     event.preventDefault();
     const before = engine?.state();
-    const after = engine?.feedKey(event.key);
+    const after = engine?.feedKey(latinCharFromEvent(event.key, event.code));
     if (after === undefined || before === undefined) return;
     //a release happened: the box count (height + misses) grew — animate the
     //fall from the hook's x at that exact moment (the feedKey snapshot)

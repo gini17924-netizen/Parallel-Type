@@ -21,6 +21,7 @@ import {
   getFruitSlashBestSlashed,
   recordFruitSlashRun,
 } from "../../../../utils/fruit-slash/store";
+import { latinCharFromEvent } from "../../../../utils/games/latin-input";
 import { cachedFetchJson } from "../../../../utils/json-data";
 import { Button } from "../../../common/Button";
 import { H2 } from "../../../common/Headers";
@@ -181,7 +182,7 @@ export function FruitSlashPage(): JSXElement {
     if (event.ctrlKey || event.metaKey || event.altKey) return;
     if (event.key.length !== 1) return; //Backspace/Enter: inert in G10
     event.preventDefault();
-    const after = engine?.feedKey(event.key);
+    const after = engine?.feedKey(latinCharFromEvent(event.key, event.code));
     if (after !== undefined) applyState(after);
   };
 

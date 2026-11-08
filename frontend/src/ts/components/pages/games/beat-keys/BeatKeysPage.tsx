@@ -31,6 +31,7 @@ import {
   setBeatOffsetMs,
 } from "../../../../utils/beat-keys/store";
 import { cn } from "../../../../utils/cn";
+import { latinCharFromEvent } from "../../../../utils/games/latin-input";
 import { Button } from "../../../common/Button";
 import { H2 } from "../../../common/Headers";
 
@@ -279,7 +280,9 @@ export function BeatKeysPage(): JSXElement {
       return;
     }
     if (pagePhase() !== "playing") return;
-    const key = event.key.toLowerCase();
+    //the lane keys are PHYSICAL (doc G21 §۱): a Persian layout's «ی» on
+    //KeyD still plays the d-lane
+    const key = latinCharFromEvent(event.key, event.code).toLowerCase();
     if (!(BALANCE.laneKeys as readonly string[]).includes(key)) return;
     event.preventDefault();
     judgeLaneKey(key);

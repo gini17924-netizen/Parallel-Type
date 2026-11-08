@@ -21,6 +21,7 @@ import {
   recordClimberRun,
 } from "../../../../utils/climber/store";
 import { cn } from "../../../../utils/cn";
+import { latinCharFromEvent } from "../../../../utils/games/latin-input";
 import { cachedFetchJson } from "../../../../utils/json-data";
 import {
   generatePseudoWords,
@@ -176,7 +177,7 @@ export function ClimberPage(): JSXElement {
     if (event.key.length !== 1) return;
     event.preventDefault();
     const before = engine?.state();
-    const state = engine?.feedKey(event.key);
+    const state = engine?.feedKey(latinCharFromEvent(event.key, event.code));
     if (state === undefined) return;
     setEngineState(state);
     if (before !== undefined && state.platformIndex > before.platformIndex) {

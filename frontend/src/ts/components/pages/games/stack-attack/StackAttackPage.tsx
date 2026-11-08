@@ -10,6 +10,7 @@ import {
 import { Config } from "../../../../config/store";
 import { playClick, playError } from "../../../../controllers/sound-controller";
 import { cn } from "../../../../utils/cn";
+import { latinCharFromEvent } from "../../../../utils/games/latin-input";
 import { cachedFetchJson } from "../../../../utils/json-data";
 import { BALANCE } from "../../../../utils/stack-attack/balance";
 import {
@@ -147,7 +148,7 @@ export function StackAttackPage(): JSXElement {
     if (event.key.length !== 1) return;
     event.preventDefault();
     const before = engine?.state();
-    const after = engine?.feedKey(event.key);
+    const after = engine?.feedKey(latinCharFromEvent(event.key, event.code));
     if (after === undefined) return;
     if (before !== undefined) {
       if (after.blocksLocked > before.blocksLocked) {
