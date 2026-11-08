@@ -23,6 +23,15 @@ export type LanHostInfo = {
   ip: string;
 };
 
+/** a match found by the UDP discovery listener (phase 3) */
+export type LanDiscovered = {
+  sessionId: string;
+  name: string;
+  code: string;
+  port: number;
+  ip: string;
+};
+
 const NAME_KEY = "mtDesktopLanName";
 
 const [getRole, setRole] = createSignal<LanRole>("none");
@@ -31,6 +40,7 @@ const [getHostInfo, setHostInfo] = createSignal<LanHostInfo | undefined>(
 );
 const [getPeerName, setPeerName] = createSignal<string | undefined>(undefined);
 const [getConnected, setConnected] = createSignal(false);
+const [getDiscovered, setDiscovered] = createSignal<LanDiscovered[]>([]);
 const [getLastMessage, setLastMessage] = createSignal<
   Record<string, unknown> | undefined
 >(undefined);
@@ -45,9 +55,9 @@ function getInvoke(): TauriInvoke | undefined {
   return typeof invoke === "function" ? invoke : undefined;
 }
 
-type EventListen = <T>(
+type EventListen = (
   event: string,
-  handler: (event: { payload: T }) => void,
+  handler: (event: { payload: unknown }) => void,
 ) => Promise<() => void>;
 
 function getListen(): EventListen | undefined {
@@ -68,16 +78,15 @@ function wireLanEvents(): void {
   const listen = getListen();
   if (listen === undefined) return;
   listenersWired = true;
-  void listen<{ name?: string }>("lan://peer-joined", (e) => {
-    setPeerName(e.payload.name);
+  void listen("lan://peer-joined", (e) => {
+    const payload = e.payload as { name?: string };
+    setPeerName(payload.name);
     setConnected(true);
   });
-  void listen<{ message: Record<string, unknown> }>(
-    "lan://peer-message",
-    (e) => {
-      setLastMessage(e.payload.message);
-    },
-  );
+  void listen("lan://peer-message", (e) => {
+    const payload = e.payload as { message: Record<string, unknown> };
+    setLastMessage(payload.message);
+  });
   void listen("lan://peer-left", () => {
     setConnected(false);
     setPeerName(undefined);
@@ -163,6 +172,41 @@ export function lanLeave(): void {
   setHostInfo(undefined);
 }
 
+/** starts the UDP discovery listener (idempotent — the lobby owns the
+ * lifecycle and stops it on unmount) */
+export async function lanStartDiscovery(): Promise<boolean> {
+  const invoke = getInvoke();
+  if (invoke === undefined) return false;
+  wireLanEvents();
+  try {
+    await invoke("lan_start_discovery");
+    return true;
+  } catch (error) {
+    console.error("lan discovery start failed", error);
+    return false;
+  }
+}
+
+/** stops the discovery listener and clears the local list */
+export function lanStopDiscovery(): void {
+  const invoke = getInvoke();
+  if (invoke === undefined) return;
+  setDiscovered([]);
+  void invoke("lan_stop_discovery");
+}
+
+/** pulls the current discovered list (the Rust side prunes stale entries) */
+export async function lanRefreshDiscovered(): Promise<void> {
+  const invoke = getInvoke();
+  if (invoke === undefined) return;
+  try {
+    const list = (await invoke("lan_get_discovered")) as LanDiscovered[];
+    setDiscovered(Array.isArray(list) ? list : []);
+  } catch (error) {
+    console.error("lan discovery refresh failed", error);
+  }
+}
+
 export function getLanRole(): LanRole {
   return getRole();
 }
@@ -179,6 +223,10 @@ export function isLanConnected(): boolean {
   return getConnected();
 }
 
+export function getLanDiscovered(): LanDiscovered[] {
+  return getDiscovered();
+}
+
 export function getLanLastMessage(): Record<string, unknown> | undefined {
   return getLastMessage();
 }
@@ -190,5 +238,6 @@ export function _resetLanStateForTests(): void {
   setConnected(false);
   setPeerName(undefined);
   setHostInfo(undefined);
+  setDiscovered([]);
   setLastMessage(undefined);
 }

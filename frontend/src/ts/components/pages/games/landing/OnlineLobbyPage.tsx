@@ -1,14 +1,19 @@
-import { JSXElement, Show, createSignal } from "solid-js";
+import { For, JSXElement, Show, createSignal, onCleanup } from "solid-js";
 
 import {
+  getLanDiscovered,
   isLanConnected,
   lanAvailable,
   lanJoin,
   lanLeave,
   lanPreFillName,
+  lanRefreshDiscovered,
+  lanStartDiscovery,
   lanStartHost,
+  lanStopDiscovery,
   getLanHostInfo,
   getLanPeerName,
+  type LanDiscovered,
 } from "../../../../states/lan";
 import { Button } from "../../../common/Button";
 import { H2 } from "../../../common/Headers";
@@ -36,9 +41,9 @@ function HudCell(props: {
 /**
  * The Online Games lobby (the owner-approved LAN design): two players on
  * the same local network find each other and connect — no external
- * server. Phase 2 = the name, hosting (code + ip shown for the other
- * player) and manual-IP joining. The UDP discovery list arrives in
- * phase 3; the first online game (bot duel) in phase 4.
+ * server. Phase 3 = the live "nearby matches" list from the UDP
+ * discovery listener (polled every 2s, one-click join) with the manual
+ * ip+code form as the fallback (AP isolation, firewalled discovery).
  */
 export function OnlineLobbyPage(): JSXElement {
   const [name, setName] = createSignal(lanPreFillName());
@@ -46,8 +51,25 @@ export function OnlineLobbyPage(): JSXElement {
   const [joinAddr, setJoinAddr] = createSignal("");
   const [joinCode, setJoinCode] = createSignal("");
   const [message, setMessage] = createSignal<string | undefined>(undefined);
+  //flips after a few silent seconds so the empty list gets the
+  //"use the manual join" hint instead of just "listening…"
+  const [discoveryWaited, setDiscoveryWaited] = createSignal(false);
 
   const playerName = (): string => name().trim() || "P1";
+
+  //the discovery lifecycle belongs to this page: listener on mount,
+  //poll while open, everything dropped on unmount
+  if (lanAvailable()) {
+    void lanStartDiscovery();
+    void lanRefreshDiscovered();
+    const poll = setInterval(() => void lanRefreshDiscovered(), 2000);
+    const waited = setTimeout(() => setDiscoveryWaited(true), 6000);
+    onCleanup(() => {
+      clearInterval(poll);
+      clearTimeout(waited);
+      lanStopDiscovery();
+    });
+  }
 
   const startHosting = async (): Promise<void> => {
     setMessage(undefined);
@@ -63,26 +85,78 @@ export function OnlineLobbyPage(): JSXElement {
     setView("hosting");
   };
 
+  const connectTo = async (addr: string, code: string): Promise<boolean> => {
+    if (!lanAvailable()) {
+      setMessage("the LAN backend is only available inside the desktop app");
+      return false;
+    }
+    const ok = await lanJoin(addr, code, playerName());
+    if (!ok) return false;
+    setView("joining");
+    return true;
+  };
+
   const joinHost = async (): Promise<void> => {
     setMessage(undefined);
     if (joinAddr().trim() === "" || joinCode().trim() === "") {
       setMessage("enter the host ip and session code first");
       return;
     }
-    if (!lanAvailable()) {
-      setMessage("the LAN backend is only available inside the desktop app");
-      return;
-    }
-    const ok = await lanJoin(
-      joinAddr().trim(),
-      joinCode().trim().toUpperCase(),
-      playerName(),
-    );
-    if (!ok) {
+    if (
+      !(await connectTo(joinAddr().trim(), joinCode().trim().toUpperCase()))
+    ) {
       setMessage("could not connect — check the ip and the code");
-      return;
     }
-    setView("joining");
+  };
+
+  const joinDiscovered = async (session: LanDiscovered): Promise<void> => {
+    setMessage(undefined);
+    if (!(await connectTo(`${session.ip}:${session.port}`, session.code))) {
+      setMessage("could not connect — the match may have ended");
+    }
+  };
+
+  const Nearby = (): JSXElement => {
+    return (
+      <div class="grid gap-2">
+        <div class="text-xs text-sub">nearby matches on this network</div>
+        <Show
+          when={getLanDiscovered().length > 0}
+          fallback={
+            <div
+              class="rounded bg-bg p-2 text-xs text-sub"
+              data-testid="ol-nearby-empty"
+            >
+              {discoveryWaited()
+                ? "no matches found — if the host doesn't appear (some routers isolate devices), use join a match and enter their ip manually"
+                : "listening for nearby matches…"}
+            </div>
+          }
+        >
+          <For each={getLanDiscovered()}>
+            {(session) => (
+              <div
+                class="flex items-center justify-between gap-2 rounded bg-bg p-2"
+                data-testid="ol-nearby-session"
+              >
+                <div class="grid">
+                  <div class="text-sm font-bold text-main">{session.name}</div>
+                  <div class="text-xs text-sub">
+                    {session.ip}:{session.port} — code {session.code}
+                  </div>
+                </div>
+                <Button
+                  text="join"
+                  fa={{ icon: "fa-plug" }}
+                  class="w-auto"
+                  onClick={() => void joinDiscovered(session)}
+                />
+              </div>
+            )}
+          </For>
+        </Show>
+      </div>
+    );
   };
 
   const Menu = (): JSXElement => {
@@ -125,6 +199,7 @@ export function OnlineLobbyPage(): JSXElement {
               onClick={() => setView("joining")}
             />
           </div>
+          <Nearby />
           <div class="text-xs text-sub">
             both players must be on the same local network — no internet needed.
             if discovery fails (some routers isolate devices), enter the ip of

@@ -9,7 +9,7 @@ import { _resetLanStateForTests } from "../../../../../src/ts/states/lan";
 /** the frontend talks to the Rust pipe through window.__TAURI__ — this
  * fake records the invokes and captures the event listeners so the spec
  * can fire the Rust-side events (peer-joined etc.) */
-function installTauriMock(): {
+function installTauriMock(discovered: Record<string, unknown>[] = []): {
   invokes: { cmd: string; args: Record<string, unknown> }[];
   fire: (ev: string, payload: unknown) => void;
 } {
@@ -30,6 +30,9 @@ function installTauriMock(): {
         }
         if (cmd === "lan_connect_client") {
           return { connected: true, addr: args?.["addr"] };
+        }
+        if (cmd === "lan_get_discovered") {
+          return discovered;
         }
         return {};
       },
@@ -103,7 +106,9 @@ describe("online lobby (LAN, phase 2)", () => {
         container.querySelector('[data-testid="ol-waiting"]'),
       ).not.toBeNull();
     });
-    expect(tauri.invokes.some((it) => it.cmd === "lan_start_host")).toBe(true);
+    expect(tauri.invokes.some((entry) => entry.cmd === "lan_start_host")).toBe(
+      true,
+    );
   });
 
   it("joining with ip + code connects and announces the peer", async () => {
@@ -129,9 +134,9 @@ describe("online lobby (LAN, phase 2)", () => {
     );
     connectBtn?.click();
     await vi.waitFor(() => {
-      expect(tauri.invokes.some((it) => it.cmd === "lan_connect_client")).toBe(
-        true,
-      );
+      expect(
+        tauri.invokes.some((entry) => entry.cmd === "lan_connect_client"),
+      ).toBe(true);
     });
     //the Rust side announces the joined peer through lan://peer-joined
     tauri.fire("lan://peer-joined", { name: "HOST1" });
@@ -150,5 +155,84 @@ describe("online lobby (LAN, phase 2)", () => {
       .find((b) => (b.textContent ?? "").includes("cancel hosting"))
       ?.click();
     expect(pageText(container)).toContain("host a match");
+  });
+});
+
+describe("online lobby (LAN, phase 3 — discovery)", () => {
+  let tauri: ReturnType<typeof installTauriMock>;
+
+  beforeEach(() => {
+    (globalThis as { indexedDB: unknown }).indexedDB = new IDBFactory();
+    window.localStorage.clear();
+    _resetLanStateForTests();
+    tauri = installTauriMock();
+  });
+
+  afterEach(() => {
+    delete (window as unknown as { __TAURI__?: unknown }).__TAURI__;
+    cleanup();
+  });
+
+  it("runs the discovery lifecycle on mount and shows the listening hint", async () => {
+    const { container, unmount } = render(() => <OnlineLobbyPage />);
+    await vi.waitFor(() => {
+      expect(
+        container
+          .querySelector('[data-testid="ol-nearby-empty"]')
+          ?.textContent?.includes("listening for nearby matches"),
+      ).toBe(true);
+    });
+    expect(
+      tauri.invokes.some((entry) => entry.cmd === "lan_start_discovery"),
+    ).toBe(true);
+    expect(
+      tauri.invokes.some((entry) => entry.cmd === "lan_get_discovered"),
+    ).toBe(true);
+    unmount();
+    expect(
+      tauri.invokes.some((entry) => entry.cmd === "lan_stop_discovery"),
+    ).toBe(true);
+  });
+
+  it("lists a discovered match and joins it with one click", async () => {
+    tauri = installTauriMock([
+      {
+        sessionId: "lan-9/N3DB",
+        name: "HOST9",
+        code: "N3DB",
+        port: 51987,
+        ip: "192.168.100.24",
+      },
+    ]);
+    const { container } = render(() => <OnlineLobbyPage />);
+    await vi.waitFor(() => {
+      expect(
+        container
+          .querySelector('[data-testid="ol-nearby-session"]')
+          ?.textContent?.includes("HOST9"),
+      ).toBe(true);
+    });
+    expect(
+      container
+        .querySelector('[data-testid="ol-nearby-session"]')
+        ?.textContent?.includes("192.168.100.24:51987"),
+    ).toBe(true);
+    //the row's own join button (not the menu's "join a match")
+    container
+      .querySelector('[data-testid="ol-nearby-session"]')
+      ?.querySelector("button")
+      ?.click();
+    await vi.waitFor(() => {
+      const connect = tauri.invokes.find(
+        (entry) => entry.cmd === "lan_connect_client",
+      );
+      expect(connect?.args?.["addr"]).toBe("192.168.100.24:51987");
+      expect(connect?.args?.["code"]).toBe("N3DB");
+    });
+    //let the join promise chain settle (setView runs a microtask after
+    //the invoke resolves) before the Rust side announces the peer
+    await new Promise((r) => setTimeout(r, 0));
+    tauri.fire("lan://peer-joined", { name: "HOST9" });
+    expect(pageText(container)).toContain("connected vs HOST9");
   });
 });

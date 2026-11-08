@@ -1,6 +1,7 @@
 // Prevents an additional console window on Windows in release builds.
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 
+use std::collections::HashMap;
 use std::sync::Mutex;
 use tauri::{
     menu::{Menu, MenuItem},
@@ -256,11 +257,16 @@ fn main() {
             lan::lan_send_message,
             lan::lan_connect_client,
             lan::lan_client_send,
-            lan::lan_disconnect_client
+            lan::lan_disconnect_client,
+            lan::lan_start_discovery,
+            lan::lan_stop_discovery,
+            lan::lan_get_discovered
         ])
         .manage(lan::LanState {
             host: Mutex::new(None),
             client: Mutex::new(None),
+            discovered: Mutex::new(HashMap::new()),
+            discovery: Mutex::new(None),
         })
         .setup(|app| {
             let window: WebviewWindow =
