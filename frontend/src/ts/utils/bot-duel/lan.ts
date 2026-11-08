@@ -1,12 +1,16 @@
-import { type LanPlayable, type LanStartPayload } from "../games/lan-registry";
+import {
+  wordIndexProgressCodec,
+  type LanPlayable,
+  type LanStartPayload,
+} from "../games/lan-registry";
 import { FALLBACK_WORDS, buildRaceWords } from "./duel-words";
 
 /**
  * bot-duel's LanPlayable (online wave, phase 1): the first registry
  * member. Pure — the lobby fetches the language pool and passes it in
  * `settings.words`; without a pool the deterministic fallback cycles.
- * The live progress relayed during a race is the pair the page already
- * sends today (wordIndex + correctChars).
+ * The live progress relayed during a race is the shared pair codec
+ * (wordIndex + correctChars).
  */
 
 export type BotDuelProgress = {
@@ -56,43 +60,5 @@ export const lanBotDuel: LanPlayable = {
     }
     return isWordList(start.words);
   },
-  encodeProgress(state) {
-    const wordIndex = state["wordIndex"];
-    const correctChars = state["correctChars"];
-    return {
-      wordIndex:
-        typeof wordIndex === "number" && wordIndex >= 0
-          ? Math.floor(wordIndex)
-          : 0,
-      correctChars:
-        typeof correctChars === "number" && correctChars >= 0
-          ? Math.floor(correctChars)
-          : 0,
-    };
-  },
-  decodeProgress(payload) {
-    if (typeof payload !== "object" || payload === null) return undefined;
-    const record = payload as Record<string, unknown>;
-    const wordIndex = record["wordIndex"];
-    const correctChars = record["correctChars"];
-    if (
-      typeof wordIndex !== "number" ||
-      !Number.isFinite(wordIndex) ||
-      wordIndex < 0
-    ) {
-      return undefined;
-    }
-    if (
-      typeof correctChars !== "number" ||
-      !Number.isFinite(correctChars) ||
-      correctChars < 0
-    ) {
-      return undefined;
-    }
-    const progress: BotDuelProgress = {
-      wordIndex: Math.floor(wordIndex),
-      correctChars: Math.floor(correctChars),
-    };
-    return { ...progress };
-  },
+  ...wordIndexProgressCodec(),
 };

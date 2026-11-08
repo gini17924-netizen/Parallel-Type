@@ -13,7 +13,7 @@
 import type { FaSolidIcon } from "../../types/font-awesome";
 
 /** the games that have an online mode — grows one entry per phase */
-export type LanGameId = "bot-duel" | "sprint";
+export type LanGameId = "bot-duel" | "sprint" | "ghost-gp";
 
 /** what a game's buildStart produces — the caller (the lobby) ships it
  * inside the `start` message; the armed match adds role/peerName/seq */
@@ -31,7 +31,7 @@ export type LanStartPayload = {
 export type LanPlayable = {
   gameId: LanGameId;
   /** where BOTH players navigate when the match starts */
-  route: "/games/bot-duel" | "/games/sprint";
+  route: "/games/bot-duel" | "/games/sprint" | "/games/ghost-gp";
   /** the lobby picker card (English, per the standing rule) */
   label: string;
   icon: FaSolidIcon;
@@ -71,6 +71,50 @@ export function getLanGames(): LanPlayable[] {
 /** the host's one-shot shared seed (positive 31-bit, fits the LCG) */
 export function createLanSeed(): number {
   return Math.floor(Math.random() * 2147483647) + 1;
+}
+
+/** the shared {wordIndex, correctChars} progress codec — the duel-family
+ * games (bot-duel, ghost-gp, …) relay exactly this pair */
+export function wordIndexProgressCodec(): {
+  encodeProgress(state: Record<string, unknown>): Record<string, unknown>;
+  decodeProgress(payload: unknown): Record<string, unknown> | undefined;
+} {
+  const coerce = (value: unknown): number =>
+    typeof value === "number" && Number.isFinite(value) && value >= 0
+      ? Math.floor(value)
+      : 0;
+  return {
+    encodeProgress(state) {
+      return {
+        wordIndex: coerce(state["wordIndex"]),
+        correctChars: coerce(state["correctChars"]),
+      };
+    },
+    decodeProgress(payload) {
+      if (typeof payload !== "object" || payload === null) return undefined;
+      const record = payload as Record<string, unknown>;
+      const wordIndex = record["wordIndex"];
+      const correctChars = record["correctChars"];
+      if (
+        typeof wordIndex !== "number" ||
+        !Number.isFinite(wordIndex) ||
+        wordIndex < 0
+      ) {
+        return undefined;
+      }
+      if (
+        typeof correctChars !== "number" ||
+        !Number.isFinite(correctChars) ||
+        correctChars < 0
+      ) {
+        return undefined;
+      }
+      return {
+        wordIndex: Math.floor(wordIndex),
+        correctChars: Math.floor(correctChars),
+      };
+    },
+  };
 }
 
 /** test hook: empties the registry (specs re-register what they need) */

@@ -3,6 +3,7 @@ import {
   type LanPlayable,
   type LanStartPayload,
 } from "../games/lan-registry";
+import { shuffleWithSeed } from "../games/seeded-shuffle";
 import { FALLBACK_WORDS } from "../bot-duel/duel-words";
 
 /**
@@ -26,23 +27,10 @@ export type SprintRemoteState = {
 
 export type SprintVerdict = "won" | "lost" | "draw";
 
-/** the LAN word order: the same LCG shuffle the daily uses, seeded by
- * the match seed (string-hashed, exactly like the page's seededShuffle) */
+/** the LAN word order: the shared seeded LCG shuffle (the daily's
+ * algorithm), seeded by the match seed */
 export function buildSprintStream(pool: string[], seed: number): string[] {
-  let state = String(seed)
-    .split("")
-    .reduce((hash, ch) => (hash * 31 + ch.charCodeAt(0)) % 2147483647, 7);
-  if (state <= 0) state += 2147483646;
-  const rand = (): number => {
-    state = (state * 16807) % 2147483647;
-    return (state - 1) / 2147483646;
-  };
-  const out = [...pool];
-  for (let i = out.length - 1; i > 0; i--) {
-    const j = Math.floor(rand() * (i + 1));
-    [out[i], out[j]] = [out[j] as string, out[i] as string];
-  }
-  return out;
+  return shuffleWithSeed(pool, seed);
 }
 
 /** the horn verdict: more words wins, correct chars break the tie */
