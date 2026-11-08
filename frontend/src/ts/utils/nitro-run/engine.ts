@@ -169,12 +169,13 @@ export function createNitroRunEngine(options: {
       if (nitroRemainingMs > 0) {
         nitroRemainingMs = Math.max(0, nitroRemainingMs - dtMs);
       }
-      //the loss: hopelessly behind the NEAREST AI (doc G23 §۰.۴)
+      //the loss: hopelessly behind the NEAREST AI (doc G23 §۰.۴) — an
+      //empty field (the online race) never loses this way
       const nearestAi = ais.reduce(
         (min, racer) => Math.min(min, racer.progressM),
         Number.POSITIVE_INFINITY,
       );
-      if (nearestAi - playerProgressM > BALANCE.gapLossM) {
+      if (ais.length > 0 && nearestAi - playerProgressM > BALANCE.gapLossM) {
         return finish();
       }
       return snapshot();

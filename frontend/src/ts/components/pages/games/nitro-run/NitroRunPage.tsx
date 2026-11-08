@@ -2,6 +2,7 @@ import {
   For,
   JSXElement,
   Show,
+  createEffect,
   createSignal,
   onCleanup,
   onMount,
@@ -9,7 +10,23 @@ import {
 
 import { Config } from "../../../../config/store";
 import { playClick, playError } from "../../../../controllers/sound-controller";
+import { navigate } from "../../../../router/navigate";
+import { isLanConnected, lanPreFillName } from "../../../../states/lan";
+import {
+  armLanMatch,
+  clearLanMatch,
+  getLanMatch,
+  getRemoteFinished,
+  getRemoteProgress,
+  getRematchAsked,
+  sendLanMatchFinished,
+  sendLanMatchProgress,
+  sendLanMatchRematch,
+  sendLanMatchStart,
+  type LanMatch,
+} from "../../../../states/lan-match";
 import { cn } from "../../../../utils/cn";
+import { createSeededRng } from "../../../../utils/daily-gauntlet/seeded-rng";
 import { latinCharFromEvent } from "../../../../utils/games/latin-input";
 import { cachedFetchJson } from "../../../../utils/json-data";
 import { BALANCE } from "../../../../utils/nitro-run/balance";
@@ -18,6 +35,13 @@ import {
   type NitroRunEngine,
   type NitroRunState,
 } from "../../../../utils/nitro-run/engine";
+import {
+  lanNitro,
+  nitroLanStream,
+  resolveNitroVerdict,
+  type NitroRemoteState,
+  type NitroVerdict,
+} from "../../../../utils/nitro-run/lan";
 import {
   getNitroBestDistanceM,
   getNitroBestRankScore,
@@ -40,7 +64,16 @@ const FALLBACK_WORDS = [
   "track",
 ];
 
-type PagePhase = "menu" | "playing" | "result";
+type PagePhase = "menu" | "playing" | "awaiting" | "result";
+
+/** the online verdict once both cars have reported */
+type NitroOnlineResult = {
+  verdict: NitroVerdict;
+  myMs: number;
+  myMeters: number;
+  theirMs: number | null;
+  theirMeters: number;
+};
 
 function HudCell(props: { label: string; value: string }): JSXElement {
   return (
@@ -59,14 +92,31 @@ function HudCell(props: { label: string; value: string }): JSXElement {
  * and the timers.
  */
 export function NitroRunPage(): JSXElement {
-  const [pagePhase, setPagePhase] = createSignal<PagePhase>("menu");
+  const [pagePhase, setPagePhase] = createSignal<PagePhase>(
+    getLanMatch()?.gameId === "nitro-run" ? "playing" : "menu",
+  );
   const [engineState, setEngineState] = createSignal<NitroRunState | undefined>(
     undefined,
   );
   const [message, setMessage] = createSignal<string | undefined>(undefined);
+  //online (LAN) state — the peer's car on the same seeded stream
+  const [remoteState, setRemoteState] = createSignal<
+    NitroRemoteState | undefined
+  >(undefined);
+  const [onlineResult, setOnlineResult] = createSignal<
+    NitroOnlineResult | undefined
+  >(undefined);
+  const [rematchSent, setRematchSent] = createSignal(false);
 
   let engine: NitroRunEngine | undefined;
   let tickTimer: ReturnType<typeof setInterval> | undefined;
+  //reactive: the banner and the tick both read the live target
+  const [targetM, setTargetM] = createSignal(Number.MAX_SAFE_INTEGER);
+  let completedWords = 0;
+  let myFinish: { finishMs: number } | undefined;
+  let myFinishSent = false;
+  let lastSentMeters = -1;
+  let lastSentWords = -1;
 
   const stopTimers = (): void => {
     if (tickTimer !== undefined) clearInterval(tickTimer);
@@ -74,6 +124,83 @@ export function NitroRunPage(): JSXElement {
   };
 
   onCleanup(stopTimers);
+
+  //leaving mid-race (header back, route change) tells the peer the race
+  //ended without a finish and disarms — they are never left waiting
+  onCleanup(() => {
+    if (getLanMatch()?.gameId !== "nitro-run") return;
+    if (pagePhase() !== "playing" && pagePhase() !== "awaiting") return;
+    sendLanMatchFinished(null, 0);
+    clearLanMatch();
+  });
+
+  const lanMode = (): boolean => getLanMatch()?.gameId === "nitro-run";
+
+  const resolveOnlineResult = (): void => {
+    const finished = getRemoteFinished();
+    if (finished === undefined || myFinish === undefined) return;
+    //a null finish means the peer never crossed — they lose
+    setOnlineResult({
+      verdict: resolveNitroVerdict(myFinish, {
+        finishMs: finished.finishMs ?? Number.MAX_SAFE_INTEGER,
+      }),
+      myMs: myFinish.finishMs,
+      myMeters: engineState()?.distanceM ?? 0,
+      theirMs: finished.finishMs,
+      theirMeters: remoteState()?.meters ?? 0,
+    });
+    setPagePhase("result");
+  };
+
+  const myFinishNow = (): void => {
+    if (myFinishSent) return;
+    const state = engine?.state();
+    if (state === undefined) return;
+    myFinishSent = true;
+    myFinish = { finishMs: Math.round(state.elapsedMs) };
+    sendLanMatchProgress(
+      lanNitro.encodeProgress({
+        meters: state.distanceM,
+        words: completedWords,
+      }),
+    );
+    sendLanMatchFinished(myFinish.finishMs, 100);
+    if (getRemoteFinished() !== undefined) {
+      resolveOnlineResult();
+    } else {
+      setPagePhase("awaiting");
+    }
+  };
+
+  /** the one tick loop both the offline run and the online race share */
+  const startTickLoop = (): void => {
+    tickTimer = setInterval(() => {
+      if (engine === undefined) return;
+      const state = engine.tick(TICK_MS);
+      setEngineState(state);
+      //online: the target line ends the race (the AI gap never fires)
+      if (lanMode() && state.distanceM >= targetM()) {
+        myFinishNow();
+        return;
+      }
+      //online: relay the live progress when it moved
+      if (
+        lanMode() &&
+        (Math.round(state.distanceM) !== lastSentMeters ||
+          completedWords !== lastSentWords)
+      ) {
+        lastSentMeters = Math.round(state.distanceM);
+        lastSentWords = completedWords;
+        sendLanMatchProgress(
+          lanNitro.encodeProgress({
+            meters: state.distanceM,
+            words: completedWords,
+          }),
+        );
+      }
+      if (state.phase === "done") endRun();
+    }, TICK_MS);
+  };
 
   const startRun = async (): Promise<void> => {
     setMessage(undefined);
@@ -100,17 +227,18 @@ export function NitroRunPage(): JSXElement {
     });
     setEngineState(engine.state());
     setPagePhase("playing");
-    tickTimer = setInterval(() => {
-      if (engine === undefined) return;
-      const state = engine.tick(TICK_MS);
-      setEngineState(state);
-      if (state.phase === "done") endRun();
-    }, TICK_MS);
+    startTickLoop();
   };
 
   const endRun = (): void => {
     stopTimers();
     const state = engine?.state();
+    if (lanMode()) {
+      //online runs end through myFinishNow (the target line) — this
+      //branch only fires for a stray engine done; nothing is recorded
+      setPagePhase("result");
+      return;
+    }
     if (state?.result !== undefined) {
       recordNitroRun({
         rankScore: state.result.rankScore,
@@ -146,6 +274,9 @@ export function NitroRunPage(): JSXElement {
     const after = engine?.feedKey(latinCharFromEvent(event.key, event.code));
     if (after === undefined) return;
     if (before !== undefined) {
+      if (after.currentWord !== before.currentWord) {
+        completedWords += 1; //a word completed (the stream advanced)
+      }
       if (after.distanceM > before.distanceM) {
         void playClick();
       } else if (after.spinOutMs > 0 && before.spinOutMs === 0) {
@@ -158,6 +289,103 @@ export function NitroRunPage(): JSXElement {
   onMount(() => {
     window.addEventListener("keydown", handleKey);
     onCleanup(() => window.removeEventListener("keydown", handleKey));
+  });
+
+  const hostRematch = (match: LanMatch): void => {
+    //arm first: a refused start never reaches the wire
+    armLanMatch({
+      role: "host",
+      peerName: match.peerName,
+      start: match.start,
+    });
+    if (getLanMatch() === undefined) return;
+    sendLanMatchStart(match.start, lanPreFillName() || "P1");
+  };
+
+  //an armed (or re-armed) nitro match IS the online start: the seed
+  //builds the shared stream, the AI field drops out, the target line
+  //replaces the gap loss
+  createEffect(() => {
+    const match = getLanMatch();
+    if (match?.gameId !== "nitro-run") return;
+    void (async () => {
+      const lang =
+        typeof match.start.params["lang"] === "string"
+          ? match.start.params["lang"]
+          : "english";
+      const meters = match.start.params["meters"];
+      let pool: string[] = FALLBACK_WORDS;
+      try {
+        const data = await cachedFetchJson<{ words: string[] }>(
+          `/languages/${lang}.json`,
+        );
+        pool = data.words;
+      } catch {
+        //offline fallback list
+      }
+      const pickable = [
+        ...new Set(
+          pool
+            .filter((word) => /^\p{L}+$/u.test(word))
+            .map((word) => word.toLowerCase()),
+        ),
+      ];
+      const stream = nitroLanStream(pickable, match.start.seed ?? 1);
+      let streamIndex = 0;
+      setTargetM(
+        typeof meters === "number" && meters > 0 ? Math.floor(meters) : 1000,
+      );
+      completedWords = 0;
+      myFinish = undefined;
+      myFinishSent = false;
+      lastSentMeters = -1;
+      lastSentWords = -1;
+      setOnlineResult(undefined);
+      setRematchSent(false);
+      setRemoteState(undefined);
+      engine = createNitroRunEngine({
+        nextWord: () => stream[streamIndex++ % stream.length] ?? "nitro",
+        aiWpms: [], //online: no AI — the peer replaces the field
+        rng: createSeededRng(match.start.seed ?? 1),
+      });
+      setEngineState(engine.state());
+      setPagePhase("playing");
+      startTickLoop();
+    })();
+  });
+
+  //the relayed peer progress lands decoded — the strip reads it inline
+  createEffect(() => {
+    const progress = getRemoteProgress();
+    if (progress === undefined) return;
+    setRemoteState(progress.state as NitroRemoteState);
+  });
+
+  //the peer's finish resolves the held verdict (or arrived before mine)
+  createEffect(() => {
+    if (pagePhase() !== "awaiting") return;
+    if (getRemoteFinished() === undefined) return;
+    resolveOnlineResult();
+  });
+
+  //the host answers a rematch request by re-sending the same start
+  createEffect(() => {
+    const match = getLanMatch();
+    if (match?.role !== "host" || match.gameId !== "nitro-run") return;
+    if (!getRematchAsked()) return;
+    hostRematch(match);
+  });
+
+  //a disconnect during the race voids it — nothing online is recorded
+  createEffect(() => {
+    if (getLanMatch()?.gameId !== "nitro-run") return;
+    if (isLanConnected()) return;
+    if (pagePhase() !== "playing" && pagePhase() !== "awaiting") return;
+    stopTimers();
+    engine = undefined;
+    clearLanMatch();
+    setMessage("the opponent left — race void, nothing was recorded");
+    setPagePhase("menu");
   });
 
   /** the AI car's strip position: its RELATIVE progress to the player,
@@ -252,6 +480,31 @@ export function NitroRunPage(): JSXElement {
             );
           }}
         </For>
+        <Show when={lanMode()}>
+          {(() => {
+            //the peer's car: their RELATIVE progress to me on the strip
+            const rel =
+              (remoteState()?.meters ?? 0) - (engineState()?.distanceM ?? 0);
+            const left = 50 + (rel / VIEW_WINDOW_M) * 100;
+            const visible = left > -8 && left < 108;
+            return (
+              <Show when={visible}>
+                <div
+                  class="absolute grid place-items-center rounded-lg border-2 border-error bg-bg text-xs font-bold text-error"
+                  style={{
+                    left: `${left}%`,
+                    top: "6vh",
+                    width: "3.2rem",
+                    height: "2rem",
+                  }}
+                  data-testid="nr-peer-car"
+                >
+                  P2
+                </div>
+              </Show>
+            );
+          })()}
+        </Show>
         <div
           class={cn(
             "absolute grid place-items-center rounded-lg border-2 font-bold",
@@ -270,16 +523,25 @@ export function NitroRunPage(): JSXElement {
         >
           YOU
         </div>
-        <div
-          class="absolute grid place-items-center rounded border border-sub bg-bg text-xs text-sub"
-          style={{
-            left: `${50 + (BALANCE.gapLossM / VIEW_WINDOW_M) * 50}%`,
-            top: "0",
-            height: "100%",
-            width: "2px",
-          }}
-          data-testid="nr-gap-line"
-        ></div>
+        <Show when={!lanMode()}>
+          <div
+            class="absolute grid place-items-center rounded border border-sub bg-bg text-xs text-sub"
+            style={{
+              left: `${50 + (BALANCE.gapLossM / VIEW_WINDOW_M) * 50}%`,
+              top: "0",
+              height: "100%",
+              width: "2px",
+            }}
+            data-testid="nr-gap-line"
+          ></div>
+        </Show>
+        <Show when={lanMode()}>
+          <div
+            class="absolute top-0 h-full w-0.5 bg-main"
+            style={{ left: "96%" }}
+            data-testid="nr-finish-line"
+          ></div>
+        </Show>
       </section>
     );
   };
@@ -304,6 +566,89 @@ export function NitroRunPage(): JSXElement {
           )}
         </For>
       </div>
+    );
+  };
+
+  const AwaitingScreen = (): JSXElement => {
+    return (
+      <section class="grid place-items-center rounded bg-sub-alt py-16 text-center">
+        <div class="text-2xl font-bold text-main" data-testid="nr-awaiting">
+          you crossed in {((myFinish?.finishMs ?? 0) / 1000).toFixed(1)}s —
+          waiting for {getLanMatch()?.peerName ?? "the opponent"}…
+        </div>
+      </section>
+    );
+  };
+
+  const OnlineResultScreen = (): JSXElement => {
+    const online = (): NitroOnlineResult | undefined => onlineResult();
+    const verdict = online()?.verdict;
+    return (
+      <section class="grid gap-4 rounded bg-sub-alt p-6 text-center">
+        <div
+          class={cn(
+            "text-3xl font-bold",
+            verdict === "won"
+              ? "text-main"
+              : verdict === "draw"
+                ? "text-sub"
+                : "text-error",
+          )}
+          data-testid="nr-verdict"
+        >
+          {verdict === "won"
+            ? "you win!"
+            : verdict === "draw"
+              ? "draw"
+              : `${getLanMatch()?.peerName ?? "the opponent"} wins`}
+        </div>
+        <div class="grid grid-cols-2 gap-2">
+          <div class="rounded bg-bg p-3">
+            <div class="text-xl font-bold text-main tabular-nums">
+              {((online()?.myMs ?? 0) / 1000).toFixed(1)}s ·{" "}
+              {Math.round(online()?.myMeters ?? 0)}m
+            </div>
+            <div class="text-xs text-sub">you</div>
+          </div>
+          <div class="rounded bg-bg p-3">
+            <div class="text-xl font-bold text-main tabular-nums">
+              {online()?.theirMs === null
+                ? "—"
+                : `${((online()?.theirMs ?? 0) / 1000).toFixed(1)}s`}{" "}
+              · {Math.round(online()?.theirMeters ?? 0)}m
+            </div>
+            <div class="text-xs text-sub">
+              {getLanMatch()?.peerName ?? "the opponent"}
+            </div>
+          </div>
+        </div>
+        <div class="grid grid-cols-2 gap-2">
+          <Button
+            text={rematchSent() ? "rematch requested — waiting…" : "rematch"}
+            fa={{ icon: "fa-redo" }}
+            class="w-full"
+            onClick={() => {
+              const match = getLanMatch();
+              if (match === undefined || rematchSent()) return;
+              if (match.role === "host") {
+                hostRematch(match);
+              } else {
+                sendLanMatchRematch();
+                setRematchSent(true);
+              }
+            }}
+          />
+          <Button
+            text="leave to lobby"
+            fa={{ icon: "fa-arrow-left" }}
+            class="w-full"
+            onClick={() => {
+              clearLanMatch();
+              void navigate({ to: "/games/online" });
+            }}
+          />
+        </div>
+      </section>
     );
   };
 
@@ -374,8 +719,32 @@ export function NitroRunPage(): JSXElement {
           nitro on clean streaks and burn it with Enter.
         </p>
       </section>
+      <Show when={lanMode()}>
+        <div
+          class="rounded bg-sub-alt p-2 text-center text-sm font-bold text-main"
+          data-testid="nr-online-vs"
+        >
+          <i class="fas fa-car-side"></i> online vs{" "}
+          {getLanMatch()?.peerName ?? "…"} — first to {Math.round(targetM())}m
+          wins
+        </div>
+      </Show>
       <Show when={pagePhase() !== "menu"} fallback={<Menu />}>
-        <Show when={pagePhase() === "playing"} fallback={<ResultScreen />}>
+        <Show
+          when={pagePhase() === "playing"}
+          fallback={
+            <Show
+              when={pagePhase() === "awaiting"}
+              fallback={
+                <Show when={lanMode()} fallback={<ResultScreen />}>
+                  <OnlineResultScreen />
+                </Show>
+              }
+            >
+              <AwaitingScreen />
+            </Show>
+          }
+        >
           <div class="grid grid-cols-4 gap-2" aria-label="nitro run hud">
             <HudCell
               label="distance"
