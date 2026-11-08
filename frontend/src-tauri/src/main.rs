@@ -1,6 +1,7 @@
 // Prevents an additional console window on Windows in release builds.
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 
+use std::sync::Mutex;
 use tauri::{
     menu::{Menu, MenuItem},
     tray::{MouseButton, MouseButtonState, TrayIconBuilder, TrayIconEvent},
@@ -8,6 +9,8 @@ use tauri::{
 };
 use tauri_plugin_global_shortcut::{GlobalShortcutExt, ShortcutState};
 use tauri_plugin_updater::UpdaterExt;
+
+mod lan;
 
 /// Opens http(s)/mailto links in the system browser instead of navigating the
 /// webview. Injected before any page script runs.
@@ -245,7 +248,20 @@ fn main() {
         .plugin(tauri_plugin_opener::init())
         .plugin(tauri_plugin_updater::Builder::new().build())
         .plugin(tauri_plugin_global_shortcut::Builder::new().build())
-        .invoke_handler(tauri::generate_handler![backup_write, backup_read])
+        .invoke_handler(tauri::generate_handler![
+            backup_write,
+            backup_read,
+            lan::lan_start_host,
+            lan::lan_stop_host,
+            lan::lan_send_message,
+            lan::lan_connect_client,
+            lan::lan_client_send,
+            lan::lan_disconnect_client
+        ])
+        .manage(lan::LanState {
+            host: Mutex::new(None),
+            client: Mutex::new(None),
+        })
         .setup(|app| {
             let window: WebviewWindow =
                 tauri::WebviewWindowBuilder::new(app, "main", WebviewUrl::App("/".into()))
