@@ -2,6 +2,7 @@ import {
   For,
   JSXElement,
   Show,
+  createEffect,
   createSignal,
   onCleanup,
   onMount,
@@ -9,6 +10,21 @@ import {
 
 import { Config } from "../../../../config/store";
 import { playClick, playError } from "../../../../controllers/sound-controller";
+import { navigate } from "../../../../router/navigate";
+import { isLanConnected, lanPreFillName } from "../../../../states/lan";
+import {
+  armLanMatch,
+  clearLanMatch,
+  getLanMatch,
+  getRemoteFinished,
+  getRemoteProgress,
+  getRematchAsked,
+  sendLanMatchFinished,
+  sendLanMatchProgress,
+  sendLanMatchRematch,
+  sendLanMatchStart,
+  type LanMatch,
+} from "../../../../states/lan-match";
 import { cn } from "../../../../utils/cn";
 import { latinCharFromEvent } from "../../../../utils/games/latin-input";
 import { cachedFetchJson } from "../../../../utils/json-data";
@@ -17,6 +33,13 @@ import {
   type LetterStrikeEngine,
   type LetterStrikeState,
 } from "../../../../utils/letter-strike/engine";
+import {
+  lanStrike,
+  resolveStrikeVerdict,
+  strikeLanSpawner,
+  type StrikeRemoteState,
+  type StrikeVerdict,
+} from "../../../../utils/letter-strike/lan";
 import { createWaveSpawner } from "../../../../utils/letter-strike/spawner";
 import {
   getLetterStrikeBestScore,
@@ -41,7 +64,18 @@ const FALLBACK_WORDS = [
 ];
 const SLOTS = 8;
 
-type PagePhase = "menu" | "playing" | "result";
+type PagePhase = "menu" | "playing" | "awaiting" | "result";
+
+/** the online verdict once both runs have ended (or the peer gave up) */
+type StrikeOnlineResult = {
+  verdict: StrikeVerdict;
+  myScore: number;
+  myLives: number;
+  myTimeMs: number;
+  theirScore: number;
+  theirLives: number;
+  theirTimeMs: number | null;
+};
 
 function HudCell(props: { label: string; value: string }): JSXElement {
   return (
@@ -59,6 +93,13 @@ function HudCell(props: { label: string; value: string }): JSXElement {
  * the EMP; Escape is swallowed in the capture phase so the commandline can
  * never open mid-run (doc G8 §۵ — page-scoped, no INF-1). The pure engine
  * owns the rules; this page owns the word pool, the slots and the timers.
+ *
+ * Online (online wave, phase 32): the armed match IS the start — both
+ * machines build the identical seeded waves (the spawner's rng derives
+ * from the shared seed) and race to the death: the higher score wins, the
+ * longer survival breaks the tie. Losing the last life sends the finish;
+ * the verdict resolves when both are in (or the peer gave up — a run
+ * without a finish loses). Nothing online is recorded.
  */
 export function LetterStrikePage(): JSXElement {
   const [pagePhase, setPagePhase] = createSignal<PagePhase>("menu");
@@ -72,6 +113,17 @@ export function LetterStrikePage(): JSXElement {
     { slot: number; y: number } | undefined
   >(undefined);
   const [message, setMessage] = createSignal<string | undefined>(undefined);
+  //online (LAN) state — the peer races the same seeded waves
+  const [remoteState, setRemoteState] = createSignal<
+    StrikeRemoteState | undefined
+  >(undefined);
+  const [onlineResult, setOnlineResult] = createSignal<
+    StrikeOnlineResult | undefined
+  >(undefined);
+  const [rematchSent, setRematchSent] = createSignal(false);
+  const [voidMessage, setVoidMessage] = createSignal<string | undefined>(
+    undefined,
+  );
 
   let engine: LetterStrikeEngine | undefined;
   let tickTimer: ReturnType<typeof setInterval> | undefined;
@@ -80,6 +132,11 @@ export function LetterStrikePage(): JSXElement {
   const slotById = new Map<number, number>();
   const positions = new Map<number, { slot: number; y: number }>();
   let lastSlot = -1;
+  let runStart = 0;
+  let myFinish: { score: number; elapsedMs: number } | undefined;
+  let myFinishSent = false;
+  let lastSentScore = -1;
+  let lastSentLives = -1;
 
   const stopTimers = (): void => {
     if (tickTimer !== undefined) clearInterval(tickTimer);
@@ -91,6 +148,27 @@ export function LetterStrikePage(): JSXElement {
   };
 
   onCleanup(stopTimers);
+
+  //leaving mid-race (header back, route change) tells the peer the run
+  //was abandoned — a run without a finish loses, they can never be beaten
+  onCleanup(() => {
+    if (getLanMatch()?.gameId !== "letter-strike") return;
+    if (pagePhase() !== "playing" && pagePhase() !== "awaiting") return;
+    if (!myFinishSent) {
+      myFinishSent = true;
+      const state = engine?.state();
+      sendLanMatchProgress(
+        lanStrike.encodeProgress({
+          score: state?.score ?? 0,
+          lives: state?.lives ?? 0,
+        }),
+      );
+      sendLanMatchFinished(null, 0);
+    }
+    clearLanMatch();
+  });
+
+  const lanMode = (): boolean => getLanMatch()?.gameId === "letter-strike";
 
   const slotFor = (id: number): number => {
     let slot = slotById.get(id);
@@ -128,6 +206,12 @@ export function LetterStrikePage(): JSXElement {
   };
 
   const startRun = async (): Promise<void> => {
+    if (lanMode()) return; //online: the match effect owns the start
+    await startOfflineRun();
+  };
+
+  /** the offline run: the random waves, the local records */
+  const startOfflineRun = async (): Promise<void> => {
     setMessage(undefined);
     slotById.clear();
     positions.clear();
@@ -145,10 +229,111 @@ export function LetterStrikePage(): JSXElement {
     engine = createLetterStrikeEngine({ spawnWave: spawner.spawnWave });
     setEngineState(engine.state());
     setPagePhase("playing");
+    startTickLoop();
+  };
+
+  const resolveOnlineResult = (): void => {
+    const finished = getRemoteFinished();
+    if (finished === undefined) return;
+    const state = engine?.state();
+    const myScore = state?.score ?? 0;
+    const sinceStart = Date.now() - runStart;
+    const myTimeMs = myFinish?.elapsedMs ?? sinceStart;
+    //a peer finish of null = they abandoned mid-run: a run without a
+    //finish loses, the survivor takes the win whenever their run ends
+    const abandoned =
+      finished.finishMs === null || finished.finishMs === undefined;
+    const theirScore = remoteState()?.score ?? 0;
+    setOnlineResult({
+      verdict: abandoned
+        ? "won"
+        : resolveStrikeVerdict(
+            { score: myScore, elapsedMs: myTimeMs },
+            {
+              score: theirScore,
+              elapsedMs: finished.finishMs ?? Number.MAX_SAFE_INTEGER,
+            },
+          ),
+      myScore,
+      myLives: state?.lives ?? 0,
+      myTimeMs,
+      theirScore,
+      theirLives: remoteState()?.lives ?? 0,
+      theirTimeMs: abandoned ? null : (finished.finishMs ?? null),
+    });
+    setPagePhase("result");
+  };
+
+  const hostRematch = (match: LanMatch): void => {
+    //arm first: a refused start never reaches the wire
+    armLanMatch({
+      role: "host",
+      peerName: match.peerName,
+      start: match.start,
+    });
+    if (getLanMatch() === undefined) return;
+    sendLanMatchStart(match.start, lanPreFillName() || "P1");
+  };
+
+  //an armed (or re-armed) strike match IS the online start: the seed
+  //builds the identical waves (ships, speeds, bosses — in the same order)
+  createEffect(() => {
+    const match = getLanMatch();
+    if (match?.gameId !== "letter-strike") return;
+    void (async () => {
+      const matchLang = match.start.params["lang"];
+      let words: string[] = FALLBACK_WORDS;
+      try {
+        const data = await cachedFetchJson<{ words: string[] }>(
+          `/languages/${
+            typeof matchLang === "string" && matchLang.length > 0
+              ? matchLang
+              : "english"
+          }.json`,
+        );
+        words = data.words;
+      } catch {
+        //the offline fallback list (the spawner filters/normalizes anyway)
+      }
+      const seed = match.start.seed ?? 1;
+      setOnlineResult(undefined);
+      setRematchSent(false);
+      setRemoteState(undefined);
+      setVoidMessage(undefined);
+      myFinish = undefined;
+      myFinishSent = false;
+      lastSentScore = -1;
+      lastSentLives = -1;
+      runStart = Date.now();
+      slotById.clear();
+      positions.clear();
+      lastSlot = -1;
+      engine = createLetterStrikeEngine({
+        spawnWave: strikeLanSpawner(words, seed).spawnWave,
+      });
+      setEngineState(engine.state());
+      setPagePhase("playing");
+      startTickLoop();
+    })();
+  });
+
+  /** the one tick loop both the offline run and the online race share */
+  const startTickLoop = (): void => {
     tickTimer = setInterval(() => {
       if (engine === undefined) return;
       const state = engine.tick(TICK_MS);
       applyState(state);
+      //online: relay the score/lives when they moved
+      if (
+        lanMode() &&
+        (state.score !== lastSentScore || state.lives !== lastSentLives)
+      ) {
+        lastSentScore = state.score;
+        lastSentLives = state.lives;
+        sendLanMatchProgress(
+          lanStrike.encodeProgress({ score: state.score, lives: state.lives }),
+        );
+      }
       if (state.phase === "done") endRun();
     }, TICK_MS);
   };
@@ -156,6 +341,29 @@ export function LetterStrikePage(): JSXElement {
   const endRun = (): void => {
     stopTimers();
     const state = engine?.state();
+    if (lanMode()) {
+      //the last life is gone — the finish ships with the final numbers
+      if (!myFinishSent) {
+        myFinishSent = true;
+        myFinish = {
+          score: state?.score ?? 0,
+          elapsedMs: Date.now() - runStart,
+        };
+        sendLanMatchProgress(
+          lanStrike.encodeProgress({
+            score: myFinish.score,
+            lives: state?.lives ?? 0,
+          }),
+        );
+        sendLanMatchFinished(myFinish.elapsedMs, 100);
+      }
+      if (getRemoteFinished() !== undefined) {
+        resolveOnlineResult();
+      } else {
+        setPagePhase("awaiting");
+      }
+      return;
+    }
     if (state?.result !== undefined) {
       recordLetterStrikeRun({
         score: state.result.score,
@@ -238,6 +446,40 @@ export function LetterStrikePage(): JSXElement {
     });
   });
 
+  //the relayed peer progress lands decoded — the panel reads it inline
+  createEffect(() => {
+    const progress = getRemoteProgress();
+    if (progress === undefined) return;
+    setRemoteState(progress.state as StrikeRemoteState);
+  });
+
+  //the peer's finish resolves the held verdict (or arrived before mine)
+  createEffect(() => {
+    if (pagePhase() !== "awaiting") return;
+    if (getRemoteFinished() === undefined) return;
+    resolveOnlineResult();
+  });
+
+  //the host answers a rematch request by re-sending the same start
+  createEffect(() => {
+    const match = getLanMatch();
+    if (match?.role !== "host" || match.gameId !== "letter-strike") return;
+    if (!getRematchAsked()) return;
+    hostRematch(match);
+  });
+
+  //a disconnect during the run voids it — nothing online is recorded
+  createEffect(() => {
+    if (getLanMatch()?.gameId !== "letter-strike") return;
+    if (isLanConnected()) return;
+    if (pagePhase() !== "playing" && pagePhase() !== "awaiting") return;
+    stopTimers();
+    engine = undefined;
+    clearLanMatch();
+    setVoidMessage("the opponent left — race void, nothing was recorded");
+    setPagePhase("menu");
+  });
+
   const backToMenu = (): void => {
     engine = undefined;
     setPagePhase("menu");
@@ -248,6 +490,9 @@ export function LetterStrikePage(): JSXElement {
       <section class="grid gap-4 rounded bg-sub-alt p-4">
         <Show when={message() !== undefined}>
           <div class="text-error">{message()}</div>
+        </Show>
+        <Show when={voidMessage() !== undefined}>
+          <div class="text-error">{voidMessage()}</div>
         </Show>
         <div class="grid grid-cols-2 gap-2">
           <div class="rounded bg-bg p-3 text-center">
@@ -349,6 +594,91 @@ export function LetterStrikePage(): JSXElement {
     );
   };
 
+  const AwaitingScreen = (): JSXElement => {
+    return (
+      <section class="grid place-items-center rounded bg-sub-alt py-16 text-center">
+        <div class="text-2xl font-bold text-main" data-testid="ls-awaiting">
+          last ship fell at {((myFinish?.elapsedMs ?? 0) / 1000).toFixed(1)}s ·
+          score {myFinish?.score ?? 0} — waiting for{" "}
+          {getLanMatch()?.peerName ?? "the opponent"}…
+        </div>
+      </section>
+    );
+  };
+
+  const OnlineResultScreen = (): JSXElement => {
+    const online = (): StrikeOnlineResult | undefined => onlineResult();
+    const verdict = online()?.verdict;
+    return (
+      <section class="grid gap-4 rounded bg-sub-alt p-6 text-center">
+        <div
+          class={cn(
+            "text-3xl font-bold",
+            verdict === "won"
+              ? "text-main"
+              : verdict === "draw"
+                ? "text-sub"
+                : "text-error",
+          )}
+          data-testid="ls-verdict"
+        >
+          {verdict === "won"
+            ? "you win!"
+            : verdict === "draw"
+              ? "draw"
+              : `${getLanMatch()?.peerName ?? "the opponent"} wins`}
+        </div>
+        <div class="grid grid-cols-2 gap-2">
+          <div class="rounded bg-bg p-3">
+            <div class="text-xl font-bold text-main tabular-nums">
+              {online()?.myScore ?? 0} score · {online()?.myLives ?? 0}{" "}
+              {"❤".repeat(online()?.myLives ?? 0) || "—"} ·{" "}
+              {((online()?.myTimeMs ?? 0) / 1000).toFixed(1)}s
+            </div>
+            <div class="text-xs text-sub">you</div>
+          </div>
+          <div class="rounded bg-bg p-3">
+            <div class="text-xl font-bold text-main tabular-nums">
+              {online()?.theirScore ?? 0} score ·{" "}
+              {online()?.theirTimeMs === null
+                ? "gave up"
+                : `${((online()?.theirTimeMs ?? 0) / 1000).toFixed(1)}s`}
+            </div>
+            <div class="text-xs text-sub">
+              {getLanMatch()?.peerName ?? "the opponent"}
+            </div>
+          </div>
+        </div>
+        <div class="grid grid-cols-2 gap-2">
+          <Button
+            text={rematchSent() ? "rematch requested — waiting…" : "rematch"}
+            fa={{ icon: "fa-redo" }}
+            class="w-full"
+            onClick={() => {
+              const match = getLanMatch();
+              if (match === undefined || rematchSent()) return;
+              if (match.role === "host") {
+                hostRematch(match);
+              } else {
+                sendLanMatchRematch();
+                setRematchSent(true);
+              }
+            }}
+          />
+          <Button
+            text="leave to lobby"
+            fa={{ icon: "fa-arrow-left" }}
+            class="w-full"
+            onClick={() => {
+              clearLanMatch();
+              void navigate({ to: "/games/online" });
+            }}
+          />
+        </div>
+      </section>
+    );
+  };
+
   const ResultScreen = (): JSXElement => {
     const result = engine?.state().result;
     return (
@@ -411,8 +741,51 @@ export function LetterStrikePage(): JSXElement {
           up; every 4th wave is a two-pass boss; the EMP clears the screen.
         </p>
       </section>
+      <Show when={lanMode()}>
+        <div
+          class="rounded bg-sub-alt p-2 text-center text-sm font-bold text-main"
+          data-testid="ls-online-vs"
+        >
+          <i class="fas fa-rocket"></i> online vs{" "}
+          {getLanMatch()?.peerName ?? "…"} — same waves, the higher score wins
+        </div>
+      </Show>
+      <Show when={lanMode()}>
+        <div class="grid grid-cols-2 gap-2" data-testid="ls-remote">
+          <div class="rounded bg-bg p-2 text-center">
+            <div class="text-xl font-bold text-error tabular-nums">
+              {remoteState()?.score ?? 0} score ·{" "}
+              {"❤".repeat(remoteState()?.lives ?? 0) || "—"}
+            </div>
+            <div class="text-xs text-sub">
+              {getLanMatch()?.peerName ?? "the opponent"}
+            </div>
+          </div>
+          <div class="rounded bg-bg p-2 text-center">
+            <div class="text-xl font-bold text-main tabular-nums">
+              {engineState()?.score ?? 0} score ·{" "}
+              {"❤".repeat(engineState()?.lives ?? 0) || "—"}
+            </div>
+            <div class="text-xs text-sub">you</div>
+          </div>
+        </div>
+      </Show>
       <Show when={pagePhase() !== "menu"} fallback={<Menu />}>
-        <Show when={pagePhase() === "playing"} fallback={<ResultScreen />}>
+        <Show
+          when={pagePhase() === "playing"}
+          fallback={
+            <Show
+              when={pagePhase() === "awaiting"}
+              fallback={
+                <Show when={lanMode()} fallback={<ResultScreen />}>
+                  <OnlineResultScreen />
+                </Show>
+              }
+            >
+              <AwaitingScreen />
+            </Show>
+          }
+        >
           <div class="grid grid-cols-5 gap-2" aria-label="letter strike hud">
             <HudCell label="score" value={String(engineState()?.score ?? 0)} />
             <HudCell label="wave" value={String(engineState()?.wave ?? 1)} />
