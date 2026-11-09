@@ -1,0 +1,47 @@
+name: verify
+
+# the full gate the council requires on every change: tsc + vitest + oxlint
+# (the whole src tree, 138 rules) + the Rust protocol tests. Kept split from
+# the housekeeping workflows — this one BLOCKS.
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+jobs:
+  frontend:
+    name: frontend — tsc + vitest + oxlint
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: frontend
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: pnpm
+          cache-dependency-path: pnpm-lock.yaml
+      - name: install (frontend workspace slice, frozen lockfile)
+        run: pnpm install --frozen-lockfile --filter frontend
+      - name: tsc
+        run: npx tsc --noEmit
+      - name: vitest
+        run: npx vitest run
+      - name: oxlint (whole src tree)
+        run: npx oxlint --config .oxlintrc.json src/ts
+
+  rust:
+    name: rust — cargo test
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: frontend/src-tauri
+      - name: cargo test
+        working-directory: frontend/src-tauri
+        run: cargo test
