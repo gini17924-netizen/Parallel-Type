@@ -35,30 +35,6 @@ import { H2 } from "../../../common/Headers";
 
 type LobbyView = "menu" | "hosting" | "joining";
 
-/** the council's online roadmap shown as soon-chips (COUNCIL_ONLINE_ALL_GAMES) */
-const SOON_ONLINE_GAMES = [
-  "sprint",
-  "ghost gp",
-  "split duel",
-  "maze runner",
-  "nitro run",
-  "climber",
-  "runner",
-  "word blast",
-  "stack attack",
-  "balloon pop",
-  "pair keys",
-  "wordle",
-  "type snake",
-  "letter strike",
-  "lane defense",
-  "fruit slash",
-  "firefight",
-  "crane",
-  "beat keys",
-  "type pong",
-];
-
 function HudCell(props: {
   label: string;
   value: string;
@@ -343,18 +319,6 @@ export function OnlineLobbyPage(): JSXElement {
                     />
                   )}
                 </For>
-              </div>
-              <div class="grid gap-1">
-                <div class="text-xs text-sub">more online games soon</div>
-                <div class="flex flex-wrap gap-1" data-testid="ol-soon-games">
-                  <For each={SOON_ONLINE_GAMES}>
-                    {(soon) => (
-                      <span class="rounded-full bg-bg px-2 py-0.5 text-[0.65rem] text-sub">
-                        {soon}
-                      </span>
-                    )}
-                  </For>
-                </div>
               </div>
               <Show when={selectedGame() === "type-pong"}>
                 <div class="text-xs text-sub" data-testid="ol-pong-teaser">

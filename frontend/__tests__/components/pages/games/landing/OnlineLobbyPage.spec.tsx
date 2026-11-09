@@ -267,16 +267,42 @@ describe("online lobby (LAN, phase 3 — discovery)", () => {
         container.querySelector('[data-testid="ol-start-match"]'),
       ).not.toBeNull();
     });
-    //the registry's games are the selectable cards
+    //the registry's games are the selectable cards; the "soon" roadmap is
+    //GONE — every planned game shipped and now lives in the picker
     const text = pageText(container);
     expect(text).toContain("online game");
     expect(text).toContain("bot duel"); //registered (selectable)
+    expect(text).toContain("type pong"); //registered (selectable)
+    expect(text).toContain("beat keys"); //the last block-S game
+    expect(container.querySelector('[data-testid="ol-soon-games"]')).toBeNull();
+    expect(text).not.toContain("more online games soon");
+  });
+
+  it("selecting type-pong shows the first-real-versus teaser", async () => {
+    const { container } = render(() => <OnlineLobbyPage />);
+    [...container.querySelectorAll("button")]
+      .find((b) => (b.textContent ?? "").includes("host a match"))
+      ?.click();
+    await vi.waitFor(() => {
+      expect(container.querySelector('[data-testid="ol-code"]')).not.toBeNull();
+    });
+    tauri.fire("lan://peer-joined", { name: "P2" });
+    await vi.waitFor(() => {
+      expect(
+        container.querySelector('[data-testid="ol-start-match"]'),
+      ).not.toBeNull();
+    });
+    [...container.querySelectorAll("button")]
+      .find((b) => (b.textContent ?? "").includes("type pong"))
+      ?.click();
+    await vi.waitFor(() => {
+      expect(
+        container.querySelector('[data-testid="ol-pong-teaser"]'),
+      ).not.toBeNull();
+    });
     expect(
-      container.querySelector('[data-testid="ol-soon-games"]')?.textContent,
-    ).toContain("sprint");
-    expect(
-      container.querySelector('[data-testid="ol-soon-games"]')?.textContent,
-    ).toContain("type pong");
+      container.querySelector('[data-testid="ol-pong-teaser"]')?.textContent,
+    ).toContain("the first real versus");
   });
 
   it("the connected host can start the selected game and ships the words", async () => {
