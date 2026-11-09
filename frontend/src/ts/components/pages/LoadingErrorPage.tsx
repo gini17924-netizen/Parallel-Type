@@ -27,7 +27,7 @@ export function LoadingErrorPage(props: ErrorComponentProps): JSXElement {
     if (props.error instanceof LoadingStepError) return text;
     const name = page();
     return `Failed to load ${name === undefined ? "the page" : `the ${name} page`}: ${text}
-STACK: ${(props.error as Error).stack ?? "no stack"}`;
+STACK: ${props.error.stack ?? "no stack"}`;
   };
 
   return (

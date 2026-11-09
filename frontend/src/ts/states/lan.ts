@@ -120,7 +120,7 @@ export async function lanStartHost(
   if (invoke === undefined) return undefined;
   wireLanEvents();
   lanRememberName(name);
-  const info = (await invoke("lan_start_host", { name })) as LanHostInfo;
+  const info = await invoke<LanHostInfo>("lan_start_host", { name });
   setHostInfo(info);
   setRole("host");
   return info;
@@ -200,7 +200,7 @@ export async function lanRefreshDiscovered(): Promise<void> {
   const invoke = getInvoke();
   if (invoke === undefined) return;
   try {
-    const list = (await invoke("lan_get_discovered")) as LanDiscovered[];
+    const list = await invoke<LanDiscovered[]>("lan_get_discovered");
     setDiscovered(Array.isArray(list) ? list : []);
   } catch (error) {
     console.error("lan discovery refresh failed", error);

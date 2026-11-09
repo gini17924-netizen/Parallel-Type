@@ -13,7 +13,6 @@ import {
   PhoneticModel,
 } from "@keybr/phonetic-model";
 import { loadWordList } from "@keybr/content-words";
-import { type WordList } from "@keybr/content";
 import { Settings } from "@keybr/settings";
 import { Result } from "@keybr/result";
 import { GuidedLesson } from "@keybr/lesson";
@@ -71,7 +70,7 @@ export function loadKeybrSettings(): Settings {
   try {
     const raw = window.localStorage.getItem(SETTINGS_KEY);
     if (raw !== null) {
-      return new Settings(JSON.parse(raw));
+      return new Settings(JSON.parse(raw) as Record<string, unknown>);
     }
   } catch {
     // fall through to defaults
@@ -105,7 +104,7 @@ export async function loadPhoneticModel(
 const sharedModels: Partial<Record<KeybrLanguageId, Promise<PhoneticModel>>> =
   {};
 
-export function loadSharedPhoneticModel(
+export async function loadSharedPhoneticModel(
   id: KeybrLanguageId,
 ): Promise<PhoneticModel> {
   sharedModels[id] ??= loadPhoneticModel(keybrLanguageById(id)).catch(
@@ -114,7 +113,7 @@ export function loadSharedPhoneticModel(
       throw error;
     },
   );
-  return sharedModels[id] as Promise<PhoneticModel>;
+  return sharedModels[id];
 }
 
 /** builds the guided lesson for a language */
@@ -137,7 +136,7 @@ export async function makeLesson(
     settings,
     keyboard,
     model,
-    (wordList ?? []) as unknown as WordList,
+    wordList ?? [],
   );
 }
 
@@ -149,7 +148,7 @@ function loadStored(language: KeybrLanguageId): unknown[] {
   try {
     const raw = window.localStorage.getItem(`${RESULTS_KEY}:${language}`);
     if (raw !== null) {
-      const parsed = JSON.parse(raw);
+      const parsed: unknown = JSON.parse(raw);
       if (Array.isArray(parsed)) return parsed;
     }
   } catch {
