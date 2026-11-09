@@ -58,6 +58,10 @@ jobs:
       - uses: Swatinem/rust-cache@v2
         with:
           workspaces: frontend/src-tauri
+      - name: stub the frontend dist (generate_context! embeds it at compile time)
+        run: |
+          mkdir -p frontend/dist
+          echo '<html></html>' > frontend/dist/index.html
       - name: cargo test
         working-directory: frontend/src-tauri
         run: cargo test
