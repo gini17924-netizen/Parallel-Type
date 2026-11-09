@@ -26,7 +26,10 @@ jobs:
           cache-dependency-path: pnpm-lock.yaml
       - name: install (frontend + packages slice, frozen lockfile)
         #the packages' tsconfigs extend @monkeytype/typescript-config — the
-        #workspace links must exist for vite:oxc to load them (KI-51)
+        #workspace links must exist for vite:oxc to load them (KI-51). The
+        #filters resolve against the CWD, so this step runs at the ROOT —
+        #path filters relative to frontend/ matched nothing (run 2 lesson)
+        working-directory: .
         run: pnpm install --frozen-lockfile --filter frontend --filter './packages/**'
       # KI-51: the TS7.0.2 native preview reports ~1000 real strictness
       # errors on linux while the windows build silently exits 0 — the
