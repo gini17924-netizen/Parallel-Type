@@ -24,8 +24,10 @@ jobs:
           node-version: 24
           cache: pnpm
           cache-dependency-path: pnpm-lock.yaml
-      - name: install (frontend workspace slice, frozen lockfile)
-        run: pnpm install --frozen-lockfile --filter frontend
+      - name: install (frontend + packages slice, frozen lockfile)
+        #the packages' tsconfigs extend @monkeytype/typescript-config — the
+        #workspace links must exist for vite:oxc to load them (KI-51)
+        run: pnpm install --frozen-lockfile --filter frontend --filter './packages/**'
       # KI-51: the TS7.0.2 native preview reports ~1000 real strictness
       # errors on linux while the windows build silently exits 0 — the
       # local "tsc clean" gate was a false green. The strictness cleanup
@@ -44,6 +46,12 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - uses: dtolnay/rust-toolchain@stable
+      #the crate compiles the tauri runtime — linux needs the gtk/webkit
+      #system libraries (the standard tauri v2 prerequisites)
+      - name: install the tauri linux prerequisites
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libgtk-3-dev libwebkit2gtk-4.1-dev libayatana-appindicator3-dev librsvg2-dev
       - uses: Swatinem/rust-cache@v2
         with:
           workspaces: frontend/src-tauri
