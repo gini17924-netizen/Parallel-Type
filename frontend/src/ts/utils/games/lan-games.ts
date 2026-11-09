@@ -11,6 +11,7 @@ import { lanStack } from "../stack-attack/lan";
 import { lanBalloon } from "../balloon-pop/lan";
 import { lanPairKeys } from "../pair-keys/lan";
 import { lanWordle } from "../wordle/lan";
+import { lanTypeSnake } from "../type-snake/lan";
 import { lanNitro } from "../nitro-run/lan";
 
 /**
@@ -32,4 +33,5 @@ registerLanGame(lanStack);
 registerLanGame(lanBalloon);
 registerLanGame(lanPairKeys);
 registerLanGame(lanWordle);
+registerLanGame(lanTypeSnake);
 registerLanGame(lanNitro);
