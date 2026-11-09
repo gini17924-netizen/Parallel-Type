@@ -1,4 +1,4 @@
-<svg xmlns="http://www.w3.org/2000/svg" width="800" height="240" viewBox="0 0 800 240" role="img" aria-label="ParallelType — a Persian desktop typing fork">
+<svg xmlns="http://www.w3.org/2000/svg" width="800" height="240" viewBox="0 0 800 240" role="img" aria-label="ParallelType — a Persian-first desktop typing test">
   <defs>
     <linearGradient id="bg" x1="0" y1="0" x2="1" y2="1">
       <stop offset="0" stop-color="#111318"/>
@@ -7,9 +7,9 @@
   </defs>
   <rect width="800" height="240" fill="url(#bg)"/>
   <rect x="1.5" y="1.5" width="797" height="237" fill="none" stroke="#2e3340" stroke-width="1"/>
-  <g font-family="Segoe UI, Vazirmatn, sans-serif">
+  <g font-family="Segoe UI, sans-serif">
     <text x="400" y="112" text-anchor="middle" font-size="52" font-weight="700" fill="#e2e6ee">ParallelType</text>
-    <text x="400" y="152" text-anchor="middle" font-size="19" fill="#8a93a5">پارالل‌تایپ — دسکتاپ فارسیِ تایپ‌تست، فورک Tauri نسخهٔ monkeytype</text>
+    <text x="400" y="152" text-anchor="middle" font-size="19" fill="#8a93a5">a Persian-first desktop typing test — a Tauri fork of monkeytype</text>
     <text x="400" y="186" text-anchor="middle" font-size="15" fill="#5f6b80">20 LAN games · the first real versus · offline-first</text>
   </g>
   <g fill="#e2b341">
