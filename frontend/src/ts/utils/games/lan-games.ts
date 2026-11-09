@@ -8,6 +8,7 @@ import { lanClimber } from "../climber/lan";
 import { lanRunner } from "../runner/lan";
 import { lanWordBlast } from "../word-blast/lan";
 import { lanStack } from "../stack-attack/lan";
+import { lanBalloon } from "../balloon-pop/lan";
 import { lanNitro } from "../nitro-run/lan";
 
 /**
@@ -26,4 +27,5 @@ registerLanGame(lanClimber);
 registerLanGame(lanRunner);
 registerLanGame(lanWordBlast);
 registerLanGame(lanStack);
+registerLanGame(lanBalloon);
 registerLanGame(lanNitro);
