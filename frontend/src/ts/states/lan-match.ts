@@ -59,6 +59,14 @@ export type RemoteFinished = {
   arrivalPerf: number;
 };
 
+/** a game-specific message the generic router does not interpret — the
+ * page consumes it directly (the V pattern's snapshot/input stream) */
+export type RawLanMessage = {
+  message: Record<string, unknown>;
+  /** performance.now() at the message arrival */
+  arrivalPerf: number;
+};
+
 const [matchSignal, setMatchSignal] = createSignal<LanMatch | undefined>(
   undefined,
 );
@@ -69,6 +77,11 @@ const [finishedSignal, setFinishedSignal] = createSignal<
   RemoteFinished | undefined
 >(undefined);
 const [rematchSignal, setRematchSignal] = createSignal(false);
+/** the raw passthrough for game-specific message types the generic router
+ * does not interpret (the V pattern's state-sync: snapshots + inputs) */
+const [rawSignal, setRawSignal] = createSignal<RawLanMessage | undefined>(
+  undefined,
+);
 
 let seqCounter = 0;
 
@@ -76,6 +89,7 @@ function resetDerived(): void {
   setProgressSignal(undefined);
   setFinishedSignal(undefined);
   setRematchSignal(false);
+  setRawSignal(undefined);
 }
 
 /** arms (or re-arms) the match; consumers restart from the new seq. An
@@ -125,6 +139,16 @@ export function getRemoteFinished(): RemoteFinished | undefined {
 
 export function getRematchAsked(): boolean {
   return rematchSignal();
+}
+
+export function getLanRawMessage(): RawLanMessage | undefined {
+  return rawSignal();
+}
+
+/** both sides: ships a game-specific message untouched — the V pattern's
+ * state-sync (snapshots, inputs) rides the same pipe with its own types */
+export function sendLanMatchMessage(message: Record<string, unknown>): void {
+  lanSendToPeer(message);
 }
 
 /** host: ships the start (also the rematch re-send) to the peer — an
@@ -223,6 +247,9 @@ export function handleLanPeerMessage(message: Record<string, unknown>): void {
     return;
   }
   if (message["type"] === "rematch") setRematchSignal(true);
+  //anything else is a game-specific type: the raw passthrough hands it to
+  //the mounted page (the V pattern's snapshots + inputs)
+  setRawSignal({ message, arrivalPerf: performance.now() });
 }
 
 //the module owns the message consumption: a start arms and navigates

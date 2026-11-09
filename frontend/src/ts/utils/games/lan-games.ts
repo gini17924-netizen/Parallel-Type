@@ -18,6 +18,7 @@ import { lanFruitSlash } from "../fruit-slash/lan";
 import { lanFirefight } from "../firefight/lan";
 import { lanCrane } from "../crane/lan";
 import { lanBeatKeys } from "../beat-keys/lan";
+import { lanTypePong } from "../type-pong/lan";
 import { lanNitro } from "../nitro-run/lan";
 
 /**
@@ -46,4 +47,5 @@ registerLanGame(lanFruitSlash);
 registerLanGame(lanFirefight);
 registerLanGame(lanCrane);
 registerLanGame(lanBeatKeys);
+registerLanGame(lanTypePong);
 registerLanGame(lanNitro);

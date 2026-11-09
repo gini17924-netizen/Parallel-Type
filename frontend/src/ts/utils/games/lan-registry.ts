@@ -33,7 +33,8 @@ export type LanGameId =
   | "fruit-slash"
   | "firefight"
   | "crane"
-  | "beat-keys";
+  | "beat-keys"
+  | "type-pong";
 
 /** what a game's buildStart produces — the caller (the lobby) ships it
  * inside the `start` message; the armed match adds role/peerName/seq */
@@ -71,7 +72,8 @@ export type LanPlayable = {
     | "/games/fruit-slash"
     | "/games/firefight"
     | "/games/crane"
-    | "/games/beat-keys";
+    | "/games/beat-keys"
+    | "/games/type-pong";
   /** the lobby picker card (English, per the standing rule) */
   label: string;
   icon: FaSolidIcon;
