@@ -1,6 +1,16 @@
 import { fireEvent } from "@solidjs/testing-library";
+import { IDBFactory } from "fake-indexeddb";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
+import {
+  _resetLanStateForTests,
+  lanStartHost,
+} from "../../../../src/ts/states/lan";
+import {
+  _resetLanMatchForTests,
+  armLanMatch,
+  handleLanPeerMessage,
+} from "../../../../src/ts/states/lan-match";
 import {
   _resetWordBlastScoresForTests,
   WORD_BLAST_SCORES_KEY,
@@ -127,13 +137,11 @@ describe("GamesPage score persistence (KI-21)", () => {
   it("records the finished game exactly once and announces the new record", async () => {
     const app = await openGames();
 
-    const startButton = [...app.container.querySelectorAll("button")].find(
-      (button) => button.textContent?.includes("start game"),
-    );
-    expect(startButton).toBeDefined();
+    const startBtn = startButton(app);
+    expect(startBtn).toBeDefined();
 
     vi.useFakeTimers();
-    startButton?.click();
+    startBtn?.click();
     //flush start()'s async word-list fetch (it fails offline and falls back)
     await vi.advanceTimersByTimeAsync(50);
 
@@ -313,3 +321,203 @@ function storedScores(): {
     history: unknown[];
   };
 }
+
+/** the tauri fake for the online tests: records the invokes and captures
+ * the event listeners so the spec can fire the Rust-side events */
+function installTauriMock(): {
+  invokes: { cmd: string; args: Record<string, unknown> }[];
+  fire: (ev: string, payload: unknown) => void;
+} {
+  const invokes: { cmd: string; args: Record<string, unknown> }[] = [];
+  const handlers = new Map<string, ((e: { payload: unknown }) => void)[]>();
+  (window as unknown as { __TAURI__: unknown }).__TAURI__ = {
+    core: {
+      invoke: async (cmd: string, args?: Record<string, unknown>) => {
+        invokes.push({ cmd, args: args ?? {} });
+        if (cmd === "lan_start_host") {
+          return {
+            sessionId: "lan-test/N3DB",
+            code: "N3DB",
+            port: 51987,
+            ip: "192.168.100.24",
+            name: "P1",
+          };
+        }
+        return {};
+      },
+    },
+    event: {
+      listen: async (ev: string, cb: (e: { payload: unknown }) => void) => {
+        const list = handlers.get(ev) ?? [];
+        list.push(cb);
+        handlers.set(ev, list);
+        return () => undefined;
+      },
+    },
+  };
+  return {
+    invokes,
+    fire: (ev: string, payload: unknown) => {
+      for (const cb of handlers.get(ev) ?? []) cb({ payload });
+    },
+  };
+}
+
+/** types the displayed word's chars until the horn or the verdict */
+async function raceToHorn(app: App): Promise<void> {
+  for (let guard = 0; guard < 3000; guard++) {
+    //the horn's awaiting overlay or the verdict both end the race
+    if (
+      app.container.querySelector('[data-testid="wb-awaiting"]') !== null ||
+      app.container.querySelector('[data-testid="wb-verdict"]') !== null
+    ) {
+      return;
+    }
+    //the falling word: type the one with a typed prefix, else the lowest
+    const words = [...app.container.querySelectorAll("div.absolute.font-mono")];
+    const target =
+      words.find(
+        (el) => (el.querySelector(".text-main")?.textContent ?? "").length > 0,
+      ) ?? words[0];
+    if (target === undefined) {
+      await new Promise((r) => setTimeout(r, 100));
+      continue;
+    }
+    const full = target.textContent ?? "";
+    const done = (target.querySelector(".text-main")?.textContent ?? "").length;
+    const ch = full[done] ?? "a";
+    window.dispatchEvent(
+      new KeyboardEvent("keydown", { key: ch, code: `Key${ch.toUpperCase()}` }),
+    );
+    console.log("DISPATCHED", guard, JSON.stringify(ch));
+    if (guard % 10 === 0 || guard < 8) {
+      console.log(
+        "RACE-DEBUG",
+        guard,
+        JSON.stringify({
+          awaiting:
+            app.container.querySelector('[data-testid="wb-awaiting"]') !== null,
+          words: words.length,
+        }),
+      );
+    }
+    await new Promise((r) => setTimeout(r, 60));
+    console.log("SLEPT", guard);
+  }
+  console.log("LOOP-EXITED");
+}
+
+describe("word blast online (online wave, phase 20)", () => {
+  beforeEach(() => {
+    vi.useRealTimers(); //the offline tests leave fake timers behind
+    (globalThis as { indexedDB: unknown }).indexedDB = new IDBFactory();
+    window.localStorage.clear();
+    _resetWordBlastScoresForTests();
+    _resetLanStateForTests();
+    _resetLanMatchForTests();
+  });
+
+  afterEach(() => {
+    vi.useRealTimers();
+    delete (window as unknown as { __TAURI__?: unknown }).__TAURI__;
+    cleanupApp();
+  });
+
+  it("an armed match races to the horn: banner, relay, verdict, win", async () => {
+    const tauri = installTauriMock();
+    await lanStartHost("HOST1");
+    tauri.fire("lan://peer-joined", { name: "P2" });
+    const app = await openGames();
+    armLanMatch({
+      role: "host",
+      peerName: "P2",
+      start: {
+        gameId: "word-blast",
+        seed: 42,
+        params: { lang: "english", difficulty: "normal", durationMs: 3000 },
+      },
+    });
+    await new Promise((r) => setTimeout(r, 150)); //the seeded run starts
+    expect(pageText(app)).toContain("online vs P2");
+    vi.useRealTimers(); //belt and braces: the horn must fire in real time
+    await new Promise((r) => setTimeout(r, 60));
+    expect(pageText(app)).toContain("same stream, 90s");
+
+    //type until the horn fires (3s)
+    await raceToHorn(app);
+    expect(
+      app.container.querySelector('[data-testid="wb-awaiting"]'),
+    ).not.toBeNull(); //the score is locked — waiting for the peer's horn
+    const finishes = tauri.invokes.filter(
+      (entry) =>
+        entry.cmd === "lan_send_message" &&
+        (entry.args["message"] as Record<string, unknown>)["type"] ===
+          "finished",
+    );
+    expect(finishes).toHaveLength(1);
+
+    //the peer's horn result lands -> the verdict compares the scores
+    handleLanPeerMessage({ type: "finished", finishMs: 3000, acc: 95 });
+    await new Promise((r) => setTimeout(r, 80));
+    expect(
+      app.container.querySelector('[data-testid="wb-verdict"]'),
+    ).not.toBeNull();
+    expect(window.localStorage.getItem(WORD_BLAST_SCORES_KEY)).toBeNull();
+  });
+
+  it("the peer's horn result resolves my awaiting verdict as a loss", async () => {
+    const tauri = installTauriMock();
+    await lanStartHost("HOST1");
+    tauri.fire("lan://peer-joined", { name: "P2" });
+    const app = await openGames();
+    armLanMatch({
+      role: "host",
+      peerName: "P2",
+      start: {
+        gameId: "word-blast",
+        seed: 42,
+        params: { lang: "english", difficulty: "normal", durationMs: 3000 },
+      },
+    });
+    await new Promise((r) => setTimeout(r, 150));
+    //the peer's horn: a big final score lands before mine
+    handleLanPeerMessage({
+      type: "progress",
+      gameId: "word-blast",
+      state: { score: 5000, combo: 20 },
+    });
+    handleLanPeerMessage({ type: "finished", finishMs: 3000, acc: 95 });
+    await new Promise((r) => setTimeout(r, 60));
+
+    await raceToHorn(app);
+    expect(pageText(app)).toContain("P2 wins");
+    const finishes = tauri.invokes.filter(
+      (entry) =>
+        entry.cmd === "lan_send_message" &&
+        (entry.args["message"] as Record<string, unknown>)["type"] ===
+          "finished",
+    );
+    expect(finishes).toHaveLength(1);
+  });
+
+  it("a disconnect during the game voids it", async () => {
+    const tauri = installTauriMock();
+    await lanStartHost("HOST1");
+    tauri.fire("lan://peer-joined", { name: "P2" });
+    const app = await openGames();
+    armLanMatch({
+      role: "host",
+      peerName: "P2",
+      start: {
+        gameId: "word-blast",
+        seed: 42,
+        params: { lang: "english", difficulty: "normal", durationMs: 3000 },
+      },
+    });
+    await new Promise((r) => setTimeout(r, 150));
+    tauri.fire("lan://peer-left", { reason: "disconnected" });
+    await new Promise((r) => setTimeout(r, 80));
+    expect(pageText(app)).toContain("the opponent left");
+    expect(window.localStorage.getItem(WORD_BLAST_SCORES_KEY)).toBeNull();
+  });
+});

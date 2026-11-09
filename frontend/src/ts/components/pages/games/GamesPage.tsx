@@ -2,6 +2,7 @@ import {
   JSXElement,
   For,
   Show,
+  createEffect,
   createSignal,
   onCleanup,
   onMount,
@@ -10,12 +11,28 @@ import {
 import { Config } from "../../../config/store";
 import { playClick, playError } from "../../../controllers/sound-controller";
 import { navigate } from "../../../router/navigate";
+import { isLanConnected, lanPreFillName } from "../../../states/lan";
+import {
+  armLanMatch,
+  clearLanMatch,
+  getLanMatch,
+  getRemoteFinished,
+  getRemoteProgress,
+  getRematchAsked,
+  sendLanMatchFinished,
+  sendLanMatchProgress,
+  sendLanMatchRematch,
+  sendLanMatchStart,
+  type LanMatch,
+} from "../../../states/lan-match";
 import { cn } from "../../../utils/cn";
 import { createSeededRng } from "../../../utils/daily-gauntlet/seeded-rng";
 import { cachedFetchJson } from "../../../utils/json-data";
 import {
   BALANCE,
   DIFFICULTY_LABELS,
+  DIFFICULTY_SPEED,
+  PHRASE_CHANCE,
   type Difficulty,
   buildWordPools,
   comboMult,
@@ -36,6 +53,12 @@ import {
   completeDailyWordBlast,
   takePendingDailyStage,
 } from "../../../utils/word-blast/daily";
+import {
+  lanWordBlast,
+  resolveWordBlastVerdict,
+  type WordBlastRemoteState,
+  type WordBlastVerdict,
+} from "../../../utils/word-blast/lan";
 import { Button } from "../../common/Button";
 import { H2 } from "../../common/Headers";
 
@@ -55,6 +78,13 @@ type FallingWord = {
 const GAME_HEIGHT_VH = 70;
 const TICK_MS = 50;
 const DIFFICULTY_KEY = "mtDesktopWordBlastDifficulty";
+
+/** the online verdict once both horns have landed */
+type BlastOnlineResult = {
+  verdict: WordBlastVerdict;
+  myScore: number;
+  theirScore: number;
+};
 
 function loadDifficulty(): Difficulty {
   const stored = window.localStorage.getItem(DIFFICULTY_KEY);
@@ -85,6 +115,22 @@ export function GamesPage(): JSXElement {
       }
     | undefined
   >(undefined);
+  //online (LAN) state — the peer's score race on the same seeded stream
+  const [remoteState, setRemoteState] = createSignal<
+    WordBlastRemoteState | undefined
+  >(undefined);
+  const [onlineResult, setOnlineResult] = createSignal<
+    BlastOnlineResult | undefined
+  >(undefined);
+  const [rematchSent, setRematchSent] = createSignal(false);
+  const [voidMessage, setVoidMessage] = createSignal<string | undefined>(
+    undefined,
+  );
+
+  let hornTimer: ReturnType<typeof setTimeout> | undefined;
+  let myFinishSent = false;
+  let lastSentScore = -1;
+  let lastSentCombo = -1;
 
   /** live accuracy percent (0 while nothing was typed) */
   const accuracy = (): number => {
@@ -123,12 +169,41 @@ export function GamesPage(): JSXElement {
 
   onCleanup(stopTimers);
 
+  //leaving mid-game (header back, route change) locks my score and tells
+  //the peer — they are never left waiting for the horn
+  onCleanup(() => {
+    if (getLanMatch()?.gameId !== "word-blast") return;
+    if (!running()) return;
+    if (!myFinishSent) {
+      myFinishSent = true;
+      sendLanMatchFinished(null, 0);
+    }
+    clearLanMatch();
+  });
+
+  const lanMode = (): boolean => getLanMatch()?.gameId === "word-blast";
+
   //KI-40: in a daily stage this is the seeded LCG; outside it Math.random
   let runRng: () => number = Math.random;
   const rng = (): number => runRng();
 
   const spawn = (): void => {
     spawnCount++;
+    //online: the seeded picks (both machines see the identical spawns)
+    const seededPick = (): string | undefined => {
+      if (
+        pools.phrasePool.length > 0 &&
+        pools.wordPool.length > 0 &&
+        rng() < PHRASE_CHANCE[difficulty()]
+      ) {
+        return pools.phrasePool[Math.floor(rng() * pools.phrasePool.length)];
+      }
+      const pool =
+        pools.wordPool.length > 0 ? pools.wordPool : pools.phrasePool;
+      return pool[Math.floor(rng() * pool.length)];
+    };
+    const seededSpeed = (): number =>
+      (0.06 + level() * 0.02 + rng() * 0.04) * DIFFICULTY_SPEED[difficulty()];
     //v2 (idea G1): on the heart windows a short glowing word may spawn —
     //completing it grants a life
     let text: string | undefined;
@@ -141,7 +216,7 @@ export function GamesPage(): JSXElement {
         isHeart = true;
       }
     }
-    text ??= pickTarget(pools, difficulty());
+    text ??= lanMode() ? seededPick() : pickTarget(pools, difficulty());
     if (text === undefined || text === "") return;
     setWords((current) => [
       ...current,
@@ -151,7 +226,7 @@ export function GamesPage(): JSXElement {
         typed: 0,
         top: 0,
         left: 5 + rng() * 80,
-        speed: spawnSpeed(level(), difficulty()),
+        speed: lanMode() ? seededSpeed() : spawnSpeed(level(), difficulty()),
         isHeart,
       },
     ]);
@@ -161,6 +236,17 @@ export function GamesPage(): JSXElement {
     setRunning(false);
     setOver(true);
     stopTimers();
+    if (lanMode()) {
+      //dead before the horn — my score is locked; the horn verdict waits
+      if (!myFinishSent) {
+        myFinishSent = true;
+        sendLanMatchProgress(
+          lanWordBlast.encodeProgress({ score: score(), combo: combo() }),
+        );
+        sendLanMatchFinished(0, accuracy());
+      }
+      return;
+    }
     //scores are best-effort: the game itself must never fail on storage
     try {
       const result = recordWordBlastGame({
@@ -205,8 +291,8 @@ export function GamesPage(): JSXElement {
       //v2: any word reaching the bottom breaks the combo — one rule for
       //every word type, boss and heart included
       setCombo(0);
-      setLives((lives) => {
-        const left = lives - hitBottom.length;
+      setLives((current) => {
+        const left = current - hitBottom.length;
         if (left <= 0) end();
         return Math.max(0, left);
       });
@@ -217,6 +303,139 @@ export function GamesPage(): JSXElement {
     stopTimers();
     gameTimer = setInterval(tick, TICK_MS);
     spawnTimer = setInterval(spawn, spawnIntervalMs(level(), difficulty()));
+  };
+
+  const myFinishNow = (): void => {
+    if (myFinishSent) return;
+    myFinishSent = true;
+    sendLanMatchProgress(
+      lanWordBlast.encodeProgress({ score: score(), combo: combo() }),
+    );
+    sendLanMatchFinished(0, accuracy());
+    setRunning(false);
+    if (getRemoteFinished() !== undefined) {
+      resolveOnlineResult();
+    }
+  };
+
+  const resolveOnlineResult = (): void => {
+    const finished = getRemoteFinished();
+    if (finished === undefined) return;
+    setOnlineResult({
+      verdict: resolveWordBlastVerdict(
+        { score: score() },
+        { score: remoteState()?.score ?? 0 },
+      ),
+      myScore: score(),
+      theirScore: remoteState()?.score ?? 0,
+    });
+  };
+
+  const hostRematch = (match: LanMatch): void => {
+    //arm first: a refused start never reaches the wire
+    armLanMatch({
+      role: "host",
+      peerName: match.peerName,
+      start: match.start,
+    });
+    if (getLanMatch() === undefined) return;
+    sendLanMatchStart(match.start, lanPreFillName() || "P1");
+  };
+
+  //an armed (or re-armed) blast match IS the online start: the seed
+  //drives the spawns, the horn lands at durationMs on both machines
+  createEffect(() => {
+    const match = getLanMatch();
+    if (match?.gameId !== "word-blast") return;
+    void (async () => {
+      const lang =
+        typeof match.start.params["lang"] === "string"
+          ? match.start.params["lang"]
+          : "english";
+      const matchDifficulty = isDifficulty(match.start.params["difficulty"])
+        ? match.start.params["difficulty"]
+        : "normal";
+      const durationMs =
+        typeof match.start.params["durationMs"] === "number"
+          ? match.start.params["durationMs"]
+          : 90_000;
+      let allWords: string[] = [
+        "parallel",
+        "typing",
+        "speed",
+        "focus",
+        "rhythm",
+        "words",
+      ];
+      try {
+        const data = await cachedFetchJson<{ words: string[] }>(
+          `/languages/${lang}.json`,
+        );
+        allWords = data.words;
+      } catch {
+        //offline fallback list
+      }
+      setOnlineResult(undefined);
+      setRematchSent(false);
+      setRemoteState(undefined);
+      myFinishSent = false;
+      lastSentScore = -1;
+      lastSentCombo = -1;
+      //the seeded run: the same difficulty lock as the daily path
+      selectDifficulty(matchDifficulty);
+      runRng = createSeededRng(match.start.seed ?? 1);
+      await startOnlineRun(allWords);
+      //the horn fires durationMs after the run's own start
+      hornTimer = setTimeout(() => {
+        if (running()) myFinishNow();
+      }, durationMs);
+    })();
+  });
+
+  /** the online run: identical pools (the phrase pool is seeded too) */
+  const startOnlineRun = async (allWords: string[]): Promise<void> => {
+    const [min, max] = [3, 8];
+    const wordPool = allWords.filter(
+      (word) => word.length >= min && word.length <= max,
+    );
+    const shortWords = allWords.filter(
+      (word) => word.length >= 3 && word.length <= 6,
+    );
+    const phrasePool: string[] = [];
+    if (difficulty() !== "easy" && shortWords.length >= 2) {
+      const phraseCount = difficulty() === "hard" ? 24 : 12;
+      for (let i = 0; i < phraseCount; i++) {
+        const parts: string[] = [];
+        for (let p = 0; p < 2; p++) {
+          parts.push(shortWords[Math.floor(rng() * shortWords.length)] ?? "");
+        }
+        const phrase = parts.join(" ").trim();
+        if (phrase.includes(" ")) phrasePool.push(phrase);
+      }
+    }
+    pools = { wordPool, phrasePool };
+    if (pools.wordPool.length === 0) {
+      pools = buildWordPools(
+        ["parallel", "typing", "speed", "focus", "rhythm", "words"],
+        difficulty(),
+      );
+    }
+    setWords([]);
+    setScore(0);
+    setLives(3);
+    setLevel(1);
+    setOver(false);
+    setRunning(true);
+    setCombo(0);
+    setMaxCombo(0);
+    setCorrectKeys(0);
+    setWrongKeys(0);
+    spawnCount = 0;
+    typedTotal = 0;
+    startedAt = Date.now();
+    spawn();
+    restartTimers();
+    (document.activeElement as HTMLElement | null)?.blur();
   };
 
   const start = async (): Promise<void> => {
@@ -300,6 +519,14 @@ export function GamesPage(): JSXElement {
     typedTotal++;
     const elapsedMin = Math.max((Date.now() - startedAt) / 60000, 1 / 60);
     setWpm(Math.round(typedTotal / 5 / elapsedMin));
+    //online: relay the score/combo when they moved
+    if (lanMode() && (score() !== lastSentScore || combo() !== lastSentCombo)) {
+      lastSentScore = score();
+      lastSentCombo = combo();
+      sendLanMatchProgress(
+        lanWordBlast.encodeProgress({ score: score(), combo: combo() }),
+      );
+    }
 
     const typed = target.typed + 1;
     const targetId = target.id;
@@ -338,7 +565,7 @@ export function GamesPage(): JSXElement {
       if (target.isHeart === true) {
         //a completed heart word grants a life, capped at maxLives
         void playClick();
-        setLives((lives) => Math.min(BALANCE.maxLives, lives + 1));
+        setLives((current) => Math.min(BALANCE.maxLives, current + 1));
       }
       if (levelUp) {
         setLevel(nextLevel);
@@ -356,6 +583,43 @@ export function GamesPage(): JSXElement {
   onMount(() => {
     window.addEventListener("keydown", handleKey);
     onCleanup(() => window.removeEventListener("keydown", handleKey));
+  });
+
+  //the relayed peer progress lands decoded — the HUD reads it inline
+  createEffect(() => {
+    const progress = getRemoteProgress();
+    if (progress === undefined) return;
+    setRemoteState(progress.state as WordBlastRemoteState);
+  });
+
+  //the peer's finish resolves the held verdict (or arrived before mine)
+  createEffect(() => {
+    if (running() || !over()) {
+      //still racing: their finish only parks — the horn resolves later
+    }
+    if (running()) return;
+    if (getRemoteFinished() === undefined) return;
+    resolveOnlineResult();
+  });
+
+  //the host answers a rematch request by re-sending the same start
+  createEffect(() => {
+    const match = getLanMatch();
+    if (match?.role !== "host" || match.gameId !== "word-blast") return;
+    if (!getRematchAsked()) return;
+    hostRematch(match);
+  });
+
+  //a disconnect during the game voids it — nothing online is recorded
+  createEffect(() => {
+    if (getLanMatch()?.gameId !== "word-blast") return;
+    if (isLanConnected()) return;
+    if (!running()) return;
+    stopTimers();
+    if (hornTimer !== undefined) clearTimeout(hornTimer);
+    setRunning(false);
+    clearLanMatch();
+    setVoidMessage("the opponent left — race void, nothing was recorded");
   });
 
   return (
@@ -391,12 +655,46 @@ export function GamesPage(): JSXElement {
         </div>
       </section>
 
+      <Show when={lanMode()}>
+        <div
+          class="rounded bg-sub-alt p-2 text-center text-sm font-bold text-main"
+          data-testid="wb-online-vs"
+        >
+          <i class="fas fa-gamepad"></i> online vs{" "}
+          {getLanMatch()?.peerName ?? "…"} — same stream, 90s, the higher score
+          wins
+        </div>
+      </Show>
+
       <Button
-        text="start game"
+        text={lanMode() ? "the match starts from the lobby" : "start game"}
         fa={{ icon: "fa-play" }}
         class="w-full"
+        disabled={lanMode()}
         onClick={() => void start()}
       />
+      <Show when={lanMode()}>
+        <div class="grid grid-cols-2 gap-2" data-testid="wb-remote">
+          <div class="rounded bg-bg p-2 text-center">
+            <div class="text-xl font-bold text-error tabular-nums">
+              {remoteState()?.score ?? 0}
+            </div>
+            <div class="text-xs text-sub">
+              {getLanMatch()?.peerName ?? "the opponent"} · x
+              {remoteState()?.combo ?? 0} combo
+            </div>
+          </div>
+          <div class="rounded bg-bg p-2 text-center">
+            <div class="text-xl font-bold text-main tabular-nums">
+              {score()}
+            </div>
+            <div class="text-xs text-sub">you · x{combo()} combo</div>
+          </div>
+        </div>
+      </Show>
+      <Show when={voidMessage() !== undefined}>
+        <div class="text-error">{voidMessage()}</div>
+      </Show>
 
       <div class="grid grid-cols-5 gap-2" aria-label="word blast hud">
         <HudCell label="score" value={String(score())} testId="wb-score" />
@@ -472,6 +770,21 @@ export function GamesPage(): JSXElement {
             )}
           </For>
         </Show>
+        <Show
+          when={
+            lanMode() && !running() && !over() && onlineResult() === undefined
+          }
+        >
+          <div
+            class="bg-black/70 absolute inset-0 grid place-items-center"
+            data-testid="wb-awaiting"
+          >
+            <div class="text-2xl font-bold text-main">
+              your score is locked ({score()}) — waiting for{" "}
+              {`${getLanMatch()?.peerName ?? "the opponent"}'s horn…`}
+            </div>
+          </div>
+        </Show>
         <Show when={over()}>
           <div class="bg-black/70 absolute inset-0 grid place-items-center">
             <div class="text-center">
@@ -483,6 +796,59 @@ export function GamesPage(): JSXElement {
               <Show when={recordInfo()?.best !== undefined}>
                 <div class="pt-1 text-sub">best: {recordInfo()?.best}</div>
               </Show>
+            </div>
+          </div>
+        </Show>
+        <Show when={onlineResult() !== undefined}>
+          <div class="bg-black/70 absolute inset-0 grid place-items-center">
+            <div class="grid gap-2 text-center">
+              <div
+                class={cn(
+                  "text-4xl font-bold",
+                  onlineResult()?.verdict === "won"
+                    ? "text-main"
+                    : onlineResult()?.verdict === "draw"
+                      ? "text-sub"
+                      : "text-error",
+                )}
+                data-testid="wb-verdict"
+              >
+                {onlineResult()?.verdict === "won"
+                  ? "you win!"
+                  : onlineResult()?.verdict === "draw"
+                    ? "draw"
+                    : `${getLanMatch()?.peerName ?? "the opponent"} wins`}
+              </div>
+              <div class="text-2xl text-main tabular-nums">
+                {onlineResult()?.myScore ?? 0} vs{" "}
+                {onlineResult()?.theirScore ?? 0}
+              </div>
+              <div class="grid grid-cols-2 gap-2 pt-2">
+                <Button
+                  text={
+                    rematchSent() ? "rematch requested — waiting…" : "rematch"
+                  }
+                  fa={{ icon: "fa-redo" }}
+                  onClick={() => {
+                    const match = getLanMatch();
+                    if (match === undefined || rematchSent()) return;
+                    if (match.role === "host") {
+                      hostRematch(match);
+                    } else {
+                      sendLanMatchRematch();
+                      setRematchSent(true);
+                    }
+                  }}
+                />
+                <Button
+                  text="leave to lobby"
+                  fa={{ icon: "fa-arrow-left" }}
+                  onClick={() => {
+                    clearLanMatch();
+                    void navigate({ to: "/games/online" });
+                  }}
+                />
+              </div>
             </div>
           </div>
         </Show>

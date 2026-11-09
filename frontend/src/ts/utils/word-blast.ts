@@ -19,7 +19,7 @@ export const DIFFICULTY_SPAWN: Record<Difficulty, number> = {
 };
 
 /** chance that a spawned target is a multi-word phrase */
-const PHRASE_CHANCE: Record<Difficulty, number> = {
+export const PHRASE_CHANCE: Record<Difficulty, number> = {
   easy: 0,
   normal: 0.12,
   hard: 0.25,
