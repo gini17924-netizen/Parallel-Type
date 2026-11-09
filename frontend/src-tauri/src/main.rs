@@ -75,14 +75,12 @@ fn toggle_main_window(app: &tauri::AppHandle) {
     }
 }
 
-/// Update checking. Disabled until a real update endpoint exists (B28): the
-/// configured endpoint is still the `.example` placeholder (KI-05), so every
-/// boot would fire a doomed request. Flip to true when B28 lands.
-///
-/// The two switches move together: this flag AND `plugins.updater.endpoints`
-/// in tauri.conf.json. Enabling only one fires doomed requests (flag on,
-/// placeholder endpoint) or silently never updates (endpoint set, flag off).
-const UPDATES_ENABLED: bool = false;
+/// Update checking. ENABLED as of 0.28.0: both switches are on — this flag
+/// AND `plugins.updater.endpoints` in tauri.conf.json (the live GitHub
+/// Releases endpoint, commit 59ae826). The pairing contract still holds:
+/// never move one without the other (flag on + placeholder endpoint fires
+/// doomed requests; endpoint set + flag off silently never updates).
+const UPDATES_ENABLED: bool = true;
 
 /// Checks the update endpoint once at startup. Non-fatal: any failure
 /// (offline, unreachable host, bad json) is logged and ignored.
