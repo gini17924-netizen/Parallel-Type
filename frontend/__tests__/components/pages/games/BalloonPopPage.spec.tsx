@@ -4,6 +4,15 @@ import { IDBFactory } from "fake-indexeddb";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import {
+  _resetLanStateForTests,
+  lanStartHost,
+} from "../../../../src/ts/states/lan";
+import {
+  _resetLanMatchForTests,
+  armLanMatch,
+  handleLanPeerMessage,
+} from "../../../../src/ts/states/lan-match";
+import {
   _resetBalloonPopScoresForTests,
   BALLOON_POP_SCORES_KEY,
 } from "../../../../src/ts/utils/balloon-pop/store";
@@ -211,5 +220,183 @@ describe("balloon pop hear-it mode (idea G6 phase 3)", () => {
     await vi.advanceTimersByTimeAsync(2500);
 
     expect(speakWord).not.toHaveBeenCalled();
+  });
+});
+
+/** the tauri fake for the online tests: records the invokes and captures
+ * the event listeners so the spec can fire the Rust-side events */
+function installTauriMock(): {
+  invokes: { cmd: string; args: Record<string, unknown> }[];
+  fire: (ev: string, payload: unknown) => void;
+} {
+  const invokes: { cmd: string; args: Record<string, unknown> }[] = [];
+  const handlers = new Map<string, ((e: { payload: unknown }) => void)[]>();
+  (window as unknown as { __TAURI__: unknown }).__TAURI__ = {
+    core: {
+      invoke: async (cmd: string, args?: Record<string, unknown>) => {
+        invokes.push({ cmd, args: args ?? {} });
+        if (cmd === "lan_start_host") {
+          return {
+            sessionId: "lan-test/N3DB",
+            code: "N3DB",
+            port: 51987,
+            ip: "192.168.100.24",
+            name: "P1",
+          };
+        }
+        return {};
+      },
+    },
+    event: {
+      listen: async (ev: string, cb: (e: { payload: unknown }) => void) => {
+        const list = handlers.get(ev) ?? [];
+        list.push(cb);
+        handlers.set(ev, list);
+        return () => undefined;
+      },
+    },
+  };
+  return {
+    invokes,
+    fire: (ev: string, payload: unknown) => {
+      for (const cb of handlers.get(ev) ?? []) cb({ payload });
+    },
+  };
+}
+
+/** types every on-screen balloon's payload repeatedly until the horn */
+async function popRace(app: App): Promise<void> {
+  for (let guard = 0; guard < 4000; guard++) {
+    if (
+      app.container.querySelector('[data-testid="bp-awaiting"]') !== null ||
+      app.container.querySelector('[data-testid="bp-verdict"]') !== null
+    ) {
+      return;
+    }
+    //type the LOWEST balloon's next char (the biggest escape threat)
+    //type the LOWEST balloon's next char (the biggest escape threat)
+    const balloonsList = [
+      ...app.container.querySelectorAll('[data-testid="bp-balloon"]'),
+    ];
+    const target = balloonsList[balloonsList.length - 1];
+    if (target !== undefined) {
+      const payload = target.textContent ?? "";
+      const done = (target.querySelector(".text-main")?.textContent ?? "")
+        .length;
+      const ch = payload[done] ?? payload[0] ?? "a";
+      window.dispatchEvent(
+        new KeyboardEvent("keydown", {
+          key: ch,
+          code: `Key${ch.toUpperCase()}`,
+        }),
+      );
+    }
+    await new Promise((r) => setTimeout(r, 20));
+  }
+}
+
+describe("balloon pop online (online wave, phase 24)", () => {
+  beforeEach(() => {
+    (globalThis as { indexedDB: unknown }).indexedDB = new IDBFactory();
+    window.localStorage.clear();
+    _resetBalloonPopScoresForTests();
+    _resetLanStateForTests();
+    _resetLanMatchForTests();
+  });
+
+  afterEach(() => {
+    delete (window as unknown as { __TAURI__?: unknown }).__TAURI__;
+    cleanupApp();
+  });
+
+  it("an armed match races to the horn: banner, relay, awaiting, win", async () => {
+    const tauri = installTauriMock();
+    await lanStartHost("HOST1");
+    tauri.fire("lan://peer-joined", { name: "P2" });
+    const app = await openBalloonPop();
+    armLanMatch({
+      role: "host",
+      peerName: "P2",
+      start: {
+        gameId: "balloon-pop",
+        seed: 42,
+        params: { lang: "english", stage: 1, durationMs: 3000 },
+      },
+    });
+    await new Promise((r) => setTimeout(r, 150)); //the seeded run starts
+    expect(pageText(app)).toContain("online vs P2");
+    expect(pageText(app)).toContain("same balloons, 120s");
+
+    await popRace(app);
+    expect(pageText(app)).toContain("waiting for P2");
+    const finishes = tauri.invokes.filter(
+      (entry) =>
+        entry.cmd === "lan_send_message" &&
+        (entry.args["message"] as Record<string, unknown>)["type"] ===
+          "finished",
+    );
+    expect(finishes).toHaveLength(1);
+
+    //the peer's horn: a weaker result lands -> I win; no local records
+    handleLanPeerMessage({ type: "finished", finishMs: 3000, acc: 100 });
+    await new Promise((r) => setTimeout(r, 80));
+    expect(pageText(app)).toContain("you win!");
+    expect(window.localStorage.getItem(BALLOON_POP_SCORES_KEY)).toBeNull();
+  });
+
+  it("the peer's horn result resolves my awaiting verdict as a loss", async () => {
+    const tauri = installTauriMock();
+    await lanStartHost("HOST1");
+    tauri.fire("lan://peer-joined", { name: "P2" });
+    const app = await openBalloonPop();
+    armLanMatch({
+      role: "host",
+      peerName: "P2",
+      start: {
+        gameId: "balloon-pop",
+        seed: 42,
+        params: { lang: "english", stage: 1, durationMs: 3000 },
+      },
+    });
+    await new Promise((r) => setTimeout(r, 150));
+    //the peer's horn: a big result lands before mine
+    handleLanPeerMessage({
+      type: "progress",
+      gameId: "balloon-pop",
+      state: { pops: 999, score: 9999 },
+    });
+    handleLanPeerMessage({ type: "finished", finishMs: 3000, acc: 100 });
+    await new Promise((r) => setTimeout(r, 60));
+
+    await popRace(app);
+    expect(pageText(app)).toContain("P2 wins");
+    const finishes = tauri.invokes.filter(
+      (entry) =>
+        entry.cmd === "lan_send_message" &&
+        (entry.args["message"] as Record<string, unknown>)["type"] ===
+          "finished",
+    );
+    expect(finishes).toHaveLength(1);
+  });
+
+  it("a disconnect during the game voids it", async () => {
+    const tauri = installTauriMock();
+    await lanStartHost("HOST1");
+    tauri.fire("lan://peer-joined", { name: "P2" });
+    const app = await openBalloonPop();
+    armLanMatch({
+      role: "host",
+      peerName: "P2",
+      start: {
+        gameId: "balloon-pop",
+        seed: 42,
+        params: { lang: "english", stage: 1, durationMs: 3000 },
+      },
+    });
+    await new Promise((r) => setTimeout(r, 150));
+    tauri.fire("lan://peer-left", { reason: "disconnected" });
+    await new Promise((r) => setTimeout(r, 80));
+    expect(pageText(app)).toContain("the opponent left");
+    expect(pageText(app)).toContain("start stage 1"); //back at the menu
   });
 });
