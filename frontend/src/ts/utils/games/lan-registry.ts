@@ -24,7 +24,8 @@ export type LanGameId =
   | "runner"
   | "word-blast"
   | "stack-attack"
-  | "balloon-pop";
+  | "balloon-pop"
+  | "pair-keys";
 
 /** what a game's buildStart produces — the caller (the lobby) ships it
  * inside the `start` message; the armed match adds role/peerName/seq */
@@ -53,7 +54,8 @@ export type LanPlayable = {
     | "/games/runner"
     | "/games/word-blast"
     | "/games/stack-attack"
-    | "/games/balloon-pop";
+    | "/games/balloon-pop"
+    | "/games/pair-keys";
   /** the lobby picker card (English, per the standing rule) */
   label: string;
   icon: FaSolidIcon;
