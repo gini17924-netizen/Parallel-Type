@@ -3,6 +3,15 @@ import { IDBFactory } from "fake-indexeddb";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import {
+  _resetLanStateForTests,
+  lanStartHost,
+} from "../../../../src/ts/states/lan";
+import {
+  _resetLanMatchForTests,
+  armLanMatch,
+  handleLanPeerMessage,
+} from "../../../../src/ts/states/lan-match";
+import {
   PAIR_KEYS_STATS_KEY,
   _resetPairKeysForTests,
 } from "../../../../src/ts/utils/pair-keys/store";
@@ -174,3 +183,187 @@ describe("pair keys page (idea G18 phase 2)", () => {
     expect(raw.history?.length ?? 0).toBeGreaterThan(0);
   });
 });
+
+/** the tauri fake for the online tests: records the invokes and captures
+ * the event listeners so the spec can fire the Rust-side events */
+function installTauriMock(): {
+  invokes: { cmd: string; args: Record<string, unknown> }[];
+  fire: (ev: string, payload: unknown) => void;
+} {
+  const invokes: { cmd: string; args: Record<string, unknown> }[] = [];
+  const handlers = new Map<string, ((e: { payload: unknown }) => void)[]>();
+  (window as unknown as { __TAURI__: unknown }).__TAURI__ = {
+    core: {
+      invoke: async (cmd: string, args?: Record<string, unknown>) => {
+        invokes.push({ cmd, args: args ?? {} });
+        if (cmd === "lan_start_host") {
+          return {
+            sessionId: "lan-test/N3DB",
+            code: "N3DB",
+            port: 51987,
+            ip: "192.168.100.24",
+            name: "P1",
+          };
+        }
+        return {};
+      },
+    },
+    event: {
+      listen: async (ev: string, cb: (e: { payload: unknown }) => void) => {
+        const list = handlers.get(ev) ?? [];
+        list.push(cb);
+        handlers.set(ev, list);
+        return () => undefined;
+      },
+    },
+  };
+  return {
+    invokes,
+    fire: (ev: string, payload: unknown) => {
+      for (const cb of handlers.get(ev) ?? []) cb({ payload });
+    },
+  };
+}
+
+/** solves the board: clicks matching pairs until the verdict/awaiting */
+async function solveBoard(app: App): Promise<void> {
+  for (let guard = 0; guard < 200; guard++) {
+    if (
+      app.container.querySelector('[data-testid="pk-awaiting"]') !== null ||
+      app.container.querySelector('[data-testid="pk-verdict"]') !== null
+    ) {
+      return;
+    }
+    const cardList = cards(app);
+    const open = cardList.filter(
+      (card) => card.getAttribute("data-face") !== "matched",
+    );
+    const byBase = new Map<string, HTMLElement[]>();
+    for (const card of open) {
+      const base = card.getAttribute("data-base") ?? "";
+      byBase.set(base, [...(byBase.get(base) ?? []), card]);
+    }
+    let clicked = false;
+    for (const [, group] of byBase) {
+      if (group.length >= 2) {
+        (group[0] as HTMLElement).click();
+        (group[1] as HTMLElement).click();
+        clicked = true;
+        break;
+      }
+    }
+    if (!clicked && open.length >= 2) {
+      (open[0] as HTMLElement).click();
+      (open[1] as HTMLElement).click();
+    }
+    await new Promise((r) => setTimeout(r, 40));
+  }
+}
+
+describe("pair keys online (online wave, phase 26)", () => {
+  beforeEach(() => {
+    (globalThis as { indexedDB: unknown }).indexedDB = new IDBFactory();
+    window.localStorage.clear();
+    _resetPairKeysForTests();
+    _resetLanStateForTests();
+    _resetLanMatchForTests();
+  });
+
+  afterEach(() => {
+    delete (window as unknown as { __TAURI__?: unknown }).__TAURI__;
+    cleanupApp();
+  });
+
+  it("an armed match races the board: banner, relay, awaiting, win", async () => {
+    const tauri = installTauriMock();
+    await lanStartHost("HOST1");
+    tauri.fire("lan://peer-joined", { name: "P2" });
+    const app = renderApp();
+    await app.settle();
+    await app.router.navigate({ to: "/games/pair-keys" });
+    await app.settle();
+    armLanMatch({
+      role: "host",
+      peerName: "P2",
+      start: {
+        gameId: "pair-keys",
+        seed: 42,
+        params: { lang: "english", mode: "letter", level: 1 },
+      },
+    });
+    await new Promise((r) => setTimeout(r, 100)); //the board builds
+    expect(pageText(app)).toContain("online vs P2");
+    expect(pageText(app)).toContain("same board");
+
+    await solveBoard(app);
+    expect(pageText(app)).toContain("waiting for P2");
+    const finishes = tauri.invokes.filter(
+      (entry) =>
+        entry.cmd === "lan_send_message" &&
+        (entry.args["message"] as Record<string, unknown>)["type"] ===
+          "finished",
+    );
+    expect(finishes).toHaveLength(1);
+
+    //the peer solves later -> I win; no local records
+    handleLanPeerMessage({ type: "finished", finishMs: 999_999, acc: 100 });
+    await new Promise((r) => setTimeout(r, 80));
+    expect(pageText(app)).toContain("you win!");
+    expect(window.localStorage.getItem(PAIR_KEYS_STATS_KEY)).toBeNull();
+  });
+
+  it("the peer's earlier finish resolves my solve as a loss", async () => {
+    const { app, invokes } = await armOnlineSolve();
+    //the peer finishes instantly while I am still solving
+    handleLanPeerMessage({
+      type: "progress",
+      gameId: "pair-keys",
+      state: { found: 8, moves: 8 },
+    });
+    handleLanPeerMessage({ type: "finished", finishMs: 100, acc: 100 });
+    await new Promise((r) => setTimeout(r, 60));
+
+    await solveBoard(app);
+    expect(pageText(app)).toContain("P2 wins");
+    const finishes = invokes.filter(
+      (entry) =>
+        entry.cmd === "lan_send_message" &&
+        (entry.args["message"] as Record<string, unknown>)["type"] ===
+          "finished",
+    );
+    expect(finishes).toHaveLength(1);
+  });
+
+  it("a disconnect during the solve voids it", async () => {
+    const { app, fire } = await armOnlineSolve();
+    fire("lan://peer-left", { reason: "disconnected" });
+    await new Promise((r) => setTimeout(r, 80));
+    expect(pageText(app)).toContain("the opponent left");
+    expect(pageText(app)).toContain("start memory game"); //back at setup
+  });
+});
+
+async function armOnlineSolve(): Promise<{
+  app: App;
+  invokes: { cmd: string; args: Record<string, unknown> }[];
+  fire: (ev: string, payload: unknown) => void;
+}> {
+  const tauri = installTauriMock();
+  await lanStartHost("HOST1");
+  tauri.fire("lan://peer-joined", { name: "P2" });
+  const app = renderApp();
+  await app.settle();
+  await app.router.navigate({ to: "/games/pair-keys" });
+  await app.settle();
+  armLanMatch({
+    role: "host",
+    peerName: "P2",
+    start: {
+      gameId: "pair-keys",
+      seed: 42,
+      params: { lang: "english", mode: "letter", level: 1 },
+    },
+  });
+  await new Promise((r) => setTimeout(r, 100)); //the board builds
+  return { app, invokes: tauri.invokes, fire: tauri.fire };
+}

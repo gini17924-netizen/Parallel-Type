@@ -2,6 +2,7 @@ import {
   For,
   JSXElement,
   Show,
+  createEffect,
   createSignal,
   onCleanup,
   onMount,
@@ -11,7 +12,23 @@ import type { PairKeysMode } from "../../../../utils/pair-keys/board";
 
 import { Config } from "../../../../config/store";
 import { playClick, playError } from "../../../../controllers/sound-controller";
+import { navigate } from "../../../../router/navigate";
+import { isLanConnected, lanPreFillName } from "../../../../states/lan";
+import {
+  armLanMatch,
+  clearLanMatch,
+  getLanMatch,
+  getRemoteFinished,
+  getRemoteProgress,
+  getRematchAsked,
+  sendLanMatchFinished,
+  sendLanMatchProgress,
+  sendLanMatchRematch,
+  sendLanMatchStart,
+  type LanMatch,
+} from "../../../../states/lan-match";
 import { cn } from "../../../../utils/cn";
+import { createSeededRng } from "../../../../utils/daily-gauntlet/seeded-rng";
 import { unlockedLetters } from "../../../../utils/learn-stats";
 import { BALANCE } from "../../../../utils/pair-keys/balance";
 import {
@@ -20,6 +37,12 @@ import {
   type PairKeysState,
 } from "../../../../utils/pair-keys/engine";
 import { isJoining } from "../../../../utils/pair-keys/forms";
+import {
+  lanPairKeys,
+  resolvePairVerdict,
+  type PairRemoteState,
+  type PairVerdict,
+} from "../../../../utils/pair-keys/lan";
 import {
   getPairKeysBest,
   getPairKeysGames,
@@ -33,7 +56,18 @@ const TICK_MS = 100;
 const JOINING_FALLBACK = "بپتثجچحخسشصضطظعغفقکگلمنهی".split("");
 
 type Level = 1 | 2;
-type PagePhase = "setup" | "playing" | "result";
+type PagePhase = "setup" | "playing" | "awaiting" | "result";
+
+/** the online verdict once both solvers have reported */
+type PairOnlineResult = {
+  verdict: PairVerdict;
+  myFound: number;
+  myMoves: number;
+  myTimeMs: number | null;
+  theirFound: number;
+  theirMoves: number;
+  theirTimeMs: number | null;
+};
 
 function HudCell(props: { label: string; value: string }): JSXElement {
   return (
@@ -46,9 +80,9 @@ function HudCell(props: { label: string; value: string }): JSXElement {
 
 /** the read-only letter pool (learn groups first, standard set padded) */
 function letterPool(mode: PairKeysMode): string[] {
-  const unlocked = [...new Set([...unlockedLetters(Config.language)])].filter(
-    (ch) => /[\u0600-\u06FF]/u.test(ch),
-  );
+  const unlocked = [
+    ...new Set(Array.from(unlockedLetters(Config.language))),
+  ].filter((ch) => /[\u0600-\u06FF]/u.test(ch));
   const base =
     mode === "form-name" ? unlocked.filter((ch) => isJoining(ch)) : unlocked;
   if (base.length >= BALANCE.pairs) return base;
@@ -71,11 +105,27 @@ export function PairKeysPage(): JSXElement {
   );
   const [newRecord, setNewRecord] = createSignal(false);
   const [focusIdx, setFocusIdx] = createSignal(0);
+  //online (LAN) state — the peer solves the same seeded board
+  const [remoteState, setRemoteState] = createSignal<
+    PairRemoteState | undefined
+  >(undefined);
+  const [onlineResult, setOnlineResult] = createSignal<
+    PairOnlineResult | undefined
+  >(undefined);
+  const [rematchSent, setRematchSent] = createSignal(false);
+  const [voidMessage, setVoidMessage] = createSignal<string | undefined>(
+    undefined,
+  );
 
   let engine: PairKeysEngine | undefined;
   let tickTimer: ReturnType<typeof setInterval> | undefined;
   let mismatchTimer: ReturnType<typeof setTimeout> | undefined;
   const cardRefs = new Map<number, HTMLButtonElement>();
+  let runStart = 0;
+  let myFinish: { finishMs: number; moves: number } | undefined;
+  let myFinishSent = false;
+  let lastSentFound = -1;
+  let lastSentMoves = -1;
 
   const stopTimers = (): void => {
     if (tickTimer !== undefined) clearInterval(tickTimer);
@@ -86,22 +136,172 @@ export function PairKeysPage(): JSXElement {
 
   onCleanup(stopTimers);
 
+  //leaving mid-solve (header back, route change) tells the peer the
+  //board is abandoned — they can never be beaten once it is parked
+  onCleanup(() => {
+    if (getLanMatch()?.gameId !== "pair-keys") return;
+    if (pagePhase() !== "playing" && pagePhase() !== "awaiting") return;
+    if (!myFinishSent) {
+      myFinishSent = true;
+      const state = engine?.state();
+      sendLanMatchProgress(
+        lanPairKeys.encodeProgress({
+          found: state?.matched ?? 0,
+          moves: state?.moves ?? 0,
+        }),
+      );
+      sendLanMatchFinished(null, 0);
+    }
+    clearLanMatch();
+  });
+
+  const lanMode = (): boolean => getLanMatch()?.gameId === "pair-keys";
+
   const startRun = (): void => {
+    if (lanMode()) return; //online: the match effect owns the start
+    startOfflineRun(mode(), level());
+  };
+
+  /** the offline run: the random board, the local records */
+  const startOfflineRun = (runMode: PairKeysMode, runLevel: Level): void => {
     setNewRecord(false);
     setFocusIdx(0);
     engine = createPairKeysEngine({
-      mode: mode(),
-      letters: letterPool(mode()),
-      previewMs: BALANCE.previewMsByLevel[level()],
+      mode: runMode,
+      letters: letterPool(runMode),
+      previewMs: BALANCE.previewMsByLevel[runLevel],
       rng: Math.random,
       now: () => Date.now(),
     });
     setEngineState(engine.state());
     setPagePhase("playing");
+    startTickLoop();
+  };
+
+  const resolveOnlineResult = (): void => {
+    const finished = getRemoteFinished();
+    if (finished === undefined) return;
+    const state = engine?.state();
+    setOnlineResult({
+      verdict: resolvePairVerdict(
+        {
+          finishMs:
+            state?.result?.elapsedMs ?? (Date.now() - runStart),
+          moves: state?.moves ?? 0,
+        },
+        {
+          finishMs: finished.finishMs ?? Number.MAX_SAFE_INTEGER,
+          moves: remoteState()?.moves ?? 0,
+        },
+      ),
+      myFound: state?.matched ?? 0,
+      myMoves: state?.moves ?? 0,
+      myTimeMs: state?.result?.elapsedMs ?? null,
+      theirFound: remoteState()?.found ?? 0,
+      theirMoves: remoteState()?.moves ?? 0,
+      theirTimeMs: finished.finishMs,
+    });
+    setPagePhase("result");
+  };
+
+  const hostRematch = (match: LanMatch): void => {
+    //arm first: a refused start never reaches the wire
+    armLanMatch({
+      role: "host",
+      peerName: match.peerName,
+      start: match.start,
+    });
+    if (getLanMatch() === undefined) return;
+    sendLanMatchStart(match.start, lanPreFillName() || "P1");
+  };
+
+  //an armed (or re-armed) pair match IS the online start: the seed
+  //builds the identical board (the deterministic fallback letter pool —
+  //unlocked letters vary per machine, the fallback does not)
+  createEffect(() => {
+    const match = getLanMatch();
+    if (match?.gameId !== "pair-keys") return;
+    const matchMode =
+      match.start.params["mode"] === "letter" ? "letter" : "form-name";
+    const matchLevel = match.start.params["level"] === 2 ? 2 : 1;
+    setOnlineResult(undefined);
+    setRematchSent(false);
+    setRemoteState(undefined);
+    setNewRecord(false);
+    setFocusIdx(0);
+    myFinish = undefined;
+    myFinishSent = false;
+    lastSentFound = -1;
+    lastSentMoves = -1;
+    runStart = Date.now();
+    engine = createPairKeysEngine({
+      mode: matchMode,
+      letters: [...JOINING_FALLBACK],
+      previewMs: BALANCE.previewMsByLevel[matchLevel],
+      rng: createSeededRng(match.start.seed ?? 1),
+      now: () => Date.now(),
+    });
+    setEngineState(engine.state());
+    setPagePhase("playing");
+    startTickLoop();
+  });
+
+  //the relayed peer progress lands decoded — the panel reads it inline
+  createEffect(() => {
+    const progress = getRemoteProgress();
+    if (progress === undefined) return;
+    setRemoteState(progress.state as PairRemoteState);
+  });
+
+  //the peer's finish resolves the held verdict (or arrived before mine)
+  createEffect(() => {
+    if (pagePhase() !== "awaiting") return;
+    if (getRemoteFinished() === undefined) return;
+    resolveOnlineResult();
+  });
+
+  //the host answers a rematch request by re-sending the same start
+  createEffect(() => {
+    const match = getLanMatch();
+    if (match?.role !== "host" || match.gameId !== "pair-keys") return;
+    if (!getRematchAsked()) return;
+    hostRematch(match);
+  });
+
+  //a disconnect during the solve voids it — nothing online is recorded
+  createEffect(() => {
+    if (getLanMatch()?.gameId !== "pair-keys") return;
+    if (isLanConnected()) return;
+    if (pagePhase() !== "playing" && pagePhase() !== "awaiting") return;
+    stopTimers();
+    engine = undefined;
+    clearLanMatch();
+    setVoidMessage("the opponent left — race void, nothing was recorded");
+    setNewRecord(false);
+    setFocusIdx(0);
+    setPagePhase("setup");
+  });
+
+  /** the one tick loop both the offline solve and the online race share */
+  const startTickLoop = (): void => {
     tickTimer = setInterval(() => {
       if (engine === undefined) return;
       const state = engine.state();
       setEngineState(state);
+      //online: relay the found/moves when they moved
+      if (
+        lanMode() &&
+        (state.matched !== lastSentFound || state.moves !== lastSentMoves)
+      ) {
+        lastSentFound = state.matched;
+        lastSentMoves = state.moves;
+        sendLanMatchProgress(
+          lanPairKeys.encodeProgress({
+            found: state.matched,
+            moves: state.moves,
+          }),
+        );
+      }
       if (state.phase === "done") endRun();
     }, TICK_MS);
   };
@@ -109,6 +309,24 @@ export function PairKeysPage(): JSXElement {
   const endRun = (): void => {
     stopTimers();
     const state = engine?.state();
+    if (lanMode()) {
+      //the board is solved — my finish was already sent at the last pair
+      if (!myFinishSent) {
+        myFinishSent = true;
+        myFinish = {
+          finishMs:
+            state?.result?.elapsedMs ?? (Date.now() - runStart),
+          moves: state?.moves ?? 0,
+        };
+        sendLanMatchFinished(myFinish.finishMs, 100);
+      }
+      if (getRemoteFinished() !== undefined) {
+        resolveOnlineResult();
+      } else {
+        setPagePhase("awaiting");
+      }
+      return;
+    }
     if (state?.result !== undefined) {
       const { isNewRecord } = recordPairKeysRun({
         mode: mode(),
@@ -183,6 +401,9 @@ export function PairKeysPage(): JSXElement {
   const Menu = (): JSXElement => {
     return (
       <section class="grid gap-4 rounded bg-sub-alt p-4">
+        <Show when={voidMessage() !== undefined}>
+          <div class="text-error">{voidMessage()}</div>
+        </Show>
         <div class="grid grid-cols-2 gap-2" role="group" aria-label="mode">
           <For each={[...BALANCE.modes]}>
             {(m) => (
@@ -324,6 +545,96 @@ export function PairKeysPage(): JSXElement {
     );
   };
 
+  const AwaitingScreen = (): JSXElement => {
+    return (
+      <section class="grid place-items-center rounded bg-sub-alt py-16 text-center">
+        <div class="text-2xl font-bold text-main" data-testid="pk-awaiting">
+          board solved in {((myFinish?.finishMs ?? 0) / 1000).toFixed(1)}s ·{" "}
+          {myFinish?.moves ?? 0} moves — waiting for{" "}
+          {getLanMatch()?.peerName ?? "the opponent"}…
+        </div>
+      </section>
+    );
+  };
+
+  const OnlineResultScreen = (): JSXElement => {
+    const online = (): PairOnlineResult | undefined => onlineResult();
+    const verdict = online()?.verdict;
+    return (
+      <section class="grid gap-4 rounded bg-sub-alt p-6 text-center">
+        <div
+          class={cn(
+            "text-3xl font-bold",
+            verdict === "won"
+              ? "text-main"
+              : verdict === "draw"
+                ? "text-sub"
+                : "text-error",
+          )}
+          data-testid="pk-verdict"
+        >
+          {verdict === "won"
+            ? "you win!"
+            : verdict === "draw"
+              ? "draw"
+              : verdict === "lost" && !myFinishSent
+                ? `you abandoned — ${getLanMatch()?.peerName ?? "the opponent"} takes it`
+                : `${getLanMatch()?.peerName ?? "the opponent"} wins`}
+        </div>
+        <div class="grid grid-cols-2 gap-2">
+          <div class="rounded bg-bg p-3">
+            <div class="text-xl font-bold text-main tabular-nums">
+              {online()?.myFound ?? 0}/8 ·{" "}
+              {online()?.myTimeMs === null
+                ? "—"
+                : `${((online()?.myTimeMs ?? 0) / 1000).toFixed(1)}s`}{" "}
+              · {online()?.myMoves ?? 0} moves
+            </div>
+            <div class="text-xs text-sub">you</div>
+          </div>
+          <div class="rounded bg-bg p-3">
+            <div class="text-xl font-bold text-main tabular-nums">
+              {online()?.theirFound ?? 0}/8 ·{" "}
+              {online()?.theirTimeMs === null
+                ? "solving"
+                : `${((online()?.theirTimeMs ?? 0) / 1000).toFixed(1)}s`}{" "}
+              · {online()?.theirMoves ?? 0} moves
+            </div>
+            <div class="text-xs text-sub">
+              {getLanMatch()?.peerName ?? "the opponent"}
+            </div>
+          </div>
+        </div>
+        <div class="grid grid-cols-2 gap-2">
+          <Button
+            text={rematchSent() ? "rematch requested — waiting…" : "rematch"}
+            fa={{ icon: "fa-redo" }}
+            class="w-full"
+            onClick={() => {
+              const match = getLanMatch();
+              if (match === undefined || rematchSent()) return;
+              if (match.role === "host") {
+                hostRematch(match);
+              } else {
+                sendLanMatchRematch();
+                setRematchSent(true);
+              }
+            }}
+          />
+          <Button
+            text="leave to lobby"
+            fa={{ icon: "fa-arrow-left" }}
+            class="w-full"
+            onClick={() => {
+              clearLanMatch();
+              void navigate({ to: "/games/online" });
+            }}
+          />
+        </div>
+      </section>
+    );
+  };
+
   const ResultScreen = (): JSXElement => {
     const result = engine?.state().result;
     return (
@@ -397,8 +708,50 @@ export function PairKeysPage(): JSXElement {
           extra fonts, just your keyboard memory.
         </p>
       </section>
+      <Show when={lanMode()}>
+        <div
+          class="rounded bg-sub-alt p-2 text-center text-sm font-bold text-main"
+          data-testid="pk-online-vs"
+        >
+          <i class="fas fa-clone"></i> online vs{" "}
+          {getLanMatch()?.peerName ?? "…"} — same board, the first solve wins
+        </div>
+      </Show>
+      <Show when={lanMode()}>
+        <div class="grid grid-cols-2 gap-2" data-testid="pk-remote">
+          <div class="rounded bg-bg p-2 text-center">
+            <div class="text-xl font-bold text-error tabular-nums">
+              {remoteState()?.found ?? 0}/8 · {remoteState()?.moves ?? 0} moves
+            </div>
+            <div class="text-xs text-sub">
+              {getLanMatch()?.peerName ?? "the opponent"}
+            </div>
+          </div>
+          <div class="rounded bg-bg p-2 text-center">
+            <div class="text-xl font-bold text-main tabular-nums">
+              {engineState()?.matched ?? 0}/8 · {engineState()?.moves ?? 0}{" "}
+              moves
+            </div>
+            <div class="text-xs text-sub">you</div>
+          </div>
+        </div>
+      </Show>
       <Show when={pagePhase() !== "setup"} fallback={<Menu />}>
-        <Show when={pagePhase() === "playing"} fallback={<ResultScreen />}>
+        <Show
+          when={pagePhase() === "playing"}
+          fallback={
+            <Show
+              when={pagePhase() === "awaiting"}
+              fallback={
+                <Show when={lanMode()} fallback={<ResultScreen />}>
+                  <OnlineResultScreen />
+                </Show>
+              }
+            >
+              <AwaitingScreen />
+            </Show>
+          }
+        >
           <div class="grid grid-cols-4 gap-2" aria-label="pair keys hud">
             <HudCell label="moves" value={`${engineState()?.moves ?? 0}`} />
             <HudCell
