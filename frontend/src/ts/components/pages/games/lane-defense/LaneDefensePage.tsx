@@ -2,6 +2,7 @@ import {
   For,
   JSXElement,
   Show,
+  createEffect,
   createSignal,
   onCleanup,
   onMount,
@@ -9,6 +10,21 @@ import {
 
 import { Config } from "../../../../config/store";
 import { playClick, playError } from "../../../../controllers/sound-controller";
+import { navigate } from "../../../../router/navigate";
+import { isLanConnected, lanPreFillName } from "../../../../states/lan";
+import {
+  armLanMatch,
+  clearLanMatch,
+  getLanMatch,
+  getRemoteFinished,
+  getRemoteProgress,
+  getRematchAsked,
+  sendLanMatchFinished,
+  sendLanMatchProgress,
+  sendLanMatchRematch,
+  sendLanMatchStart,
+  type LanMatch,
+} from "../../../../states/lan-match";
 import { cn } from "../../../../utils/cn";
 import { latinCharFromEvent } from "../../../../utils/games/latin-input";
 import { cachedFetchJson } from "../../../../utils/json-data";
@@ -18,6 +34,13 @@ import {
   type LaneDefenseEngine,
   type LaneDefenseState,
 } from "../../../../utils/lane-defense/engine";
+import {
+  lanLaneDefense,
+  laneLanSpawner,
+  resolveLaneVerdict,
+  type LaneRemoteState,
+  type LaneVerdict,
+} from "../../../../utils/lane-defense/lan";
 import { createWaveSpawner } from "../../../../utils/lane-defense/spawner";
 import {
   getLaneDefenseBestScore,
@@ -44,7 +67,18 @@ const FALLBACK_WORDS = [
 ];
 const LANE_HEIGHT_VH = 13; //five strips inside the 70vh arena
 
-type PagePhase = "menu" | "playing" | "result";
+type PagePhase = "menu" | "playing" | "awaiting" | "result";
+
+/** the online verdict once both runs have ended (or the peer gave up) */
+type LaneOnlineResult = {
+  verdict: LaneVerdict;
+  myScore: number;
+  myWallHp: number;
+  myTimeMs: number;
+  theirScore: number;
+  theirWallHp: number;
+  theirTimeMs: number | null;
+};
 
 function HudCell(props: { label: string; value: string }): JSXElement {
   return (
@@ -62,6 +96,13 @@ function HudCell(props: { label: string; value: string }): JSXElement {
  * built from those letters spawn (learn-groups, read-only). The pure
  * engine owns the rules; this page owns the zone picker, the word pool
  * and the timers.
+ *
+ * Online (online wave, phase 34): the armed match IS the start — both
+ * machines defend the identical seeded waves (no zone letters: the
+ * learn-groups vary per machine) and race to the death: the higher score
+ * wins, the longer survival breaks the tie. The wall falling sends the
+ * finish; the verdict resolves when both are in (or the peer gave up — a
+ * run without a finish loses). Nothing online is recorded.
  */
 export function LaneDefensePage(): JSXElement {
   const [pagePhase, setPagePhase] = createSignal<PagePhase>("menu");
@@ -78,11 +119,27 @@ export function LaneDefensePage(): JSXElement {
   >(undefined);
   const [breach, setBreach] = createSignal<boolean>(false);
   const [message, setMessage] = createSignal<string | undefined>(undefined);
+  //online (LAN) state — the peer defends the same seeded waves
+  const [remoteState, setRemoteState] = createSignal<
+    LaneRemoteState | undefined
+  >(undefined);
+  const [onlineResult, setOnlineResult] = createSignal<
+    LaneOnlineResult | undefined
+  >(undefined);
+  const [rematchSent, setRematchSent] = createSignal(false);
+  const [voidMessage, setVoidMessage] = createSignal<string | undefined>(
+    undefined,
+  );
 
   let engine: LaneDefenseEngine | undefined;
   let tickTimer: ReturnType<typeof setInterval> | undefined;
   let flashTimer: ReturnType<typeof setTimeout> | undefined;
   let breachTimer: ReturnType<typeof setTimeout> | undefined;
+  let runStart = 0;
+  let myFinish: { score: number; elapsedMs: number } | undefined;
+  let myFinishSent = false;
+  let lastSentScore = -1;
+  let lastSentWallHp = -1;
 
   const stopTimers = (): void => {
     if (tickTimer !== undefined) clearInterval(tickTimer);
@@ -94,6 +151,27 @@ export function LaneDefensePage(): JSXElement {
   };
 
   onCleanup(stopTimers);
+
+  //leaving mid-race (header back, route change) tells the peer the run
+  //was abandoned — a run without a finish loses, they can never be beaten
+  onCleanup(() => {
+    if (getLanMatch()?.gameId !== "lane-defense") return;
+    if (pagePhase() !== "playing" && pagePhase() !== "awaiting") return;
+    if (!myFinishSent) {
+      myFinishSent = true;
+      const state = engine?.state();
+      sendLanMatchProgress(
+        lanLaneDefense.encodeProgress({
+          score: state?.score ?? 0,
+          wallHp: state?.wallHp ?? 0,
+        }),
+      );
+      sendLanMatchFinished(null, 0);
+    }
+    clearLanMatch();
+  });
+
+  const lanMode = (): boolean => getLanMatch()?.gameId === "lane-defense";
 
   const zones = (): string[] => groupsForLanguage(Config.language);
 
@@ -121,6 +199,12 @@ export function LaneDefensePage(): JSXElement {
   };
 
   const startRun = async (): Promise<void> => {
+    if (lanMode()) return; //online: the match effect owns the start
+    await startOfflineRun();
+  };
+
+  /** the offline run: the random waves (zone-filtered), the local records */
+  const startOfflineRun = async (): Promise<void> => {
     setMessage(undefined);
     let words: string[] = FALLBACK_WORDS;
     try {
@@ -139,10 +223,112 @@ export function LaneDefensePage(): JSXElement {
     engine = createLaneDefenseEngine({ spawnWave: spawner.spawnWave });
     setEngineState(engine.state());
     setPagePhase("playing");
+    startTickLoop();
+  };
+
+  const resolveOnlineResult = (): void => {
+    const finished = getRemoteFinished();
+    if (finished === undefined) return;
+    const state = engine?.state();
+    const myScore = state?.score ?? 0;
+    const sinceStart = Date.now() - runStart;
+    const myTimeMs = myFinish?.elapsedMs ?? sinceStart;
+    //a peer finish of null = they abandoned mid-run: a run without a
+    //finish loses, the survivor takes the win whenever their run ends
+    const abandoned =
+      finished.finishMs === null || finished.finishMs === undefined;
+    const theirScore = remoteState()?.score ?? 0;
+    setOnlineResult({
+      verdict: abandoned
+        ? "won"
+        : resolveLaneVerdict(
+            { score: myScore, elapsedMs: myTimeMs },
+            {
+              score: theirScore,
+              elapsedMs: finished.finishMs ?? Number.MAX_SAFE_INTEGER,
+            },
+          ),
+      myScore,
+      myWallHp: state?.wallHp ?? 0,
+      myTimeMs,
+      theirScore,
+      theirWallHp: remoteState()?.wallHp ?? 0,
+      theirTimeMs: abandoned ? null : (finished.finishMs ?? null),
+    });
+    setPagePhase("result");
+  };
+
+  const hostRematch = (match: LanMatch): void => {
+    //arm first: a refused start never reaches the wire
+    armLanMatch({
+      role: "host",
+      peerName: match.peerName,
+      start: match.start,
+    });
+    if (getLanMatch() === undefined) return;
+    sendLanMatchStart(match.start, lanPreFillName() || "P1");
+  };
+
+  //an armed (or re-armed) lane match IS the online start: the seed
+  //builds the identical waves (words, speeds, lanes, tanks — no zone
+  //letters: the learn-groups vary per machine)
+  createEffect(() => {
+    const match = getLanMatch();
+    if (match?.gameId !== "lane-defense") return;
+    void (async () => {
+      const matchLang = match.start.params["lang"];
+      let words: string[] = FALLBACK_WORDS;
+      try {
+        const data = await cachedFetchJson<{ words: string[] }>(
+          `/languages/${
+            typeof matchLang === "string" && matchLang.length > 0
+              ? matchLang
+              : "english"
+          }.json`,
+        );
+        words = data.words;
+      } catch {
+        //the offline fallback list (the spawner filters/normalizes anyway)
+      }
+      const seed = match.start.seed ?? 1;
+      setOnlineResult(undefined);
+      setRematchSent(false);
+      setRemoteState(undefined);
+      setVoidMessage(undefined);
+      myFinish = undefined;
+      myFinishSent = false;
+      lastSentScore = -1;
+      lastSentWallHp = -1;
+      runStart = Date.now();
+      engine = createLaneDefenseEngine({
+        spawnWave: laneLanSpawner(words, seed).spawnWave,
+      });
+      setEngineState(engine.state());
+      setPagePhase("playing");
+      startTickLoop();
+    })();
+  });
+
+  /** the one tick loop both the offline run and the online race share */
+  const startTickLoop = (): void => {
     tickTimer = setInterval(() => {
       if (engine === undefined) return;
       const state = engine.tick(TICK_MS);
       applyState(state);
+      //online: relay the score/wall when they moved
+      if (
+        lanMode() &&
+        (state.score !== lastSentScore || state.wallHp !== lastSentWallHp)
+      ) {
+        lastSentScore = state.score;
+        lastSentWallHp = state.wallHp;
+        sendLanMatchProgress(
+          lanLaneDefense.encodeProgress({
+            score: state.score,
+            wallHp: state.wallHp,
+          }),
+        );
+      }
       if (state.phase === "done") endRun();
     }, TICK_MS);
   };
@@ -150,6 +336,29 @@ export function LaneDefensePage(): JSXElement {
   const endRun = (): void => {
     stopTimers();
     const state = engine?.state();
+    if (lanMode()) {
+      //the wall has fallen — the finish ships with the final numbers
+      if (!myFinishSent) {
+        myFinishSent = true;
+        myFinish = {
+          score: state?.score ?? 0,
+          elapsedMs: Date.now() - runStart,
+        };
+        sendLanMatchProgress(
+          lanLaneDefense.encodeProgress({
+            score: myFinish.score,
+            wallHp: state?.wallHp ?? 0,
+          }),
+        );
+        sendLanMatchFinished(myFinish.elapsedMs, 100);
+      }
+      if (getRemoteFinished() !== undefined) {
+        resolveOnlineResult();
+      } else {
+        setPagePhase("awaiting");
+      }
+      return;
+    }
     if (state?.result !== undefined) {
       recordLaneDefenseRun({
         score: state.result.score,
@@ -176,11 +385,48 @@ export function LaneDefensePage(): JSXElement {
     onCleanup(() => window.removeEventListener("keydown", handleKey));
   });
 
+  //the relayed peer progress lands decoded — the panel reads it inline
+  createEffect(() => {
+    const progress = getRemoteProgress();
+    if (progress === undefined) return;
+    setRemoteState(progress.state as LaneRemoteState);
+  });
+
+  //the peer's finish resolves the held verdict (or arrived before mine)
+  createEffect(() => {
+    if (pagePhase() !== "awaiting") return;
+    if (getRemoteFinished() === undefined) return;
+    resolveOnlineResult();
+  });
+
+  //the host answers a rematch request by re-sending the same start
+  createEffect(() => {
+    const match = getLanMatch();
+    if (match?.role !== "host" || match.gameId !== "lane-defense") return;
+    if (!getRematchAsked()) return;
+    hostRematch(match);
+  });
+
+  //a disconnect during the run voids it — nothing online is recorded
+  createEffect(() => {
+    if (getLanMatch()?.gameId !== "lane-defense") return;
+    if (isLanConnected()) return;
+    if (pagePhase() !== "playing" && pagePhase() !== "awaiting") return;
+    stopTimers();
+    engine = undefined;
+    clearLanMatch();
+    setVoidMessage("the opponent left — race void, nothing was recorded");
+    setPagePhase("menu");
+  });
+
   const Menu = (): JSXElement => {
     return (
       <section class="grid gap-4 rounded bg-sub-alt p-4">
         <Show when={message() !== undefined}>
           <div class="text-error">{message()}</div>
+        </Show>
+        <Show when={voidMessage() !== undefined}>
+          <div class="text-error">{voidMessage()}</div>
         </Show>
         <div class="text-sub">keyboard zone (words spawn from its letters)</div>
         <div class="flex flex-wrap gap-2">
@@ -299,6 +545,90 @@ export function LaneDefensePage(): JSXElement {
     );
   };
 
+  const AwaitingScreen = (): JSXElement => {
+    return (
+      <section class="grid place-items-center rounded bg-sub-alt py-16 text-center">
+        <div class="text-2xl font-bold text-main" data-testid="ld-awaiting">
+          the wall fell at {((myFinish?.elapsedMs ?? 0) / 1000).toFixed(1)}s ·
+          score {myFinish?.score ?? 0} — waiting for{" "}
+          {getLanMatch()?.peerName ?? "the opponent"}…
+        </div>
+      </section>
+    );
+  };
+
+  const OnlineResultScreen = (): JSXElement => {
+    const online = (): LaneOnlineResult | undefined => onlineResult();
+    const verdict = online()?.verdict;
+    return (
+      <section class="grid gap-4 rounded bg-sub-alt p-6 text-center">
+        <div
+          class={cn(
+            "text-3xl font-bold",
+            verdict === "won"
+              ? "text-main"
+              : verdict === "draw"
+                ? "text-sub"
+                : "text-error",
+          )}
+          data-testid="ld-verdict"
+        >
+          {verdict === "won"
+            ? "you win!"
+            : verdict === "draw"
+              ? "draw"
+              : `${getLanMatch()?.peerName ?? "the opponent"} wins`}
+        </div>
+        <div class="grid grid-cols-2 gap-2">
+          <div class="rounded bg-bg p-3">
+            <div class="text-xl font-bold text-main tabular-nums">
+              {online()?.myScore ?? 0} score · wall {online()?.myWallHp ?? 0} ·{" "}
+              {((online()?.myTimeMs ?? 0) / 1000).toFixed(1)}s
+            </div>
+            <div class="text-xs text-sub">you</div>
+          </div>
+          <div class="rounded bg-bg p-3">
+            <div class="text-xl font-bold text-main tabular-nums">
+              {online()?.theirScore ?? 0} score ·{" "}
+              {online()?.theirTimeMs === null
+                ? "gave up"
+                : `${((online()?.theirTimeMs ?? 0) / 1000).toFixed(1)}s`}
+            </div>
+            <div class="text-xs text-sub">
+              {getLanMatch()?.peerName ?? "the opponent"}
+            </div>
+          </div>
+        </div>
+        <div class="grid grid-cols-2 gap-2">
+          <Button
+            text={rematchSent() ? "rematch requested — waiting…" : "rematch"}
+            fa={{ icon: "fa-redo" }}
+            class="w-full"
+            onClick={() => {
+              const match = getLanMatch();
+              if (match === undefined || rematchSent()) return;
+              if (match.role === "host") {
+                hostRematch(match);
+              } else {
+                sendLanMatchRematch();
+                setRematchSent(true);
+              }
+            }}
+          />
+          <Button
+            text="leave to lobby"
+            fa={{ icon: "fa-arrow-left" }}
+            class="w-full"
+            onClick={() => {
+              clearLanMatch();
+              void navigate({ to: "/games/online" });
+            }}
+          />
+        </div>
+      </section>
+    );
+  };
+
   const ResultScreen = (): JSXElement => {
     const result = engine?.state().result;
     return (
@@ -364,8 +694,51 @@ export function LaneDefensePage(): JSXElement {
           Pick a keyboard zone and only its letters spawn.
         </p>
       </section>
+      <Show when={lanMode()}>
+        <div
+          class="rounded bg-sub-alt p-2 text-center text-sm font-bold text-main"
+          data-testid="ld-online-vs"
+        >
+          <i class="fas fa-shield-alt"></i> online vs{" "}
+          {getLanMatch()?.peerName ?? "…"} — same waves, the higher score wins
+        </div>
+      </Show>
+      <Show when={lanMode()}>
+        <div class="grid grid-cols-2 gap-2" data-testid="ld-remote">
+          <div class="rounded bg-bg p-2 text-center">
+            <div class="text-xl font-bold text-error tabular-nums">
+              {remoteState()?.score ?? 0} score · wall{" "}
+              {remoteState()?.wallHp ?? 0}
+            </div>
+            <div class="text-xs text-sub">
+              {getLanMatch()?.peerName ?? "the opponent"}
+            </div>
+          </div>
+          <div class="rounded bg-bg p-2 text-center">
+            <div class="text-xl font-bold text-main tabular-nums">
+              {engineState()?.score ?? 0} score · wall{" "}
+              {engineState()?.wallHp ?? BALANCE.wallStartHp}
+            </div>
+            <div class="text-xs text-sub">you</div>
+          </div>
+        </div>
+      </Show>
       <Show when={pagePhase() !== "menu"} fallback={<Menu />}>
-        <Show when={pagePhase() === "playing"} fallback={<ResultScreen />}>
+        <Show
+          when={pagePhase() === "playing"}
+          fallback={
+            <Show
+              when={pagePhase() === "awaiting"}
+              fallback={
+                <Show when={lanMode()} fallback={<ResultScreen />}>
+                  <OnlineResultScreen />
+                </Show>
+              }
+            >
+              <AwaitingScreen />
+            </Show>
+          }
+        >
           <div class="grid grid-cols-5 gap-2" aria-label="lane defense hud">
             <HudCell label="score" value={String(engineState()?.score ?? 0)} />
             <HudCell label="wave" value={String(engineState()?.wave ?? 1)} />
