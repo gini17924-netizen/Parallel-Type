@@ -234,6 +234,10 @@ export function StackAttackPage(): JSXElement {
       }),
     );
     sendLanMatchFinished(0, 100);
+    //my run ended at the horn — the engine freezes. Without this a late
+    //top-out's endRun fired during awaiting and overwrote the held
+    //verdict with "lost" (the CI run's lesson)
+    stopTimers();
     if (getRemoteFinished() !== undefined) {
       resolveOnlineResult();
     } else {

@@ -172,6 +172,7 @@ async function armOnlineStack(): Promise<{
   await app.settle();
   await app.router.navigate({ to: "/games/stack-attack" });
   await app.settle();
+  vi.useFakeTimers(); //the race runs in simulated time — CI-speed free
   armLanMatch({
     role: "host",
     peerName: "P2",
@@ -181,12 +182,19 @@ async function armOnlineStack(): Promise<{
       params: { lang: "english", durationMs: 4000 },
     },
   });
-  await new Promise((r) => setTimeout(r, 150)); //the seeded run starts
+  await vi.advanceTimersByTimeAsync(150); //the seeded run starts
   return { app, invokes: tauri.invokes, fire: tauri.fire };
 }
 
-/** types the falling block's word until the horn or the top */
+/** plays like the game intends: types the falling word (the typed index
+ * tracked LOCALLY — the DOM's data-typed only refreshes per engine tick,
+ * so a faster loop reading the DOM re-dispatches stale letters), and
+ * steers a few columns on every new word so the locks spread and the
+ * tower never tops before the horn */
 async function playUntilHorn(app: App): Promise<void> {
+  let lastWord = "";
+  let typedLocal = 0;
+  let steerDir = -1;
   for (let guard = 0; guard < 4000; guard++) {
     if (
       app.container.querySelector('[data-testid="sa-awaiting"]') !== null ||
@@ -196,9 +204,20 @@ async function playUntilHorn(app: App): Promise<void> {
     }
     const block = app.container.querySelector('[data-testid="sa-block"]');
     const word = block?.getAttribute("data-word") ?? "";
+    if (word !== lastWord) {
+      //a fresh word = the previous block locked: steer the new one over
+      const key = steerDir === -1 ? "ArrowLeft" : "ArrowRight";
+      steerDir = -steerDir;
+      for (let s = 0; s < 4; s++) {
+        window.dispatchEvent(new KeyboardEvent("keydown", { key }));
+        await vi.advanceTimersByTimeAsync(10);
+      }
+      lastWord = word;
+      typedLocal = 0;
+    }
     if (word !== "") {
-      const typedLen = Number(block?.getAttribute("data-typed") ?? 0);
-      const ch = word[typedLen] ?? word[0] ?? "a";
+      const ch = word[typedLocal] ?? word[0] ?? "a";
+      typedLocal += 1;
       window.dispatchEvent(
         new KeyboardEvent("keydown", {
           key: ch,
@@ -206,7 +225,7 @@ async function playUntilHorn(app: App): Promise<void> {
         }),
       );
     }
-    await new Promise((r) => setTimeout(r, 25));
+    await vi.advanceTimersByTimeAsync(25);
   }
 }
 
@@ -232,6 +251,7 @@ describe("stack attack online (online wave, phase 22)", () => {
     await app.settle();
     await app.router.navigate({ to: "/games/stack-attack" });
     await app.settle();
+    vi.useFakeTimers(); //the race runs in simulated time — CI-speed free
     armLanMatch({
       role: "host",
       peerName: "P2",
@@ -241,7 +261,7 @@ describe("stack attack online (online wave, phase 22)", () => {
         params: { lang: "english", durationMs: 1500 }, //a short test horn
       },
     });
-    await new Promise((r) => setTimeout(r, 150)); //the seeded run starts
+    await vi.advanceTimersByTimeAsync(150); //the seeded run starts
     expect(pageText(app)).toContain("online vs P2");
     expect(pageText(app)).toContain("same blocks, 120s");
 
@@ -263,7 +283,7 @@ describe("stack attack online (online wave, phase 22)", () => {
       state: { rows: 0, score: 10 },
     });
     handleLanPeerMessage({ type: "finished", finishMs: 1500, acc: 100 });
-    await new Promise((r) => setTimeout(r, 80));
+    await vi.advanceTimersByTimeAsync(80);
     expect(pageText(app)).toContain("you win!");
     expect(window.localStorage.getItem(STACK_ATTACK_SCORES_KEY)).toBeNull();
   });
@@ -277,10 +297,10 @@ describe("stack attack online (online wave, phase 22)", () => {
       state: { rows: 99, score: 5000 },
     });
     handleLanPeerMessage({ type: "finished", finishMs: 4000, acc: 100 });
-    await new Promise((r) => setTimeout(r, 60));
+    await vi.advanceTimersByTimeAsync(60);
 
     //my horn: the verdict compares against the peer's big rows
-    await new Promise((r) => setTimeout(r, 4500));
+    await vi.advanceTimersByTimeAsync(4500);
     expect(pageText(app)).toContain("P2 wins");
     const finishes = invokes.filter(
       (entry) =>
@@ -294,7 +314,7 @@ describe("stack attack online (online wave, phase 22)", () => {
   it("a disconnect during the run voids it", async () => {
     const { app, fire } = await armOnlineStack();
     fire("lan://peer-left", { reason: "disconnected" });
-    await new Promise((r) => setTimeout(r, 80));
+    await vi.advanceTimersByTimeAsync(80);
     expect(pageText(app)).toContain("the opponent left");
     expect(pageText(app)).toContain("start run"); //back at the menu
   });
