@@ -2,6 +2,7 @@ import {
   For,
   JSXElement,
   Show,
+  createEffect,
   createSignal,
   onCleanup,
   onMount,
@@ -9,13 +10,36 @@ import {
 
 import { Config } from "../../../../config/store";
 import { playClick, playError } from "../../../../controllers/sound-controller";
+import { navigate } from "../../../../router/navigate";
+import { isLanConnected, lanPreFillName } from "../../../../states/lan";
+import {
+  armLanMatch,
+  clearLanMatch,
+  getLanMatch,
+  getRemoteFinished,
+  getRemoteProgress,
+  getRematchAsked,
+  sendLanMatchFinished,
+  sendLanMatchProgress,
+  sendLanMatchRematch,
+  sendLanMatchStart,
+  type LanMatch,
+} from "../../../../states/lan-match";
 import { cn } from "../../../../utils/cn";
+import { createSeededRng } from "../../../../utils/daily-gauntlet/seeded-rng";
 import { BALANCE } from "../../../../utils/fruit-slash/balance";
 import {
   createFruitSlashEngine,
   type FruitSlashEngine,
   type FruitSlashState,
 } from "../../../../utils/fruit-slash/engine";
+import {
+  fruitLanSpawn,
+  lanFruitSlash,
+  resolveFruitVerdict,
+  type FruitRemoteState,
+  type FruitVerdict,
+} from "../../../../utils/fruit-slash/lan";
 import {
   getFruitSlashBestScore,
   getFruitSlashBestSlashed,
@@ -42,7 +66,17 @@ const FALLBACK_WORDS = [
   "cherry",
 ];
 
-type PagePhase = "menu" | "playing" | "result";
+type PagePhase = "menu" | "playing" | "awaiting" | "result";
+
+/** the online verdict once both windows have closed (or the peer gave up) */
+type FruitOnlineResult = {
+  verdict: FruitVerdict;
+  myScore: number;
+  myBombs: number;
+  theirScore: number;
+  theirBombs: number;
+  theirTimeMs: number | null;
+};
 
 function HudCell(props: { label: string; value: string }): JSXElement {
   return (
@@ -59,6 +93,13 @@ function HudCell(props: { label: string; value: string }): JSXElement {
  * typing a bomb's word costs a life and three bombs end the run; the
  * 90-second window ends it otherwise. The pure engine owns the rules;
  * this page owns the word pool, the bomb mix and the timers.
+ *
+ * Online (online wave, phase 36): the armed match IS the start — both
+ * machines slash the identical seeded launch stream (words, bombs and
+ * arc angles all from the shared seed) inside the shared window from
+ * params. The horn fires for both; the finish ships at the horn (or at
+ * the third bomb); the verdict resolves when both are in — the higher
+ * score wins. Nothing online is recorded.
  */
 export function FruitSlashPage(): JSXElement {
   const [pagePhase, setPagePhase] = createSignal<PagePhase>("menu");
@@ -72,11 +113,26 @@ export function FruitSlashPage(): JSXElement {
     { x: number; y: number } | undefined
   >(undefined);
   const [message, setMessage] = createSignal<string | undefined>(undefined);
+  //online (LAN) state — the peer slashes the same seeded stream
+  const [remoteState, setRemoteState] = createSignal<
+    FruitRemoteState | undefined
+  >(undefined);
+  const [onlineResult, setOnlineResult] = createSignal<
+    FruitOnlineResult | undefined
+  >(undefined);
+  const [rematchSent, setRematchSent] = createSignal(false);
+  const [voidMessage, setVoidMessage] = createSignal<string | undefined>(
+    undefined,
+  );
 
   let engine: FruitSlashEngine | undefined;
   let tickTimer: ReturnType<typeof setInterval> | undefined;
   let fxTimer: ReturnType<typeof setTimeout> | undefined;
   const positions = new Map<number, { x: number; y: number }>();
+  let myFinish: { score: number; elapsedMs: number } | undefined;
+  let myFinishSent = false;
+  let lastSentScore = -1;
+  let lastSentBombs = -1;
 
   const stopTimers = (): void => {
     if (tickTimer !== undefined) clearInterval(tickTimer);
@@ -86,6 +142,27 @@ export function FruitSlashPage(): JSXElement {
   };
 
   onCleanup(stopTimers);
+
+  //leaving mid-window (header back, route change) tells the peer the run
+  //was abandoned — a run without a finish loses, they can never be beaten
+  onCleanup(() => {
+    if (getLanMatch()?.gameId !== "fruit-slash") return;
+    if (pagePhase() !== "playing" && pagePhase() !== "awaiting") return;
+    if (!myFinishSent) {
+      myFinishSent = true;
+      const state = engine?.state();
+      sendLanMatchProgress(
+        lanFruitSlash.encodeProgress({
+          score: state?.score ?? 0,
+          bombs: state?.bombsTyped ?? 0,
+        }),
+      );
+      sendLanMatchFinished(null, 0);
+    }
+    clearLanMatch();
+  });
+
+  const lanMode = (): boolean => getLanMatch()?.gameId === "fruit-slash";
 
   const applyState = (next: FruitSlashState): void => {
     const previous = engineState();
@@ -119,6 +196,12 @@ export function FruitSlashPage(): JSXElement {
   };
 
   const startRun = async (): Promise<void> => {
+    if (lanMode()) return; //online: the match effect owns the start
+    await startOfflineRun();
+  };
+
+  /** the offline run: the random stream, the local records */
+  const startOfflineRun = async (): Promise<void> => {
     setMessage(undefined);
     positions.clear();
     let pool: string[] = FALLBACK_WORDS;
@@ -155,10 +238,109 @@ export function FruitSlashPage(): JSXElement {
     });
     setEngineState(engine.state());
     setPagePhase("playing");
+    startTickLoop();
+  };
+
+  const resolveOnlineResult = (): void => {
+    const finished = getRemoteFinished();
+    if (finished === undefined) return;
+    const state = engine?.state();
+    const myScore = state?.score ?? 0;
+    //a peer finish of null = they abandoned mid-window: a run without a
+    //finish loses, the survivor takes the win whenever their window closes
+    const abandoned =
+      finished.finishMs === null || finished.finishMs === undefined;
+    const theirScore = remoteState()?.score ?? 0;
+    setOnlineResult({
+      verdict: abandoned
+        ? "won"
+        : resolveFruitVerdict({ score: myScore }, { score: theirScore }),
+      myScore,
+      myBombs: state?.bombsTyped ?? 0,
+      theirScore,
+      theirBombs: remoteState()?.bombs ?? 0,
+      theirTimeMs: abandoned ? null : (finished.finishMs ?? null),
+    });
+    setPagePhase("result");
+  };
+
+  const hostRematch = (match: LanMatch): void => {
+    //arm first: a refused start never reaches the wire
+    armLanMatch({
+      role: "host",
+      peerName: match.peerName,
+      start: match.start,
+    });
+    if (getLanMatch() === undefined) return;
+    sendLanMatchStart(match.start, lanPreFillName() || "P1");
+  };
+
+  //an armed (or re-armed) slash match IS the online start: the seed
+  //drives the words, the bomb mix AND the arc angles — identical
+  //launches on both machines, the window from params
+  createEffect(() => {
+    const match = getLanMatch();
+    if (match?.gameId !== "fruit-slash") return;
+    void (async () => {
+      const matchLang = match.start.params["lang"];
+      let pool: string[] = FALLBACK_WORDS;
+      try {
+        const data = await cachedFetchJson<{ words: string[] }>(
+          `/languages/${
+            typeof matchLang === "string" && matchLang.length > 0
+              ? matchLang
+              : "english"
+          }.json`,
+        );
+        pool = data.words;
+      } catch {
+        //the offline fallback list
+      }
+      const seed = match.start.seed ?? 1;
+      const matchDuration = match.start.params["durationMs"];
+      setOnlineResult(undefined);
+      setRematchSent(false);
+      setRemoteState(undefined);
+      setVoidMessage(undefined);
+      myFinish = undefined;
+      myFinishSent = false;
+      lastSentScore = -1;
+      lastSentBombs = -1;
+      positions.clear();
+      engine = createFruitSlashEngine({
+        spawn: fruitLanSpawn(pool, seed),
+        rng: createSeededRng(seed),
+        durationMs:
+          typeof matchDuration === "number" && matchDuration > 0
+            ? matchDuration
+            : BALANCE.durationMs,
+      });
+      setEngineState(engine.state());
+      setPagePhase("playing");
+      startTickLoop();
+    })();
+  });
+
+  /** the one tick loop both the offline run and the online race share */
+  const startTickLoop = (): void => {
     tickTimer = setInterval(() => {
       if (engine === undefined) return;
       const state = engine.tick(TICK_MS);
       applyState(state);
+      //online: relay the score/bombs when they moved
+      if (
+        lanMode() &&
+        (state.score !== lastSentScore || state.bombsTyped !== lastSentBombs)
+      ) {
+        lastSentScore = state.score;
+        lastSentBombs = state.bombsTyped;
+        sendLanMatchProgress(
+          lanFruitSlash.encodeProgress({
+            score: state.score,
+            bombs: state.bombsTyped,
+          }),
+        );
+      }
       if (state.phase === "done") endRun();
     }, TICK_MS);
   };
@@ -166,6 +348,29 @@ export function FruitSlashPage(): JSXElement {
   const endRun = (): void => {
     stopTimers();
     const state = engine?.state();
+    if (lanMode()) {
+      //the horn (or the third bomb) — the finish ships with the numbers
+      if (!myFinishSent) {
+        myFinishSent = true;
+        myFinish = {
+          score: state?.score ?? 0,
+          elapsedMs: state?.elapsedMs ?? 0,
+        };
+        sendLanMatchProgress(
+          lanFruitSlash.encodeProgress({
+            score: myFinish.score,
+            bombs: state?.bombsTyped ?? 0,
+          }),
+        );
+        sendLanMatchFinished(myFinish.elapsedMs, 100);
+      }
+      if (getRemoteFinished() !== undefined) {
+        resolveOnlineResult();
+      } else {
+        setPagePhase("awaiting");
+      }
+      return;
+    }
     if (state?.result !== undefined) {
       recordFruitSlashRun({
         score: state.result.score,
@@ -191,11 +396,48 @@ export function FruitSlashPage(): JSXElement {
     onCleanup(() => window.removeEventListener("keydown", handleKey));
   });
 
+  //the relayed peer progress lands decoded — the panel reads it inline
+  createEffect(() => {
+    const progress = getRemoteProgress();
+    if (progress === undefined) return;
+    setRemoteState(progress.state as FruitRemoteState);
+  });
+
+  //the peer's finish resolves the held verdict (or arrived before mine)
+  createEffect(() => {
+    if (pagePhase() !== "awaiting") return;
+    if (getRemoteFinished() === undefined) return;
+    resolveOnlineResult();
+  });
+
+  //the host answers a rematch request by re-sending the same start
+  createEffect(() => {
+    const match = getLanMatch();
+    if (match?.role !== "host" || match.gameId !== "fruit-slash") return;
+    if (!getRematchAsked()) return;
+    hostRematch(match);
+  });
+
+  //a disconnect during the window voids it — nothing online is recorded
+  createEffect(() => {
+    if (getLanMatch()?.gameId !== "fruit-slash") return;
+    if (isLanConnected()) return;
+    if (pagePhase() !== "playing" && pagePhase() !== "awaiting") return;
+    stopTimers();
+    engine = undefined;
+    clearLanMatch();
+    setVoidMessage("the opponent left — race void, nothing was recorded");
+    setPagePhase("menu");
+  });
+
   const Menu = (): JSXElement => {
     return (
       <section class="grid gap-4 rounded bg-sub-alt p-4">
         <Show when={message() !== undefined}>
           <div class="text-error">{message()}</div>
+        </Show>
+        <Show when={voidMessage() !== undefined}>
+          <div class="text-error">{voidMessage()}</div>
         </Show>
         <div class="grid grid-cols-2 gap-2">
           <div class="rounded bg-bg p-3 text-center">
@@ -297,6 +539,89 @@ export function FruitSlashPage(): JSXElement {
     );
   };
 
+  const AwaitingScreen = (): JSXElement => {
+    return (
+      <section class="grid place-items-center rounded bg-sub-alt py-16 text-center">
+        <div class="text-2xl font-bold text-main" data-testid="fs-awaiting">
+          the window closed · score {myFinish?.score ?? 0} — waiting for{" "}
+          {getLanMatch()?.peerName ?? "the opponent"}…
+        </div>
+      </section>
+    );
+  };
+
+  const OnlineResultScreen = (): JSXElement => {
+    const online = (): FruitOnlineResult | undefined => onlineResult();
+    const verdict = online()?.verdict;
+    return (
+      <section class="grid gap-4 rounded bg-sub-alt p-6 text-center">
+        <div
+          class={cn(
+            "text-3xl font-bold",
+            verdict === "won"
+              ? "text-main"
+              : verdict === "draw"
+                ? "text-sub"
+                : "text-error",
+          )}
+          data-testid="fs-verdict"
+        >
+          {verdict === "won"
+            ? "you win!"
+            : verdict === "draw"
+              ? "draw"
+              : `${getLanMatch()?.peerName ?? "the opponent"} wins`}
+        </div>
+        <div class="grid grid-cols-2 gap-2">
+          <div class="rounded bg-bg p-3">
+            <div class="text-xl font-bold text-main tabular-nums">
+              {online()?.myScore ?? 0} score · {online()?.myBombs ?? 0} bombs
+            </div>
+            <div class="text-xs text-sub">you</div>
+          </div>
+          <div class="rounded bg-bg p-3">
+            <div class="text-xl font-bold text-main tabular-nums">
+              {online()?.theirScore ?? 0} score · {online()?.theirBombs ?? 0}{" "}
+              bombs ·{" "}
+              {online()?.theirTimeMs === null
+                ? "gave up"
+                : `${((online()?.theirTimeMs ?? 0) / 1000).toFixed(1)}s`}
+            </div>
+            <div class="text-xs text-sub">
+              {getLanMatch()?.peerName ?? "the opponent"}
+            </div>
+          </div>
+        </div>
+        <div class="grid grid-cols-2 gap-2">
+          <Button
+            text={rematchSent() ? "rematch requested — waiting…" : "rematch"}
+            fa={{ icon: "fa-redo" }}
+            class="w-full"
+            onClick={() => {
+              const match = getLanMatch();
+              if (match === undefined || rematchSent()) return;
+              if (match.role === "host") {
+                hostRematch(match);
+              } else {
+                sendLanMatchRematch();
+                setRematchSent(true);
+              }
+            }}
+          />
+          <Button
+            text="leave to lobby"
+            fa={{ icon: "fa-arrow-left" }}
+            class="w-full"
+            onClick={() => {
+              clearLanMatch();
+              void navigate({ to: "/games/online" });
+            }}
+          />
+        </div>
+      </section>
+    );
+  };
+
   const ResultScreen = (): JSXElement => {
     const result = engine?.state().result;
     return (
@@ -364,8 +689,51 @@ export function FruitSlashPage(): JSXElement {
           for the bonus, and never type the bombs.
         </p>
       </section>
+      <Show when={lanMode()}>
+        <div
+          class="rounded bg-sub-alt p-2 text-center text-sm font-bold text-main"
+          data-testid="fs-online-vs"
+        >
+          <i class="fas fa-apple-alt"></i> online vs{" "}
+          {getLanMatch()?.peerName ?? "…"} — same stream, the higher score wins
+        </div>
+      </Show>
+      <Show when={lanMode()}>
+        <div class="grid grid-cols-2 gap-2" data-testid="fs-remote">
+          <div class="rounded bg-bg p-2 text-center">
+            <div class="text-xl font-bold text-error tabular-nums">
+              {remoteState()?.score ?? 0} score · {remoteState()?.bombs ?? 0}{" "}
+              bombs
+            </div>
+            <div class="text-xs text-sub">
+              {getLanMatch()?.peerName ?? "the opponent"}
+            </div>
+          </div>
+          <div class="rounded bg-bg p-2 text-center">
+            <div class="text-xl font-bold text-main tabular-nums">
+              {engineState()?.score ?? 0} score ·{" "}
+              {engineState()?.bombsTyped ?? 0} bombs
+            </div>
+            <div class="text-xs text-sub">you</div>
+          </div>
+        </div>
+      </Show>
       <Show when={pagePhase() !== "menu"} fallback={<Menu />}>
-        <Show when={pagePhase() === "playing"} fallback={<ResultScreen />}>
+        <Show
+          when={pagePhase() === "playing"}
+          fallback={
+            <Show
+              when={pagePhase() === "awaiting"}
+              fallback={
+                <Show when={lanMode()} fallback={<ResultScreen />}>
+                  <OnlineResultScreen />
+                </Show>
+              }
+            >
+              <AwaitingScreen />
+            </Show>
+          }
+        >
           <div class="grid grid-cols-4 gap-2" aria-label="fruit slash hud">
             <HudCell label="score" value={String(engineState()?.score ?? 0)} />
             <HudCell
