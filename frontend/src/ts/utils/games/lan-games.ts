@@ -14,6 +14,7 @@ import { lanWordle } from "../wordle/lan";
 import { lanTypeSnake } from "../type-snake/lan";
 import { lanStrike } from "../letter-strike/lan";
 import { lanLaneDefense } from "../lane-defense/lan";
+import { lanFruitSlash } from "../fruit-slash/lan";
 import { lanNitro } from "../nitro-run/lan";
 
 /**
@@ -38,4 +39,5 @@ registerLanGame(lanWordle);
 registerLanGame(lanTypeSnake);
 registerLanGame(lanStrike);
 registerLanGame(lanLaneDefense);
+registerLanGame(lanFruitSlash);
 registerLanGame(lanNitro);

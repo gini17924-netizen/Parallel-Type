@@ -98,9 +98,13 @@ describe("fruit slash page (idea G10 phase 2)", () => {
     }
     await vi.advanceTimersByTimeAsync(80);
     const text = pageText(app);
-    expect(text).toMatch(/x1/); //the combo moved
-    //fresh fruits have empty typed prefixes (the slash happened)
-    expect(fruits(app).every((f) => f.typed === "")).toBe(true);
+    //the combo moved (two same-word launches can complete together -> x2)
+    expect(text).toMatch(/x[1-9]/);
+    //the target left the field (the slash happened). The OTHER fruits may
+    //hold partials: the word-oriented matcher consumes matching prefixes
+    //on every visible fruit (doc G10's per-fruit partial map) — the old
+    //"every typed is empty" assert was the recurring suite flake
+    expect(nonBombTargets(app)).not.toContain(target);
   });
 
   it("the 90-second window ends the run and records it", async () => {
