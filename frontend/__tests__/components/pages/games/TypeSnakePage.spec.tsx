@@ -3,6 +3,15 @@ import { IDBFactory } from "fake-indexeddb";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import {
+  _resetLanStateForTests,
+  lanStartHost,
+} from "../../../../src/ts/states/lan";
+import {
+  _resetLanMatchForTests,
+  armLanMatch,
+  handleLanPeerMessage,
+} from "../../../../src/ts/states/lan-match";
+import {
   TYPE_SNAKE_SCORES_KEY,
   _resetTypeSnakeScoresForTests,
 } from "../../../../src/ts/utils/type-snake/store";
@@ -143,3 +152,176 @@ describe("type snake page (idea G11 phase 2)", () => {
     void TYPE_SNAKE_SCORES_KEY;
   });
 });
+
+/** drives the seeded run to the death (or straight to the verdict once
+ * the peer is already in): reads the food word from the arena and types
+ * it — the eat lands on arrival, death comes when boxed in */
+async function driveRun(app: App): Promise<void> {
+  for (let guard = 0; guard < 400; guard++) {
+    if (
+      app.container.querySelector('[data-testid="ts-verdict"]') !== null ||
+      app.container.querySelector('[data-testid="ts-awaiting"]') !== null
+    ) {
+      return;
+    }
+    const word = food(app)?.text ?? "";
+    for (const ch of word) {
+      window.dispatchEvent(new KeyboardEvent("keydown", { key: ch }));
+    }
+    //one walk + eat cycle (the food spawns at least 3 cells away)
+    await vi.advanceTimersByTimeAsync(15000);
+  }
+}
+
+describe("type snake online (online wave, phase 30)", () => {
+  beforeEach(() => {
+    (globalThis as { indexedDB: unknown }).indexedDB = new IDBFactory();
+    window.localStorage.clear();
+    _resetLanStateForTests();
+    _resetLanMatchForTests();
+    _resetTypeSnakeScoresForTests();
+  });
+
+  afterEach(() => {
+    delete (window as unknown as { __TAURI__?: unknown }).__TAURI__;
+    cleanupApp();
+  });
+
+  it("an armed match streams the seeded foods: banner, relay", async () => {
+    const { app, invokes } = await armOnlineSnake();
+    expect(pageText(app)).toContain("online vs P2");
+    expect(pageText(app)).toContain("same food stream, the higher score wins");
+    expect(pageText(app)).toContain("4 long · 0 score"); //the live panel
+
+    //two food words ripened and eaten — the relay fires per change
+    for (let i = 0; i < 2; i++) {
+      const word = food(app)?.text ?? "";
+      for (const ch of word) {
+        window.dispatchEvent(new KeyboardEvent("keydown", { key: ch }));
+      }
+      await vi.advanceTimersByTimeAsync(15000);
+    }
+    const scored = invokes.filter((entry) => {
+      if (entry.cmd !== "lan_send_message") return false;
+      const message = entry.args["message"] as Record<string, unknown>;
+      if (message["type"] !== "progress") return false;
+      const state = message["state"] as Record<string, unknown>;
+      return (state["score"] as number) > 0;
+    });
+    expect(scored.length).toBeGreaterThanOrEqual(1);
+  });
+
+  it("the peer's weaker run loses to my death race", async () => {
+    const { app, invokes } = await armOnlineSnake();
+    //the peer died fast with nothing: my run beats it whenever I die
+    handleLanPeerMessage({
+      type: "progress",
+      gameId: "type-snake",
+      state: { length: 4, score: 0 },
+    });
+    handleLanPeerMessage({ type: "finished", finishMs: 5_000, acc: 100 });
+
+    await driveRun(app);
+    expect(pageText(app)).toContain("you win!");
+    const finishes = invokes.filter(
+      (entry) =>
+        entry.cmd === "lan_send_message" &&
+        (entry.args["message"] as Record<string, unknown>)["type"] ===
+          "finished",
+    );
+    expect(finishes).toHaveLength(1);
+    //online never touches the local snake scores
+    expect(window.localStorage.getItem(TYPE_SNAKE_SCORES_KEY)).toBeNull();
+  }, 120_000);
+
+  it("the peer's bigger score wins the death race", async () => {
+    const { app } = await armOnlineSnake();
+    //the peer died early with a huge score: my run can never catch it
+    handleLanPeerMessage({
+      type: "progress",
+      gameId: "type-snake",
+      state: { length: 40, score: 9999 },
+    });
+    handleLanPeerMessage({ type: "finished", finishMs: 5_000, acc: 100 });
+
+    await driveRun(app);
+    expect(pageText(app)).toContain("P2 wins");
+    expect(window.localStorage.getItem(TYPE_SNAKE_SCORES_KEY)).toBeNull();
+  }, 120_000);
+
+  it("a disconnect during the run voids it", async () => {
+    const { app, fire } = await armOnlineSnake();
+    fire("lan://peer-left", { reason: "disconnected" });
+    await vi.advanceTimersByTimeAsync(100);
+    expect(pageText(app)).toContain("the opponent left");
+    expect(pageText(app)).toContain("start run"); //back at the menu
+    expect(window.localStorage.getItem(TYPE_SNAKE_SCORES_KEY)).toBeNull();
+  });
+});
+
+/** the tauri fake for the online tests: records the invokes and captures
+ * the event listeners so the spec can fire the Rust-side events */
+function installTauriMock(): {
+  invokes: { cmd: string; args: Record<string, unknown> }[];
+  fire: (ev: string, payload: unknown) => void;
+} {
+  const invokes: { cmd: string; args: Record<string, unknown> }[] = [];
+  const handlers = new Map<string, ((e: { payload: unknown }) => void)[]>();
+  (window as unknown as { __TAURI__: unknown }).__TAURI__ = {
+    core: {
+      invoke: async (cmd: string, args?: Record<string, unknown>) => {
+        invokes.push({ cmd, args: args ?? {} });
+        if (cmd === "lan_start_host") {
+          return {
+            sessionId: "lan-test/N3DB",
+            code: "N3DB",
+            port: 51987,
+            ip: "192.168.100.24",
+            name: "P1",
+          };
+        }
+        return {};
+      },
+    },
+    event: {
+      listen: async (ev: string, cb: (e: { payload: unknown }) => void) => {
+        const list = handlers.get(ev) ?? [];
+        list.push(cb);
+        handlers.set(ev, list);
+        return () => undefined;
+      },
+    },
+  };
+  return {
+    invokes,
+    fire: (ev: string, payload: unknown) => {
+      for (const cb of handlers.get(ev) ?? []) cb({ payload });
+    },
+  };
+}
+
+async function armOnlineSnake(): Promise<{
+  app: App;
+  invokes: { cmd: string; args: Record<string, unknown> }[];
+  fire: (ev: string, payload: unknown) => void;
+}> {
+  const tauri = installTauriMock();
+  await lanStartHost("HOST1");
+  tauri.fire("lan://peer-joined", { name: "P2" }); //connected
+  const app = renderApp();
+  await app.settle();
+  await app.router.navigate({ to: "/games/type-snake" });
+  await app.settle();
+  vi.useFakeTimers(); //the death race runs on the fake tick loop
+  armLanMatch({
+    role: "host",
+    peerName: "P2",
+    start: {
+      gameId: "type-snake",
+      seed: 42,
+      params: { lang: "english" },
+    },
+  });
+  await vi.advanceTimersByTimeAsync(150); //the pool falls back, the race starts
+  return { app, invokes: tauri.invokes, fire: tauri.fire };
+}
