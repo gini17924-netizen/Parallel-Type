@@ -31,7 +31,7 @@ use std::collections::HashMap;
 use std::sync::Mutex;
 use std::time::Duration;
 use tauri::{AppHandle, Emitter, Manager, State};
-use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader};
+use tokio::io::{AsyncBufReadExt, AsyncReadExt, AsyncWriteExt, BufReader};
 use tokio::net::TcpListener;
 use tokio::sync::{mpsc, oneshot};
 
@@ -51,6 +51,82 @@ const DISCOVERY_STALE_MS: u64 = 5000;
 const JOIN_TIMEOUT_SECS: u64 = 10;
 /// the client waits this long for the host's joined ack
 const ACK_TIMEOUT_SECS: u64 = 5;
+/// hardening (phase 53): a peer's inbound stream is rate-limited — the
+/// pipe serves exactly one two-player match, so anything beyond a
+/// generous match-sized budget is hostile (flooded snapshots, spam)
+const RATE_WINDOW_MS: u64 = 1000;
+const RATE_MAX_MESSAGES: u32 = 120;
+const RATE_MAX_BYTES: u64 = 384 * 1024;
+
+/// a sliding-window rate limiter for ONE connection's inbound lines:
+/// admits up to RATE_MAX_MESSAGES lines / RATE_MAX_BYTES bytes per
+/// RATE_WINDOW_MS, then trips (the caller closes the connection). Pure —
+/// the clock is injected so tests can drive the window.
+pub struct RateLimiter {
+    window_start_ms: u64,
+    messages_in_window: u32,
+    bytes_in_window: u64,
+}
+
+impl RateLimiter {
+    pub fn new() -> Self {
+        Self {
+            window_start_ms: 0,
+            messages_in_window: 0,
+            bytes_in_window: 0,
+        }
+    }
+
+    /// true = the line is admitted; false = the window's caps are blown
+    pub fn admit(&mut self, line_len: usize, now_ms: u64) -> bool {
+        if now_ms.saturating_sub(self.window_start_ms) >= RATE_WINDOW_MS {
+            self.window_start_ms = now_ms;
+            self.messages_in_window = 0;
+            self.bytes_in_window = 0;
+        }
+        self.messages_in_window += 1;
+        self.bytes_in_window += line_len as u64;
+        self.messages_in_window <= RATE_MAX_MESSAGES
+            && self.bytes_in_window <= RATE_MAX_BYTES
+    }
+}
+
+/// reads one newline-terminated line with a HARD allocation cap —
+/// `BufReader::lines()` grows unbounded, so a peer streaming a giant line
+/// without a newline could balloon the host's memory before the size
+/// check ever ran. An over-cap line (or a broken utf8) is an error.
+async fn next_bounded_line<R>(
+    reader: &mut R,
+) -> std::io::Result<Option<String>>
+where
+    R: tokio::io::AsyncBufRead + Unpin,
+{
+    let mut buf: Vec<u8> = Vec::new();
+    let mut byte = [0u8; 1];
+    loop {
+        match reader.read(&mut byte).await? {
+            0 => {
+                return Ok(if buf.is_empty() {
+                    None
+                } else {
+                    Some(String::from_utf8_lossy(&buf).into_owned())
+                });
+            }
+            _ => {
+                if byte[0] == b'\n' {
+                    return Ok(Some(String::from_utf8_lossy(&buf).into_owned()));
+                }
+                buf.push(byte[0]);
+                if buf.len() > MAX_MESSAGE_BYTES {
+                    return Err(std::io::Error::new(
+                        std::io::ErrorKind::InvalidData,
+                        "line over the size cap",
+                    ));
+                }
+            }
+        }
+    }
+}
 
 pub struct LanState {
     pub host: Mutex<Option<HostHandle>>,
@@ -254,15 +330,22 @@ fn is_valid_message(line: &str) -> bool {
 
 /// the client waits for the host's `{type:"joined", name}` ack and
 /// returns the host's name — a rejected code or a silent host fails here
-async fn await_join_ack<R>(lines: &mut tokio::io::Lines<BufReader<R>>) -> Result<String, String>
+async fn await_join_ack<R>(reader: &mut R) -> Result<String, String>
 where
-    R: tokio::io::AsyncRead + Unpin,
+    R: tokio::io::AsyncBufRead + Unpin,
 {
-    let line = tokio::time::timeout(Duration::from_secs(ACK_TIMEOUT_SECS), lines.next_line())
-        .await
-        .map_err(|_| "lan: join timed out".to_string())?
-        .map_err(|_| "lan: join failed (connection dropped)".to_string())?;
-    let parsed: Option<Value> = line.and_then(|line| serde_json::from_str(&line).ok());
+    let line = match tokio::time::timeout(
+        Duration::from_secs(ACK_TIMEOUT_SECS),
+        next_bounded_line(reader),
+    )
+    .await
+    {
+        Err(_) => return Err("lan: join timed out".into()),
+        Ok(Ok(Some(line))) => line,
+        Ok(_) => return Err("lan: join failed (connection dropped)".into()),
+        Ok(Err(_)) => return Err("lan: join failed (line over the cap)".into()),
+    };
+    let parsed: Option<Value> = serde_json::from_str(&line).ok();
     match parsed {
         Some(value) if value["type"] == "joined" => {
             Ok(value["name"].as_str().unwrap_or("the host").to_string())
@@ -300,17 +383,18 @@ pub async fn lan_connect_client(
         .await
         .map_err(|e| format!("lan: join failed ({e})"))?;
 
-    let mut lines = BufReader::new(read).lines();
-    let host_name = await_join_ack(&mut lines).await?;
+    let mut reader = BufReader::new(read);
+    let host_name = await_join_ack(&mut reader).await?;
 
     let (tx, mut rx) = mpsc::unbounded_channel::<String>();
 
     let app2 = app.clone();
     let read_task = tauri::async_runtime::spawn(async move {
+        let mut limiter = RateLimiter::new();
         loop {
-            match lines.next_line().await {
+            match next_bounded_line(&mut reader).await {
                 Ok(Some(line)) => {
-                    if line.len() > MAX_MESSAGE_BYTES || !is_valid_message(&line) {
+                    if !limiter.admit(line.len(), now_ms()) || !is_valid_message(&line) {
                         emit(&app2, "lan://client-error", serde_json::json!({ "error": "protocol violation" }));
                         break;
                     }
@@ -560,7 +644,7 @@ async fn run_host(
         },
     };
     let (read, mut write) = tokio::io::split(stream);
-    let mut lines = BufReader::new(read).lines();
+    let mut reader = BufReader::new(read);
 
     // the first line must be a valid join with the session's code; a
     // silent or wrong client is released so the slot does not pin forever
@@ -568,7 +652,7 @@ async fn run_host(
         tokio::select! {
             _ = &mut shutdown_rx => return,
             _ = tokio::time::sleep(Duration::from_secs(JOIN_TIMEOUT_SECS)) => return,
-            line = lines.next_line() => match line {
+            line = next_bounded_line(&mut reader) => match line {
                 Ok(Some(line)) => {
                     let parsed: Result<Value, _> = serde_json::from_str(&line);
                     match parsed {
@@ -596,13 +680,14 @@ async fn run_host(
     beacon.stop(); //the match is found — no more broadcasting
 
     // forward peer messages to the frontend; a protocol violation (no
-    // string type, oversize) closes the connection
+    // string type, oversize, a blown rate window) closes the connection
     let app2 = app.clone();
     let read_task = tauri::async_runtime::spawn(async move {
+        let mut limiter = RateLimiter::new();
         loop {
-            match lines.next_line().await {
+            match next_bounded_line(&mut reader).await {
                 Ok(Some(line)) => {
-                    if line.len() > MAX_MESSAGE_BYTES || !is_valid_message(&line) {
+                    if !limiter.admit(line.len(), now_ms()) || !is_valid_message(&line) {
                         emit(&app2, "lan://peer-left", serde_json::json!({ "reason": "protocol violation" }));
                         break;
                     }
@@ -734,8 +819,8 @@ mod tests {
                 .expect("write the ack");
             host_side.write_all(b"\n").await.expect("write newline");
         });
-        let mut lines = BufReader::new(client_side).lines();
-        let host = await_join_ack(&mut lines).await.expect("acked");
+        let mut reader = BufReader::new(client_side);
+        let host = await_join_ack(&mut reader).await.expect("acked");
         assert_eq!(host, "HOST1");
         fake_host.await.expect("fake host task");
     }
@@ -743,15 +828,85 @@ mod tests {
     #[tokio::test]
     async fn a_non_ack_reply_rejects_the_join() {
         let (client_side, mut host_side) = tokio::io::duplex(1024);
-        let mut lines = BufReader::new(client_side).lines();
+        let mut reader = BufReader::new(client_side);
         host_side
             .write_all(br#"{"type":"progress","wordIndex":1}"#)
             .await
             .expect("write a non-ack");
         host_side.write_all(b"\n").await.expect("write newline");
         assert!(
-            await_join_ack(&mut lines).await.is_err(),
+            await_join_ack(&mut reader).await.is_err(),
             "anything but joined must fail the handshake"
+        );
+    }
+
+    #[test]
+    fn the_rate_limiter_admits_a_steady_match_stream() {
+        let mut limiter = RateLimiter::new();
+        let mut now = 1_000u64;
+        //the type-pong worst case: 20 snapshots/s at ~300 bytes
+        for _ in 0..60 {
+            assert!(limiter.admit(300, now), "a match stream must pass");
+            now += 16;
+        }
+    }
+
+    #[test]
+    fn a_message_flood_trips_the_limiter() {
+        let mut limiter = RateLimiter::new();
+        let mut now = 1_000u64;
+        let mut tripped = false;
+        for _ in 0..(RATE_MAX_MESSAGES + 10) {
+            if !limiter.admit(10, now) {
+                tripped = true;
+                break;
+            }
+        }
+        assert!(tripped, "flooding past the message cap must trip");
+    }
+
+    #[test]
+    fn a_byte_flood_trips_the_limiter_even_under_the_message_cap() {
+        let mut limiter = RateLimiter::new();
+        let mut now = 1_000u64;
+        let mut tripped = false;
+        //six 64KB lines: 6 messages (under the cap) but ~384KB bytes
+        for _ in 0..8 {
+            if !limiter.admit(MAX_MESSAGE_BYTES, now) {
+                tripped = true;
+                break;
+            }
+        }
+        assert!(tripped, "a byte flood must trip even under the message cap");
+    }
+
+    #[test]
+    fn the_window_slides_back_open_after_a_trip() {
+        let mut limiter = RateLimiter::new();
+        let mut now = 1_000u64;
+        for _ in 0..(RATE_MAX_MESSAGES + 5) {
+            limiter.admit(10, now);
+        }
+        assert!(!limiter.admit(10, now), "still inside the blown window");
+        now += RATE_WINDOW_MS + 1;
+        assert!(
+            limiter.admit(10, now),
+            "a slid window admits again (the connection may recover)"
+        );
+    }
+
+    #[tokio::test]
+    async fn a_giant_line_without_a_newline_errors_instead_of_ballooning() {
+        let (client_side, mut host_side) = tokio::io::duplex(128 * 1024);
+        let mut reader = BufReader::new(client_side);
+        host_side
+            .write_all(&vec![b'a'; MAX_MESSAGE_BYTES + 1024])
+            .await
+            .expect("write an over-cap line (no newline yet)");
+        let result = next_bounded_line(&mut reader).await;
+        assert!(
+            result.is_err(),
+            "an over-cap line must error, not allocate unbounded"
         );
     }
 }
