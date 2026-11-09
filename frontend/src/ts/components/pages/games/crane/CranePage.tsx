@@ -2,6 +2,7 @@ import {
   For,
   JSXElement,
   Show,
+  createEffect,
   createSignal,
   onCleanup,
   onMount,
@@ -9,6 +10,21 @@ import {
 
 import { Config } from "../../../../config/store";
 import { playClick, playError } from "../../../../controllers/sound-controller";
+import { navigate } from "../../../../router/navigate";
+import { isLanConnected, lanPreFillName } from "../../../../states/lan";
+import {
+  armLanMatch,
+  clearLanMatch,
+  getLanMatch,
+  getRemoteFinished,
+  getRemoteProgress,
+  getRematchAsked,
+  sendLanMatchFinished,
+  sendLanMatchProgress,
+  sendLanMatchRematch,
+  sendLanMatchStart,
+  type LanMatch,
+} from "../../../../states/lan-match";
 import { cn } from "../../../../utils/cn";
 import { BALANCE } from "../../../../utils/crane/balance";
 import {
@@ -17,6 +33,13 @@ import {
   type CraneQuality,
   type CraneState,
 } from "../../../../utils/crane/engine";
+import {
+  craneLanStream,
+  lanCrane,
+  resolveCraneVerdict,
+  type CraneRemoteState,
+  type CraneVerdict,
+} from "../../../../utils/crane/lan";
 import {
   getCraneBestHeight,
   getCraneBestScore,
@@ -35,7 +58,17 @@ const SEG_H = 16;
 const SEG_W = 44;
 const ARENA_VH = 44;
 
-type PagePhase = "menu" | "playing" | "result";
+type PagePhase = "menu" | "playing" | "awaiting" | "result";
+
+/** the online verdict once both windows have closed (or the peer gave up) */
+type CraneOnlineResult = {
+  verdict: CraneVerdict;
+  myScore: number;
+  myPerfectCount: number;
+  theirScore: number;
+  theirPerfectCount: number;
+  theirTimeMs: number | null;
+};
 
 type TowerSeg = { x: number; quality: CraneQuality };
 
@@ -56,6 +89,14 @@ function HudCell(props: { label: string; value: string }): JSXElement {
  * landing x's. The pure engine owns the sweep and the scoring; this page
  * owns the letter source (unlocked groups, read-only), the tower visual
  * and the timers.
+ *
+ * Online (online wave, phase 40): the armed match IS the start — both
+ * machines stack the identical seeded stream (sequences + zone shifts
+ * from one seed; the fixed home-row keys — the unlocked letters do NOT
+ * travel) inside the shared window from params. The horn lives HERE (the
+ * engine has no clock): when the window closes the page ends the run and
+ * ships the finish; the verdict resolves when both are in — the higher
+ * score wins. Nothing online is recorded.
  */
 export function CranePage(): JSXElement {
   const [pagePhase, setPagePhase] = createSignal<PagePhase>("menu");
@@ -68,17 +109,34 @@ export function CranePage(): JSXElement {
   const [fall, setFall] = createSignal<
     { x: number; quality: CraneQuality } | undefined
   >(undefined);
-  /** the blur-pause badge (KI-33, the balloon-pop pattern) */
+  /** the blur-pause badge (KI-33, the balloon-pop pattern) — offline only:
+   * the online clock never pauses (the race is live) */
   const [paused, setPaused] = createSignal(false);
   /** flips the falling box from the hook to the base (CSS transition) */
   const [fallDropped, setFallDropped] = createSignal(false);
   const [newRecord, setNewRecord] = createSignal(false);
   const [message, setMessage] = createSignal<string | undefined>(undefined);
+  //online (LAN) state — the peer stacks the same seeded tower
+  const [remoteState, setRemoteState] = createSignal<
+    CraneRemoteState | undefined
+  >(undefined);
+  const [onlineResult, setOnlineResult] = createSignal<
+    CraneOnlineResult | undefined
+  >(undefined);
+  const [rematchSent, setRematchSent] = createSignal(false);
+  const [voidMessage, setVoidMessage] = createSignal<string | undefined>(
+    undefined,
+  );
 
   let engine: CraneEngine | undefined;
   let tickTimer: ReturnType<typeof setInterval> | undefined;
   let fallTimer: ReturnType<typeof setTimeout> | undefined;
   let fallDropTimer: ReturnType<typeof setTimeout> | undefined;
+  let runStart = 0;
+  let myFinish: { score: number; elapsedMs: number } | undefined;
+  let myFinishSent = false;
+  let lastSentScore = -1;
+  let lastSentPerfect = -1;
 
   const stopTimers = (): void => {
     if (tickTimer !== undefined) clearInterval(tickTimer);
@@ -90,6 +148,36 @@ export function CranePage(): JSXElement {
   };
 
   onCleanup(stopTimers);
+
+  //leaving mid-window (header back, route change) tells the peer the run
+  //was abandoned — a run without a finish loses, they can never be beaten
+  onCleanup(() => {
+    if (getLanMatch()?.gameId !== "crane") return;
+    if (pagePhase() !== "playing" && pagePhase() !== "awaiting") return;
+    if (!myFinishSent) {
+      myFinishSent = true;
+      const state = engine?.state();
+      sendLanMatchProgress(
+        lanCrane.encodeProgress({
+          score: state?.score ?? 0,
+          perfectCount: state?.perfectCount ?? 0,
+        }),
+      );
+      sendLanMatchFinished(null, 0);
+    }
+    clearLanMatch();
+  });
+
+  const lanMode = (): boolean => getLanMatch()?.gameId === "crane";
+
+  const lanDurationMs = (): number => {
+    const match = getLanMatch();
+    if (match?.gameId !== "crane") return 0;
+    const durationMs = match.start.params["durationMs"];
+    return typeof durationMs === "number" && durationMs > 0
+      ? durationMs
+      : 90_000;
+  };
 
   /** the key sequence: len 4..6 from the unlocked letters (read-only,
    * the G9 pattern), growing per level (doc G17 §۰.۴) */
@@ -108,6 +196,12 @@ export function CranePage(): JSXElement {
   };
 
   const startRun = (): void => {
+    if (lanMode()) return; //online: the match effect owns the start
+    startOfflineRun();
+  };
+
+  /** the offline run: the unlocked letters, the local records */
+  const startOfflineRun = (): void => {
     setMessage(undefined);
     setTower([]);
     setFall(undefined);
@@ -119,15 +213,134 @@ export function CranePage(): JSXElement {
     });
     setEngineState(engine.state());
     setPagePhase("playing");
+    startTickLoop();
+  };
+
+  const resolveOnlineResult = (): void => {
+    const finished = getRemoteFinished();
+    if (finished === undefined) return;
+    //a peer finish of null = they abandoned mid-window: a run without a
+    //finish loses, the survivor takes the win whenever their window closes
+    const abandoned =
+      finished.finishMs === null || finished.finishMs === undefined;
+    const theirScore = remoteState()?.score ?? 0;
+    setOnlineResult({
+      verdict: abandoned
+        ? "won"
+        : resolveCraneVerdict(
+            { score: myFinish?.score ?? 0 },
+            { score: theirScore },
+          ),
+      myScore: myFinish?.score ?? 0,
+      myPerfectCount: engine?.state().perfectCount ?? 0,
+      theirScore,
+      theirPerfectCount: remoteState()?.perfectCount ?? 0,
+      theirTimeMs: abandoned ? null : (finished.finishMs ?? null),
+    });
+    setPagePhase("result");
+  };
+
+  const hostRematch = (match: LanMatch): void => {
+    //arm first: a refused start never reaches the wire
+    armLanMatch({
+      role: "host",
+      peerName: match.peerName,
+      start: match.start,
+    });
+    if (getLanMatch() === undefined) return;
+    sendLanMatchStart(match.start, lanPreFillName() || "P1");
+  };
+
+  //an armed (or re-armed) crane match IS the online start: one seeded
+  //stream drives the sequences AND the zone shifts (the fixed home-row
+  //keys — the unlocked letters do NOT travel)
+  createEffect(() => {
+    const match = getLanMatch();
+    if (match?.gameId !== "crane") return;
+    const seed = match.start.seed ?? 1;
+    const stream = craneLanStream(seed);
+    setOnlineResult(undefined);
+    setRematchSent(false);
+    setRemoteState(undefined);
+    setVoidMessage(undefined);
+    setTower([]);
+    setFall(undefined);
+    setFallDropped(false);
+    setPaused(false);
+    setNewRecord(false);
+    myFinish = undefined;
+    myFinishSent = false;
+    lastSentScore = -1;
+    lastSentPerfect = -1;
+    runStart = Date.now();
+    engine = createCraneEngine({
+      seqFor: stream.seqFor,
+      rng: stream.rng,
+    });
+    setEngineState(engine.state());
+    setPagePhase("playing");
+    startTickLoop();
+  });
+
+  /** the one tick loop both the offline run and the online race share —
+   * online it also owns the HORN: the engine has no clock, the page does */
+  const startTickLoop = (): void => {
     tickTimer = setInterval(() => {
-      if (engine === undefined || paused()) return;
-      setEngineState(engine.tick(TICK_MS));
+      if (engine === undefined) return;
+      //online: the shared window from params closes the race (within one
+      //tick of the horn, in the same RTT band as the peer's clock)
+      if (lanMode() && Date.now() - runStart >= lanDurationMs()) {
+        endRun();
+        return;
+      }
+      if (paused() && !lanMode()) return; //offline blur-pause only
+      const state = engine.tick(TICK_MS);
+      setEngineState(state);
+      //online: relay the score/perfects when they moved
+      if (
+        lanMode() &&
+        (state.score !== lastSentScore ||
+          state.perfectCount !== lastSentPerfect)
+      ) {
+        lastSentScore = state.score;
+        lastSentPerfect = state.perfectCount;
+        sendLanMatchProgress(
+          lanCrane.encodeProgress({
+            score: state.score,
+            perfectCount: state.perfectCount,
+          }),
+        );
+      }
+      if (state.phase === "done") endRun();
     }, TICK_MS);
   };
 
   const endRun = (): void => {
     stopTimers();
     const state = engine?.state();
+    if (lanMode()) {
+      //the horn or the third miss — the finish ships with the numbers
+      if (!myFinishSent) {
+        myFinishSent = true;
+        myFinish = {
+          score: state?.score ?? 0,
+          elapsedMs: Date.now() - runStart,
+        };
+        sendLanMatchProgress(
+          lanCrane.encodeProgress({
+            score: myFinish.score,
+            perfectCount: state?.perfectCount ?? 0,
+          }),
+        );
+        sendLanMatchFinished(myFinish.elapsedMs, 100);
+      }
+      if (getRemoteFinished() !== undefined) {
+        resolveOnlineResult();
+      } else {
+        setPagePhase("awaiting");
+      }
+      return;
+    }
     if (state?.result !== undefined) {
       const { isNewScoreRecord } = recordCraneRun({
         score: state.result.score,
@@ -141,7 +354,7 @@ export function CranePage(): JSXElement {
   };
 
   const handleKey = (event: KeyboardEvent): void => {
-    if (pagePhase() !== "playing" || paused()) return;
+    if (pagePhase() !== "playing" || (paused() && !lanMode())) return;
     if (event.ctrlKey || event.metaKey || event.altKey) return;
     if (event.key.length !== 1) return;
     event.preventDefault();
@@ -174,7 +387,7 @@ export function CranePage(): JSXElement {
   onMount(() => {
     window.addEventListener("keydown", handleKey);
     const onBlur = (): void => {
-      if (pagePhase() !== "playing") return;
+      if (pagePhase() !== "playing" || lanMode()) return;
       setPaused(true);
     };
     const onFocus = (): void => {
@@ -187,6 +400,40 @@ export function CranePage(): JSXElement {
       window.removeEventListener("blur", onBlur);
       window.removeEventListener("focus", onFocus);
     });
+  });
+
+  //the relayed peer progress lands decoded — the panel reads it inline
+  createEffect(() => {
+    const progress = getRemoteProgress();
+    if (progress === undefined) return;
+    setRemoteState(progress.state as CraneRemoteState);
+  });
+
+  //the peer's finish resolves the held verdict (or arrived before mine)
+  createEffect(() => {
+    if (pagePhase() !== "awaiting") return;
+    if (getRemoteFinished() === undefined) return;
+    resolveOnlineResult();
+  });
+
+  //the host answers a rematch request by re-sending the same start
+  createEffect(() => {
+    const match = getLanMatch();
+    if (match?.role !== "host" || match.gameId !== "crane") return;
+    if (!getRematchAsked()) return;
+    hostRematch(match);
+  });
+
+  //a disconnect during the window voids it — nothing online is recorded
+  createEffect(() => {
+    if (getLanMatch()?.gameId !== "crane") return;
+    if (isLanConnected()) return;
+    if (pagePhase() !== "playing" && pagePhase() !== "awaiting") return;
+    stopTimers();
+    engine = undefined;
+    clearLanMatch();
+    setVoidMessage("the opponent left — race void, nothing was recorded");
+    setPagePhase("menu");
   });
 
   const backToMenu = (): void => {
@@ -216,6 +463,9 @@ export function CranePage(): JSXElement {
       <section class="grid gap-4 rounded bg-sub-alt p-4">
         <Show when={message() !== undefined}>
           <div class="text-error">{message()}</div>
+        </Show>
+        <Show when={voidMessage() !== undefined}>
+          <div class="text-error">{voidMessage()}</div>
         </Show>
         <div class="grid grid-cols-3 gap-2">
           <div class="rounded bg-bg p-3 text-center">
@@ -383,6 +633,90 @@ export function CranePage(): JSXElement {
     );
   };
 
+  const AwaitingScreen = (): JSXElement => {
+    return (
+      <section class="grid place-items-center rounded bg-sub-alt py-16 text-center">
+        <div class="text-2xl font-bold text-main" data-testid="cr-awaiting">
+          the window closed · score {myFinish?.score ?? 0} — waiting for{" "}
+          {getLanMatch()?.peerName ?? "the opponent"}…
+        </div>
+      </section>
+    );
+  };
+
+  const OnlineResultScreen = (): JSXElement => {
+    const online = (): CraneOnlineResult | undefined => onlineResult();
+    const verdict = online()?.verdict;
+    return (
+      <section class="grid gap-4 rounded bg-sub-alt p-6 text-center">
+        <div
+          class={cn(
+            "text-3xl font-bold",
+            verdict === "won"
+              ? "text-main"
+              : verdict === "draw"
+                ? "text-sub"
+                : "text-error",
+          )}
+          data-testid="cr-verdict"
+        >
+          {verdict === "won"
+            ? "you win!"
+            : verdict === "draw"
+              ? "draw"
+              : `${getLanMatch()?.peerName ?? "the opponent"} wins`}
+        </div>
+        <div class="grid grid-cols-2 gap-2">
+          <div class="rounded bg-bg p-3">
+            <div class="text-xl font-bold text-main tabular-nums">
+              {online()?.myScore ?? 0} score · {online()?.myPerfectCount ?? 0}{" "}
+              perfect
+            </div>
+            <div class="text-xs text-sub">you</div>
+          </div>
+          <div class="rounded bg-bg p-3">
+            <div class="text-xl font-bold text-main tabular-nums">
+              {online()?.theirScore ?? 0} score ·{" "}
+              {online()?.theirPerfectCount ?? 0} perfect ·{" "}
+              {online()?.theirTimeMs === null
+                ? "gave up"
+                : `${((online()?.theirTimeMs ?? 0) / 1000).toFixed(1)}s`}
+            </div>
+            <div class="text-xs text-sub">
+              {getLanMatch()?.peerName ?? "the opponent"}
+            </div>
+          </div>
+        </div>
+        <div class="grid grid-cols-2 gap-2">
+          <Button
+            text={rematchSent() ? "rematch requested — waiting…" : "rematch"}
+            fa={{ icon: "fa-redo" }}
+            class="w-full"
+            onClick={() => {
+              const match = getLanMatch();
+              if (match === undefined || rematchSent()) return;
+              if (match.role === "host") {
+                hostRematch(match);
+              } else {
+                sendLanMatchRematch();
+                setRematchSent(true);
+              }
+            }}
+          />
+          <Button
+            text="leave to lobby"
+            fa={{ icon: "fa-arrow-left" }}
+            class="w-full"
+            onClick={() => {
+              clearLanMatch();
+              void navigate({ to: "/games/online" });
+            }}
+          />
+        </div>
+      </section>
+    );
+  };
+
   const ResultScreen = (): JSXElement => {
     const result = engine?.state().result;
     return (
@@ -452,8 +786,51 @@ export function CranePage(): JSXElement {
           higher the score; the tower stacks from your real landings.
         </p>
       </section>
+      <Show when={lanMode()}>
+        <div
+          class="rounded bg-sub-alt p-2 text-center text-sm font-bold text-main"
+          data-testid="cr-online-vs"
+        >
+          <i class="fas fa-anchor"></i> online vs{" "}
+          {getLanMatch()?.peerName ?? "…"} — same tower, the higher score wins
+        </div>
+      </Show>
+      <Show when={lanMode()}>
+        <div class="grid grid-cols-2 gap-2" data-testid="cr-remote">
+          <div class="rounded bg-bg p-2 text-center">
+            <div class="text-xl font-bold text-error tabular-nums">
+              {remoteState()?.score ?? 0} score ·{" "}
+              {remoteState()?.perfectCount ?? 0} perfect
+            </div>
+            <div class="text-xs text-sub">
+              {getLanMatch()?.peerName ?? "the opponent"}
+            </div>
+          </div>
+          <div class="rounded bg-bg p-2 text-center">
+            <div class="text-xl font-bold text-main tabular-nums">
+              {engineState()?.score ?? 0} score ·{" "}
+              {engineState()?.perfectCount ?? 0} perfect
+            </div>
+            <div class="text-xs text-sub">you</div>
+          </div>
+        </div>
+      </Show>
       <Show when={pagePhase() !== "menu"} fallback={<Menu />}>
-        <Show when={pagePhase() === "playing"} fallback={<ResultScreen />}>
+        <Show
+          when={pagePhase() === "playing"}
+          fallback={
+            <Show
+              when={pagePhase() === "awaiting"}
+              fallback={
+                <Show when={lanMode()} fallback={<ResultScreen />}>
+                  <OnlineResultScreen />
+                </Show>
+              }
+            >
+              <AwaitingScreen />
+            </Show>
+          }
+        >
           <div class="grid grid-cols-4 gap-2" aria-label="crane stack hud">
             <HudCell label="score" value={`${engineState()?.score ?? 0}`} />
             <HudCell label="height" value={`${engineState()?.height ?? 0}`} />
