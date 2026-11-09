@@ -10,6 +10,7 @@ import { lanWordBlast } from "../word-blast/lan";
 import { lanStack } from "../stack-attack/lan";
 import { lanBalloon } from "../balloon-pop/lan";
 import { lanPairKeys } from "../pair-keys/lan";
+import { lanWordle } from "../wordle/lan";
 import { lanNitro } from "../nitro-run/lan";
 
 /**
@@ -30,4 +31,5 @@ registerLanGame(lanWordBlast);
 registerLanGame(lanStack);
 registerLanGame(lanBalloon);
 registerLanGame(lanPairKeys);
+registerLanGame(lanWordle);
 registerLanGame(lanNitro);
