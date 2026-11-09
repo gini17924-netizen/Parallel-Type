@@ -44,6 +44,8 @@ export type ClientPongView = {
   /** the opponent's typing state (from the snapshot) */
   theirWord: string;
   theirTyped: number;
+  /** the live rally length (from the snapshot) */
+  rally: number;
 };
 
 type Anchor = { snap: PongSnapshot; arrivalMs: number };
@@ -89,6 +91,7 @@ export function createLanPongClient(options: { now: () => number }): {
         myTyped: 0,
         theirWord: "",
         theirTyped: 0,
+        rally: 0,
       };
     }
     const snap = last.snap;
@@ -137,6 +140,7 @@ export function createLanPongClient(options: { now: () => number }): {
       myTyped,
       theirWord: snap.hostWord,
       theirTyped: snap.hostTyped,
+      rally: snap.rally,
     };
   };
 

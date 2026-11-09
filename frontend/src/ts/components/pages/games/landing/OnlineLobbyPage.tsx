@@ -356,6 +356,12 @@ export function OnlineLobbyPage(): JSXElement {
                   </For>
                 </div>
               </div>
+              <Show when={selectedGame() === "type-pong"}>
+                <div class="text-xs text-sub" data-testid="ol-pong-teaser">
+                  the first real versus — one shared ball state-synced 20 times
+                  a second; the paddle moves only when you type.
+                </div>
+              </Show>
               <Show when={selectedGame() === "bot-duel"}>
                 <div class="grid gap-1">
                   <div class="text-xs text-sub">race length</div>

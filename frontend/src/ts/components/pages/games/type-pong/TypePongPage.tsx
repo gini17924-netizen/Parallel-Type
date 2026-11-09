@@ -2,6 +2,7 @@ import {
   For,
   JSXElement,
   Show,
+  createEffect,
   createSignal,
   onCleanup,
   onMount,
@@ -9,7 +10,21 @@ import {
 
 import { Config } from "../../../../config/store";
 import { playClick, playError } from "../../../../controllers/sound-controller";
+import { navigate } from "../../../../router/navigate";
+import { isLanConnected, lanPreFillName } from "../../../../states/lan";
+import {
+  armLanMatch,
+  clearLanMatch,
+  getLanMatch,
+  getLanRawMessage,
+  getRematchAsked,
+  sendLanMatchMessage,
+  sendLanMatchRematch,
+  sendLanMatchStart,
+  type LanMatch,
+} from "../../../../states/lan-match";
 import { cn } from "../../../../utils/cn";
+import { createSeededRng } from "../../../../utils/daily-gauntlet/seeded-rng";
 import { latinCharFromEvent } from "../../../../utils/games/latin-input";
 import { cachedFetchJson } from "../../../../utils/json-data";
 import { BALANCE } from "../../../../utils/type-pong/balance";
@@ -18,6 +33,19 @@ import {
   type BreakerEngine,
   type BreakerState,
 } from "../../../../utils/type-pong/breaker";
+import {
+  createLanPongClient,
+  type ClientPongView,
+} from "../../../../utils/type-pong/client";
+import {
+  createLanPongHost,
+  decodeInput,
+  encodeInput,
+  encodeSnapshot,
+  pongLanWordStream,
+  SNAPSHOT_INTERVAL_MS,
+  type LanPongState,
+} from "../../../../utils/type-pong/lan";
 import {
   createPongEngine,
   type PongEngine,
@@ -63,19 +91,195 @@ export function TypePongPage(): JSXElement {
     BreakerState | undefined
   >(undefined);
   const [message, setMessage] = createSignal<string | undefined>(undefined);
+  //online (LAN) state — the pattern V versus: the host simulates, the
+  //client renders the snapshots
+  const [hostState, setHostState] = createSignal<LanPongState | undefined>(
+    undefined,
+  );
+  const [lanView, setLanView] = createSignal<ClientPongView | undefined>(
+    undefined,
+  );
+  const [rematchSent, setRematchSent] = createSignal(false);
+  const [voidMessage, setVoidMessage] = createSignal<string | undefined>(
+    undefined,
+  );
 
   let pongEngine: PongEngine | undefined;
   let breakerEngine: BreakerEngine | undefined;
   let tickTimer: ReturnType<typeof setInterval> | undefined;
+  let lanHost: ReturnType<typeof createLanPongHost> | undefined;
+  let lanClient: ReturnType<typeof createLanPongClient> | undefined;
+  let relayTimer: ReturnType<typeof setInterval> | undefined;
+  let snapshotSeq = 0;
+  let lanEnded = false;
 
   const stopTimers = (): void => {
     if (tickTimer !== undefined) clearInterval(tickTimer);
+    if (relayTimer !== undefined) clearInterval(relayTimer);
     tickTimer = undefined;
+    relayTimer = undefined;
   };
 
   onCleanup(stopTimers);
 
+  const lanMode = (): boolean => getLanMatch()?.gameId === "type-pong";
+
+  //leaving mid-rally tells the peer the match is over for us
+  onCleanup(() => {
+    if (getLanMatch()?.gameId !== "type-pong") return;
+    if (pagePhase() !== "playing") return;
+    sendLanMatchMessage({ type: "pong-left", gameId: "type-pong" });
+    clearLanMatch();
+  });
+
+  const lanTargetScore = (): number => {
+    const match = getLanMatch();
+    if (match?.gameId !== "type-pong") return BALANCE.targetScore;
+    const target = match.start.params["targetScore"];
+    return typeof target === "number" && target > 0
+      ? target
+      : BALANCE.targetScore;
+  };
+
+  const endLanMatch = (): void => {
+    if (lanEnded) return;
+    lanEnded = true;
+    stopTimers();
+    setPagePhase("result");
+  };
+
+  //an armed (or re-armed) type-pong match IS the online start: the HOST
+  //simulates and ships snapshots, the CLIENT renders the state-sync
+  createEffect(() => {
+    const match = getLanMatch();
+    if (match?.gameId !== "type-pong") return;
+    void (async () => {
+      const matchLang = match.start.params["lang"];
+      let pool: string[] = FALLBACK_WORDS;
+      try {
+        const data = await cachedFetchJson<{ words: string[] }>(
+          `/languages/${
+            typeof matchLang === "string" && matchLang.length > 0
+              ? matchLang
+              : "english"
+          }.json`,
+        );
+        pool = data.words;
+      } catch {
+        //the offline fallback list
+      }
+      const seed = match.start.seed ?? 1;
+      const nextWord = pongLanWordStream(pool, seed);
+      setMode("pong"); //the versus is pong only — the breaker stays offline
+      setVoidMessage(undefined);
+      setRematchSent(false);
+      setHostState(undefined);
+      setLanView(undefined);
+      snapshotSeq = 0;
+      lanEnded = false;
+      if (match.role === "host") {
+        lanHost = createLanPongHost({
+          nextWord,
+          rng: createSeededRng(seed),
+          targetScore: lanTargetScore(),
+        });
+        setHostState(lanHost.state());
+        setPagePhase("playing");
+        tickTimer = setInterval(() => {
+          if (lanHost === undefined) return;
+          const state = lanHost.tick(TICK_MS);
+          setHostState(state);
+          //the fixed-rate snapshot: the whole match state to the client
+          snapshotSeq += 1;
+          sendLanMatchMessage({
+            type: "pong-snapshot",
+            gameId: "type-pong",
+            snap: encodeSnapshot({ ...state, seq: snapshotSeq }),
+          });
+          if (state.phase === "done") endLanMatch();
+        }, TICK_MS);
+      } else {
+        lanClient = createLanPongClient({ now: () => performance.now() });
+        setPagePhase("playing");
+        //the render loop: the interpolated view at 60fps-ish
+        tickTimer = setInterval(() => {
+          if (lanClient === undefined) return;
+          setLanView(lanClient.view());
+          if (lanClient.view().phase === "done") endLanMatch();
+        }, 16);
+        //the input relay: the typed chars ride the raw passthrough
+        relayTimer = setInterval(() => {
+          if (lanClient === undefined) return;
+          const batch = lanClient.takeInputBatch();
+          if (batch.length === 0) return;
+          sendLanMatchMessage({
+            type: "pong-input",
+            gameId: "type-pong",
+            ...encodeInput(batch),
+          });
+        }, SNAPSHOT_INTERVAL_MS);
+      }
+    })();
+  });
+
+  //the relayed peer messages: the client ingests snapshots, the host
+  //applies the client's chars authoritatively; pong-left voids
+  createEffect(() => {
+    const raw = getLanRawMessage();
+    if (raw === undefined) return;
+    const type = raw.message["type"];
+    if (type === "pong-snapshot" && lanClient !== undefined) {
+      lanClient.ingest(raw.message["snap"]);
+      return;
+    }
+    if (type === "pong-input" && lanHost !== undefined) {
+      const chars = decodeInput(raw.message);
+      if (chars !== undefined) {
+        for (const ch of chars) lanHost.clientKey(ch);
+        setHostState(lanHost.state());
+      }
+      return;
+    }
+    if (type === "pong-left") {
+      endLanMatch();
+      setVoidMessage("the opponent left — match void, nothing was recorded");
+    }
+  });
+
+  //a disconnect during the rally voids it — nothing online is recorded
+  createEffect(() => {
+    if (getLanMatch()?.gameId !== "type-pong") return;
+    if (isLanConnected()) return;
+    if (pagePhase() !== "playing") return;
+    stopTimers();
+    lanHost = undefined;
+    lanClient = undefined;
+    clearLanMatch();
+    setVoidMessage("the opponent left — match void, nothing was recorded");
+    setPagePhase("menu");
+  });
+
+  const hostRematch = (match: LanMatch): void => {
+    //arm first: a refused start never reaches the wire
+    armLanMatch({
+      role: "host",
+      peerName: match.peerName,
+      start: match.start,
+    });
+    if (getLanMatch() === undefined) return;
+    sendLanMatchStart(match.start, lanPreFillName() || "P1");
+  };
+
+  //the host answers a rematch request by re-sending the same start
+  createEffect(() => {
+    const match = getLanMatch();
+    if (match?.role !== "host" || match.gameId !== "type-pong") return;
+    if (!getRematchAsked()) return;
+    hostRematch(match);
+  });
+
   const startRun = async (): Promise<void> => {
+    if (lanMode()) return; //online: the match effect owns the start
     setMessage(undefined);
     stopTimers();
     let pool: string[] = FALLBACK_WORDS;
@@ -156,9 +360,27 @@ export function TypePongPage(): JSXElement {
   const handleKey = (event: KeyboardEvent): void => {
     if (pagePhase() !== "playing") return;
     if (event.ctrlKey || event.metaKey || event.altKey) return;
-    if (event.key === "Enter" && mode() === "pong") return;
+    if (event.key === "Enter" && (mode() === "pong" || lanMode())) return;
     if (event.key.length !== 1 && event.key !== "Enter") return;
     if (event.key.length === 1) event.preventDefault();
+    if (lanMode()) {
+      //the paddle moves only when you type — locally echoed, judged by
+      //the host (the V pattern: the client relays, never simulates)
+      const ch = latinCharFromEvent(event.key, event.code);
+      if (lanHost !== undefined) {
+        const state = lanHost.hostKey(ch);
+        setHostState(state);
+        if (state.hostScore > (hostState()?.hostScore ?? 0)) {
+          void playClick();
+        } else if (state.clientScore > (hostState()?.clientScore ?? 0)) {
+          void playError();
+        }
+      } else if (lanClient !== undefined) {
+        lanClient.pushLocalChar(ch);
+        setLanView(lanClient.view());
+      }
+      return;
+    }
     if (mode() === "breaker" && breakerEngine !== undefined) {
       const after = breakerEngine.feedKey(
         latinCharFromEvent(event.key, event.code),
@@ -191,6 +413,9 @@ export function TypePongPage(): JSXElement {
         <Show when={message() !== undefined}>
           <div class="text-error">{message()}</div>
         </Show>
+        <Show when={voidMessage() !== undefined}>
+          <div class="text-error">{voidMessage()}</div>
+        </Show>
         <div class="grid grid-cols-3 gap-2">
           <div class="rounded bg-bg p-3 text-center">
             <div class="text-xl font-bold text-main tabular-nums">
@@ -216,11 +441,13 @@ export function TypePongPage(): JSXElement {
           <Button
             text="pong"
             class={cn("w-full", mode() === "pong" && "bg-main text-bg")}
+            disabled={lanMode()}
             onClick={() => setMode("pong")}
           />
           <Button
             text="breaker"
             class={cn("w-full", mode() === "breaker" && "bg-main text-bg")}
+            disabled={lanMode()}
             onClick={() => setMode("breaker")}
           />
         </div>
@@ -240,7 +467,8 @@ export function TypePongPage(): JSXElement {
   };
 
   const PongArena = (): JSXElement => {
-    //KI-34 lesson: the signal must be read INLINE in JSX
+    //KI-34 lesson (again): the reads stay INLINE in the JSX expressions —
+    //local consts freeze the first render (the LAN paddles/ball proved it)
     return (
       <section class="grid place-items-center" aria-label="type pong arena">
         <div
@@ -254,7 +482,10 @@ export function TypePongPage(): JSXElement {
           <div
             class="absolute rounded-full bg-error"
             style={{
-              left: `${(pongState()?.aiX ?? 50) - BALANCE.paddleW / 2}%`,
+              left: `${
+                (lanMode() ? lanTopX() : (pongState()?.aiX ?? 50)) -
+                BALANCE.paddleW / 2
+              }%`,
               top: "4px",
               width: `${BALANCE.paddleW}%`,
               height: "8px",
@@ -265,23 +496,29 @@ export function TypePongPage(): JSXElement {
             class="absolute left-0 w-full border-t border-dashed border-sub opacity-30"
             style={{ top: "50%" }}
           ></div>
-          <Show when={pongState()?.ball !== undefined}>
-            <div
-              class="absolute rounded-full bg-main"
-              style={{
-                left: `${pongState()?.ball.x ?? 50}%`,
-                top: `${((pongState()?.ball.y ?? 50) / BALANCE.courtH) * COURT_H - 5}px`,
-                width: "10px",
-                height: "10px",
-                transform: "translateX(-5px)",
-              }}
-              data-testid="tp-ball"
-            ></div>
-          </Show>
           <div
             class="absolute rounded-full bg-main"
             style={{
-              left: `${(pongState()?.playerX ?? 50) - BALANCE.paddleW / 2}%`,
+              left: `${lanMode() ? lanBall().x : (pongState()?.ball.x ?? 50)}%`,
+              top: `${
+                ((lanMode() ? lanBall().y : (pongState()?.ball.y ?? 50)) /
+                  BALANCE.courtH) *
+                  COURT_H -
+                5
+              }px`,
+              width: "10px",
+              height: "10px",
+              transform: "translateX(-5px)",
+            }}
+            data-testid="tp-ball"
+          ></div>
+          <div
+            class="absolute rounded-full bg-main"
+            style={{
+              left: `${
+                (lanMode() ? lanBottomX() : (pongState()?.playerX ?? 50)) -
+                BALANCE.paddleW / 2
+              }%`,
               bottom: "4px",
               width: `${BALANCE.paddleW}%`,
               height: "8px",
@@ -355,14 +592,130 @@ export function TypePongPage(): JSXElement {
 
   /** the reactive word reads (the KI-34 lesson: inline in JSX, never in
    * a component body — the fourth time this pattern bites) */
-  const currentWord = (): string =>
-    mode() === "breaker"
+  const currentWord = (): string => {
+    if (lanMode()) {
+      return getLanMatch()?.role === "host"
+        ? (hostState()?.hostWord ?? "")
+        : (lanView()?.myWord ?? "");
+    }
+    return mode() === "breaker"
       ? (breakerState()?.word ?? "")
       : (pongState()?.word ?? "");
-  const currentTyped = (): number =>
-    mode() === "breaker"
+  };
+  const currentTyped = (): number => {
+    if (lanMode()) {
+      return getLanMatch()?.role === "host"
+        ? (hostState()?.hostTyped ?? 0)
+        : (lanView()?.myTyped ?? 0);
+    }
+    return mode() === "breaker"
       ? (breakerState()?.typed ?? 0)
       : (pongState()?.typed ?? 0);
+  };
+  /** the LAN arena reads: the TOP paddle is the opponent, the bottom is me */
+  const lanTopX = (): number =>
+    getLanMatch()?.role === "host"
+      ? (hostState()?.clientX ?? 50)
+      : (lanView()?.hostX ?? 50);
+  const lanBottomX = (): number =>
+    getLanMatch()?.role === "host"
+      ? (hostState()?.hostX ?? 50)
+      : (lanView()?.myX ?? 50);
+  const lanBall = (): { x: number; y: number } => {
+    const state = getLanMatch()?.role === "host" ? hostState() : undefined;
+    if (state !== undefined) return state.ball;
+    const view = lanView();
+    return { x: view?.ballX ?? 50, y: view?.ballY ?? 50 };
+  };
+  const lanYouScore = (): number =>
+    getLanMatch()?.role === "host"
+      ? (hostState()?.hostScore ?? 0)
+      : (lanView()?.clientScore ?? 0);
+  const lanPeerScore = (): number =>
+    getLanMatch()?.role === "host"
+      ? (hostState()?.clientScore ?? 0)
+      : (lanView()?.hostScore ?? 0);
+  const lanRally = (): number =>
+    getLanMatch()?.role === "host"
+      ? (hostState()?.rally ?? 0)
+      : (lanView()?.rally ?? 0);
+
+  const LanResultScreen = (): JSXElement => {
+    //the LAN verdict: the winner is INSIDE the match state (the score to
+    //N decided it — no separate arbitration message exists in the V
+    //pattern); each side renders it from its own perspective
+    const lanWinner =
+      getLanMatch()?.role === "host"
+        ? hostState()?.winner
+        : (lanView()?.winner ?? lanClient?.snapshot()?.winner);
+    const myScore = lanYouScore();
+    const theirScore = lanPeerScore();
+    return (
+      <section class="grid gap-4 rounded bg-sub-alt p-6 text-center">
+        <div
+          class={cn(
+            "text-3xl font-bold",
+            lanWinner === getLanMatch()?.role ? "text-main" : "text-error",
+          )}
+          data-testid="tp-verdict"
+        >
+          {lanWinner === getLanMatch()?.role
+            ? "you win!"
+            : `${getLanMatch()?.peerName ?? "the opponent"} wins`}
+        </div>
+        <div class="grid grid-cols-3 gap-2">
+          <div class="rounded bg-bg p-3">
+            <div class="text-xl font-bold text-main tabular-nums">
+              {myScore}
+            </div>
+            <div class="text-xs text-sub">you</div>
+          </div>
+          <div class="rounded bg-bg p-3">
+            <div class="text-xl font-bold text-main tabular-nums">
+              {theirScore}
+            </div>
+            <div class="text-xs text-sub">
+              {getLanMatch()?.peerName ?? "the opponent"}
+            </div>
+          </div>
+          <div class="rounded bg-bg p-3">
+            <div class="text-xl font-bold text-main tabular-nums">
+              {lanRally() > 0
+                ? lanRally()
+                : (lanClient?.snapshot()?.bestRally ?? 0)}
+            </div>
+            <div class="text-xs text-sub">best rally</div>
+          </div>
+        </div>
+        <div class="grid grid-cols-2 gap-2">
+          <Button
+            text={rematchSent() ? "rematch requested — waiting…" : "rematch"}
+            fa={{ icon: "fa-redo" }}
+            class="w-full"
+            onClick={() => {
+              const match = getLanMatch();
+              if (match === undefined || rematchSent()) return;
+              if (match.role === "host") {
+                hostRematch(match);
+              } else {
+                sendLanMatchRematch();
+                setRematchSent(true);
+              }
+            }}
+          />
+          <Button
+            text="leave to lobby"
+            fa={{ icon: "fa-arrow-left" }}
+            class="w-full"
+            onClick={() => {
+              clearLanMatch();
+              void navigate({ to: "/games/online" });
+            }}
+          />
+        </div>
+      </section>
+    );
+  };
 
   const ResultScreen = (): JSXElement => {
     const pongResult =
@@ -370,95 +723,107 @@ export function TypePongPage(): JSXElement {
     const breakerResult =
       mode() === "breaker" ? breakerEngine?.state().result : undefined;
     return (
-      <section class="grid gap-4 rounded bg-sub-alt p-6 text-center">
-        <Show
-          when={mode() === "pong"}
-          fallback={
-            <section class="grid gap-4">
+      <Show
+        when={
+          lanMode() &&
+          (getLanMatch()?.role === "host"
+            ? hostState()?.phase === "done"
+            : (lanView()?.phase ?? lanClient?.snapshot()?.phase) === "done")
+        }
+        fallback={
+          <section class="grid gap-4 rounded bg-sub-alt p-6 text-center">
+            <Show
+              when={mode() === "pong"}
+              fallback={
+                <section class="grid gap-4">
+                  <div
+                    class={cn(
+                      "text-3xl font-bold",
+                      breakerResult?.won === true ? "text-main" : "text-error",
+                    )}
+                  >
+                    {breakerResult?.won === true
+                      ? "the wall is cleared!"
+                      : "out of lives"}
+                  </div>
+                  <div class="grid grid-cols-3 gap-2">
+                    <div class="rounded bg-bg p-3">
+                      <div class="text-xl font-bold text-main tabular-nums">
+                        {breakerResult?.score ?? 0}
+                      </div>
+                      <div class="text-xs text-sub">score</div>
+                    </div>
+                    <div class="rounded bg-bg p-3">
+                      <div class="text-xl font-bold text-main tabular-nums">
+                        {breakerResult?.bricksBroken ?? 0}
+                      </div>
+                      <div class="text-xs text-sub">bricks broken</div>
+                    </div>
+                    <div class="rounded bg-bg p-3">
+                      <div class="text-xl font-bold text-main tabular-nums">
+                        {breakerResult?.lives ?? 0}
+                      </div>
+                      <div class="text-xs text-sub">lives left</div>
+                    </div>
+                  </div>
+                </section>
+              }
+            >
               <div
                 class={cn(
                   "text-3xl font-bold",
-                  breakerResult?.won === true ? "text-main" : "text-error",
+                  pongResult?.winner === "player" ? "text-main" : "text-error",
                 )}
               >
-                {breakerResult?.won === true
-                  ? "the wall is cleared!"
-                  : "out of lives"}
+                {pongResult?.winner === "player" ? "you win!" : "the AI wins"}
               </div>
               <div class="grid grid-cols-3 gap-2">
                 <div class="rounded bg-bg p-3">
                   <div class="text-xl font-bold text-main tabular-nums">
-                    {breakerResult?.score ?? 0}
+                    {pongResult?.playerScore ?? 0}
                   </div>
-                  <div class="text-xs text-sub">score</div>
+                  <div class="text-xs text-sub">you</div>
                 </div>
                 <div class="rounded bg-bg p-3">
                   <div class="text-xl font-bold text-main tabular-nums">
-                    {breakerResult?.bricksBroken ?? 0}
+                    {pongResult?.aiScore ?? 0}
                   </div>
-                  <div class="text-xs text-sub">bricks broken</div>
+                  <div class="text-xs text-sub">AI</div>
                 </div>
                 <div class="rounded bg-bg p-3">
                   <div class="text-xl font-bold text-main tabular-nums">
-                    {breakerResult?.lives ?? 0}
+                    {pongResult?.bestRally ?? 0}
                   </div>
-                  <div class="text-xs text-sub">lives left</div>
+                  <div class="text-xs text-sub">best rally</div>
                 </div>
               </div>
-            </section>
-          }
-        >
-          <div
-            class={cn(
-              "text-3xl font-bold",
-              pongResult?.winner === "player" ? "text-main" : "text-error",
-            )}
-          >
-            {pongResult?.winner === "player" ? "you win!" : "the AI wins"}
-          </div>
-          <div class="grid grid-cols-3 gap-2">
-            <div class="rounded bg-bg p-3">
-              <div class="text-xl font-bold text-main tabular-nums">
-                {pongResult?.playerScore ?? 0}
-              </div>
-              <div class="text-xs text-sub">you</div>
+            </Show>
+            <div class="text-xs text-sub">
+              wins {getPongStats().wins} · losses {getPongStats().losses}
             </div>
-            <div class="rounded bg-bg p-3">
-              <div class="text-xl font-bold text-main tabular-nums">
-                {pongResult?.aiScore ?? 0}
-              </div>
-              <div class="text-xs text-sub">AI</div>
+            <div class="grid grid-cols-2 gap-2">
+              <Button
+                text="rematch"
+                fa={{ icon: "fa-redo" }}
+                class="w-full"
+                onClick={() => void startRun()}
+              />
+              <Button
+                text="back to menu"
+                fa={{ icon: "fa-home" }}
+                class="w-full"
+                onClick={() => {
+                  pongEngine = undefined;
+                  breakerEngine = undefined;
+                  setPagePhase("menu");
+                }}
+              />
             </div>
-            <div class="rounded bg-bg p-3">
-              <div class="text-xl font-bold text-main tabular-nums">
-                {pongResult?.bestRally ?? 0}
-              </div>
-              <div class="text-xs text-sub">best rally</div>
-            </div>
-          </div>
-        </Show>
-        <div class="text-xs text-sub">
-          wins {getPongStats().wins} · losses {getPongStats().losses}
-        </div>
-        <div class="grid grid-cols-2 gap-2">
-          <Button
-            text="rematch"
-            fa={{ icon: "fa-redo" }}
-            class="w-full"
-            onClick={() => void startRun()}
-          />
-          <Button
-            text="back to menu"
-            fa={{ icon: "fa-home" }}
-            class="w-full"
-            onClick={() => {
-              pongEngine = undefined;
-              breakerEngine = undefined;
-              setPagePhase("menu");
-            }}
-          />
-        </div>
-      </section>
+          </section>
+        }
+      >
+        <LanResultScreen />
+      </Show>
     );
   };
 
@@ -472,6 +837,16 @@ export function TypePongPage(): JSXElement {
           both.
         </p>
       </section>
+      <Show when={lanMode()}>
+        <div
+          class="rounded bg-sub-alt p-2 text-center text-sm font-bold text-main"
+          data-testid="tp-online-vs"
+        >
+          <i class="fas fa-table-tennis"></i> online vs{" "}
+          {getLanMatch()?.peerName ?? "…"} — the first real versus: one shared
+          ball, first to {lanTargetScore()}
+        </div>
+      </Show>
       <Show when={pagePhase() !== "menu"} fallback={<Menu />}>
         <Show when={pagePhase() === "playing"} fallback={<ResultScreen />}>
           <Show
@@ -518,12 +893,25 @@ export function TypePongPage(): JSXElement {
               <div class="grid grid-cols-3 gap-2" aria-label="type pong hud">
                 <HudCell
                   label="you"
-                  value={String(pongState()?.playerScore ?? 0)}
+                  value={String(
+                    lanMode() ? lanYouScore() : (pongState()?.playerScore ?? 0),
+                  )}
                 />
-                <HudCell label="AI" value={String(pongState()?.aiScore ?? 0)} />
+                <HudCell
+                  label={
+                    lanMode()
+                      ? (getLanMatch()?.peerName ?? "the opponent")
+                      : "AI"
+                  }
+                  value={String(
+                    lanMode() ? lanPeerScore() : (pongState()?.aiScore ?? 0),
+                  )}
+                />
                 <HudCell
                   label="rally"
-                  value={String(pongState()?.rally ?? 0)}
+                  value={String(
+                    lanMode() ? lanRally() : (pongState()?.rally ?? 0),
+                  )}
                 />
               </div>
               <PongArena />
