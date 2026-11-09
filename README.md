@@ -34,7 +34,7 @@ npx tauri build        # NSIS + updater signature (TAURI_SIGNING_PRIVATE_KEY req
 ```
 
 - Gates: `npx tsc --noEmit` + `npx vitest run` + oxlint (both configs) + `cargo test` in `frontend/src-tauri`.
-- The two-device test scenario lives in `TEST_RUN_2_DEVICES.md` (workspace root).
+- The two-device test scenario: [`docs/TEST_RUN_2_DEVICES.md`](docs/TEST_RUN_2_DEVICES.md) — the full council decision history lives in [`docs/`](docs).
 
 <details>
 <summary>🇮🇷 راهنمای فارسی (کلیک کنید)</summary>
