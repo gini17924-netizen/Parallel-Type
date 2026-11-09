@@ -7,6 +7,7 @@ import { lanMaze } from "../maze-runner/lan";
 import { lanClimber } from "../climber/lan";
 import { lanRunner } from "../runner/lan";
 import { lanWordBlast } from "../word-blast/lan";
+import { lanStack } from "../stack-attack/lan";
 import { lanNitro } from "../nitro-run/lan";
 
 /**
@@ -24,4 +25,5 @@ registerLanGame(lanMaze);
 registerLanGame(lanClimber);
 registerLanGame(lanRunner);
 registerLanGame(lanWordBlast);
+registerLanGame(lanStack);
 registerLanGame(lanNitro);
