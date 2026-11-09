@@ -44,6 +44,7 @@ import {
   encodeSnapshot,
   pongLanWordStream,
   SNAPSHOT_INTERVAL_MS,
+  SNAPSHOT_MAX_BYTES,
   type LanPongState,
 } from "../../../../utils/type-pong/lan";
 import {
@@ -189,13 +190,19 @@ export function TypePongPage(): JSXElement {
           if (lanHost === undefined) return;
           const state = lanHost.tick(TICK_MS);
           setHostState(state);
-          //the fixed-rate snapshot: the whole match state to the client
+          //the fixed-rate snapshot: the whole match state to the client —
+          //never over the 64KB wire cap (the Rust pipe would drop it)
           snapshotSeq += 1;
-          sendLanMatchMessage({
-            type: "pong-snapshot",
-            gameId: "type-pong",
-            snap: encodeSnapshot({ ...state, seq: snapshotSeq }),
-          });
+          const snap = encodeSnapshot({ ...state, seq: snapshotSeq });
+          if (JSON.stringify(snap).length <= SNAPSHOT_MAX_BYTES) {
+            sendLanMatchMessage({
+              type: "pong-snapshot",
+              gameId: "type-pong",
+              snap,
+            });
+          } else {
+            console.error("lan: snapshot over the 64KB cap — dropped");
+          }
           if (state.phase === "done") endLanMatch();
         }, TICK_MS);
       } else {
