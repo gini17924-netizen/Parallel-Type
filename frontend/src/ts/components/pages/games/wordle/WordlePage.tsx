@@ -2,13 +2,36 @@ import {
   For,
   JSXElement,
   Show,
+  createEffect,
   createSignal,
   onCleanup,
   onMount,
 } from "solid-js";
 
+import { navigate } from "../../../../router/navigate";
+import { isLanConnected, lanPreFillName } from "../../../../states/lan";
+import {
+  armLanMatch,
+  clearLanMatch,
+  getLanMatch,
+  getRemoteFinished,
+  getRemoteProgress,
+  getRematchAsked,
+  sendLanMatchFinished,
+  sendLanMatchProgress,
+  sendLanMatchRematch,
+  sendLanMatchStart,
+  type LanMatch,
+} from "../../../../states/lan-match";
 import { cn } from "../../../../utils/cn";
+import { createSeededRng } from "../../../../utils/daily-gauntlet/seeded-rng";
 import { cachedFetchJson } from "../../../../utils/json-data";
+import {
+  lanWordle,
+  resolveWordleVerdict,
+  type WordleRemoteState,
+  type WordleVerdict,
+} from "../../../../utils/wordle/lan";
 import {
   buildShareGrid,
   computeWordlePools,
@@ -67,6 +90,15 @@ const KEY_ROWS: Record<"fa" | "en", string[][]> = {
 type PageLang = "fa" | "en";
 type PagePhase = "loading" | "puzzle";
 
+/** the online verdict once both solvers have reported */
+type WordleOnlineResult = {
+  verdict: WordleVerdict;
+  myGuesses: number;
+  myWon: boolean;
+  theirGuesses: number;
+  theirSolved: boolean;
+};
+
 /** the local calendar day key in the wordle store's HUMAN convention
  * (1-indexed months — must match the store's yesterdayKey arithmetic) */
 function puzzleNumber(ts: number): number {
@@ -111,13 +143,51 @@ export function WordlePage(): JSXElement {
   const [buffer, setBuffer] = createSignal("");
   const [message, setMessage] = createSignal<string | undefined>(undefined);
   const [copied, setCopied] = createSignal(false);
+  //online (LAN) state — the peer solves the same seeded answer
+  const [remoteState, setRemoteState] = createSignal<
+    WordleRemoteState | undefined
+  >(undefined);
+  const [onlineResult, setOnlineResult] = createSignal<
+    WordleOnlineResult | undefined
+  >(undefined);
+  const [rematchSent, setRematchSent] = createSignal(false);
+  const [onlineAnswer, setOnlineAnswer] = createSignal<string | undefined>(
+    undefined,
+  );
+  const [onlineGuesses, setOnlineGuesses] = createSignal<string[]>([]);
+  const [onlineOver, setOnlineOver] = createSignal<"won" | "lost" | null>(null);
+  const [voidMessage, setVoidMessage] = createSignal<string | undefined>(
+    undefined,
+  );
+
+  let onlineStartTs = 0;
+  const [myFinishSent, setMyFinishSent] = createSignal(false);
+  let lastSentGuesses = -1;
+  let lastSentSolved = -1;
 
   const todayKey = (): string => wordleDayKey(Date.now());
 
-  const loadLang = async (value: PageLang): Promise<void> => {
-    setPagePhase("loading");
-    setMessage(undefined);
-    setBuffer("");
+  const lanMode = (): boolean => getLanMatch()?.gameId === "wordle";
+
+  //leaving mid-solve (header back, route change) locks the guesses and
+  //tells the peer — they are never left waiting for my report
+  onCleanup(() => {
+    if (getLanMatch()?.gameId !== "wordle") return;
+    if (pagePhase() !== "puzzle") return;
+    if (!myFinishSent()) {
+      setMyFinishSent(true);
+      sendLanMatchProgress(
+        lanWordle.encodeProgress({
+          guesses: onlineGuesses().length,
+          solved: false,
+        }),
+      );
+      sendLanMatchFinished(null, 0);
+    }
+    clearLanMatch();
+  });
+
+  const loadPools = async (value: PageLang): Promise<void> => {
     try {
       const files = WORDLE_LANG_FILES[value];
       const [common, valid] = await Promise.all([
@@ -129,6 +199,13 @@ export function WordlePage(): JSXElement {
       //offline: a small self-contained pool keeps the game playable
       setPools(computeWordlePools(FALLBACK_WORDS, FALLBACK_WORDS));
     }
+  };
+
+  const loadLang = async (value: PageLang): Promise<void> => {
+    setPagePhase("loading");
+    setMessage(undefined);
+    setBuffer("");
+    await loadPools(value);
     setPuzzleState(loadWordleState(value, todayKey()));
     setBuffer("");
     setPagePhase("puzzle");
@@ -145,6 +222,7 @@ export function WordlePage(): JSXElement {
   };
 
   const answer = (): string | undefined => {
+    if (lanMode()) return onlineAnswer();
     const currentPools = pools();
     if (currentPools === undefined) return undefined;
     return pickAnswer(currentPools.answers, todayKey(), lang());
@@ -181,7 +259,47 @@ export function WordlePage(): JSXElement {
     return best;
   };
 
+  const resolveOnlineResult = (): void => {
+    const finished = getRemoteFinished();
+    if (finished === undefined) return;
+    setOnlineResult({
+      verdict: resolveWordleVerdict(
+        {
+          guesses: onlineGuesses().length,
+          elapsedMs: Date.now() - onlineStartTs,
+        },
+        {
+          guesses: remoteState()?.guesses ?? 0,
+          elapsedMs: finished.finishMs ?? Number.MAX_SAFE_INTEGER,
+        },
+      ),
+      myGuesses: onlineGuesses().length,
+      myWon: onlineOver() === "won",
+      theirGuesses: remoteState()?.guesses ?? 0,
+      theirSolved: remoteState()?.solved ?? false,
+    });
+  };
+
+  const myFinishNow = (): void => {
+    if (myFinishSent()) return;
+    setMyFinishSent(true);
+    sendLanMatchProgress(
+      lanWordle.encodeProgress({
+        guesses: onlineGuesses().length,
+        solved: onlineOver() === "won",
+      }),
+    );
+    sendLanMatchFinished(Date.now() - onlineStartTs, 100);
+    if (getRemoteFinished() !== undefined) {
+      resolveOnlineResult();
+    }
+  };
+
   const submitGuess = (): void => {
+    if (lanMode()) {
+      submitOnlineGuess();
+      return;
+    }
     const currentPools = pools();
     const solved = answer();
     const currentState = puzzleState();
@@ -228,6 +346,40 @@ export function WordlePage(): JSXElement {
     setBuffer("");
   };
 
+  /** the online submit: session-only guesses — the daily state untouched */
+  const submitOnlineGuess = (): void => {
+    const solved = onlineAnswer();
+    if (onlineOver() !== null || solved === undefined) return;
+    const normalized = normalizeGuess(buffer());
+    if (normalized.length !== WORDLE_LENGTH) {
+      setMessage(`needs ${WORDLE_LENGTH} letters`);
+      return;
+    }
+    if (!isValidGuess(normalized, validSet())) {
+      setMessage("not in word list");
+      return;
+    }
+    setMessage(undefined);
+    const guesses = [...onlineGuesses(), normalized];
+    const won = normalized === solved;
+    const lost = !won && guesses.length >= MAX_GUESSES;
+    setOnlineGuesses(guesses);
+    setBuffer("");
+    //online: relay the guess count / solve flag when they moved
+    const count = guesses.length;
+    if (count !== lastSentGuesses || (won ? 1 : 0) !== lastSentSolved) {
+      lastSentGuesses = count;
+      lastSentSolved = won ? 1 : 0;
+      sendLanMatchProgress(
+        lanWordle.encodeProgress({ guesses: count, solved: won }),
+      );
+    }
+    if (won || lost) {
+      setOnlineOver(won ? "won" : "lost");
+      myFinishNow();
+    }
+  };
+
   const handleKey = (event: KeyboardEvent): void => {
     if (pagePhase() !== "puzzle") return;
     if (event.ctrlKey || event.metaKey || event.altKey) return;
@@ -253,6 +405,97 @@ export function WordlePage(): JSXElement {
   onMount(() => {
     window.addEventListener("keydown", handleKey);
     onCleanup(() => window.removeEventListener("keydown", handleKey));
+  });
+
+  const hostRematch = (match: LanMatch): void => {
+    //arm first: a refused start never reaches the wire
+    armLanMatch({
+      role: "host",
+      peerName: match.peerName,
+      start: match.start,
+    });
+    if (getLanMatch() === undefined) return;
+    sendLanMatchStart(match.start, lanPreFillName() || "P1");
+  };
+
+  //an armed (or re-armed) wordle match IS the online start: the seed
+  //picks the answer from the identical pools, the session guesses reset
+  createEffect(() => {
+    const match = getLanMatch();
+    if (match?.gameId !== "wordle") return;
+    void (async () => {
+      //one seeded rng drives BOTH the random language pick and the answer
+      //pick — the same call order on both machines lands on identical state
+      const seeded = createSeededRng(match.start.seed ?? 1);
+      const mode = match.start.params["mode"];
+      const matchLang: PageLang =
+        mode === "fa"
+          ? "fa"
+          : mode === "random"
+            ? seeded() < 0.5
+              ? "fa"
+              : "en"
+            : "en";
+      setOnlineResult(undefined);
+      setRematchSent(false);
+      setRemoteState(undefined);
+      setOnlineOver(null);
+      setOnlineAnswer(undefined);
+      setOnlineGuesses([]);
+      setMyFinishSent(false);
+      lastSentGuesses = -1;
+      lastSentSolved = -1;
+      setMessage(undefined);
+      setBuffer("");
+      setLang(matchLang); //the match locks the language
+      setPagePhase("loading");
+      await loadPools(matchLang);
+      const currentPools = pools();
+      if (currentPools === undefined || currentPools.answers.length === 0) {
+        setMessage("the puzzle pools failed to load");
+        return;
+      }
+      //the seeded pick: both machines land on the identical answer
+      const answer =
+        currentPools.answers[
+          Math.floor(seeded() * currentPools.answers.length) %
+            currentPools.answers.length
+        ] ?? currentPools.answers[0];
+      setOnlineAnswer(answer);
+      onlineStartTs = Date.now();
+      setPagePhase("puzzle");
+    })();
+  });
+
+  //the relayed peer progress lands decoded — the panel reads it inline
+  createEffect(() => {
+    const progress = getRemoteProgress();
+    if (progress === undefined) return;
+    setRemoteState(progress.state as WordleRemoteState);
+  });
+
+  //the peer's finish resolves the held verdict (or arrived before mine)
+  createEffect(() => {
+    if (!myFinishSent()) return;
+    if (getRemoteFinished() === undefined) return;
+    resolveOnlineResult();
+  });
+
+  //the host answers a rematch request by re-sending the same start
+  createEffect(() => {
+    const match = getLanMatch();
+    if (match?.role !== "host" || match.gameId !== "wordle") return;
+    if (!getRematchAsked()) return;
+    hostRematch(match);
+  });
+
+  //a disconnect during the solve voids it — nothing online is recorded
+  createEffect(() => {
+    if (getLanMatch()?.gameId !== "wordle") return;
+    if (isLanConnected()) return;
+    if (pagePhase() !== "puzzle") return;
+    clearLanMatch();
+    setVoidMessage("the opponent left — race void, nothing was recorded");
   });
 
   const share = async (): Promise<void> => {
@@ -287,6 +530,18 @@ export function WordlePage(): JSXElement {
         </p>
       </section>
 
+      <Show when={voidMessage() !== undefined}>
+        <div class="text-error">{voidMessage()}</div>
+      </Show>
+      <Show when={lanMode()}>
+        <div
+          class="rounded bg-sub-alt p-2 text-center text-sm font-bold text-main"
+          data-testid="wd-online-vs"
+        >
+          <i class="fas fa-font"></i> online vs {getLanMatch()?.peerName ?? "…"}{" "}
+          — same answer, fewer guesses wins
+        </div>
+      </Show>
       <section class="grid gap-2">
         <div class="grid grid-cols-2 gap-2">
           <For each={["fa", "en"] as PageLang[]}>
@@ -294,12 +549,37 @@ export function WordlePage(): JSXElement {
               <Button
                 text={LANG_LABELS[value]}
                 class={cn("w-full", lang() === value && "bg-main text-bg")}
+                disabled={lanMode()}
                 onClick={() => selectLang(value)}
               />
             )}
           </For>
         </div>
       </section>
+      <Show when={lanMode()}>
+        <div class="grid grid-cols-2 gap-2" data-testid="wd-remote">
+          <div class="rounded bg-bg p-2 text-center">
+            <div class="text-xl font-bold text-error tabular-nums">
+              {remoteState()?.guesses ?? 0} guesses ·{" "}
+              {remoteState()?.solved ? "solved" : "solving"}
+            </div>
+            <div class="text-xs text-sub">
+              {getLanMatch()?.peerName ?? "the opponent"}
+            </div>
+          </div>
+          <div class="rounded bg-bg p-2 text-center">
+            <div class="text-xl font-bold text-main tabular-nums">
+              {onlineGuesses().length} guesses ·{" "}
+              {onlineOver() === "won"
+                ? "solved"
+                : onlineOver() === "lost"
+                  ? "failed"
+                  : "solving"}
+            </div>
+            <div class="text-xs text-sub">you</div>
+          </div>
+        </div>
+      </Show>
 
       <Show
         when={pagePhase() === "puzzle"}
@@ -309,6 +589,86 @@ export function WordlePage(): JSXElement {
           </div>
         }
       >
+        <Show
+          when={lanMode() && myFinishSent() && onlineResult() === undefined}
+        >
+          <div
+            class="grid place-items-center rounded bg-sub-alt py-8 text-center"
+            data-testid="wd-awaiting"
+          >
+            <div class="text-2xl font-bold text-main">
+              {`your guesses are locked (${onlineGuesses().length}) — waiting
+              for ${getLanMatch()?.peerName ?? "the opponent"}'s horn…`}
+            </div>
+          </div>
+        </Show>
+        <Show when={onlineResult() !== undefined}>
+          <section class="grid gap-4 rounded bg-sub-alt p-6 text-center">
+            <div
+              class={cn(
+                "text-3xl font-bold",
+                onlineResult()?.verdict === "won"
+                  ? "text-main"
+                  : onlineResult()?.verdict === "draw"
+                    ? "text-sub"
+                    : "text-error",
+              )}
+              data-testid="wd-verdict"
+            >
+              {onlineResult()?.verdict === "won"
+                ? "you win!"
+                : onlineResult()?.verdict === "draw"
+                  ? "draw"
+                  : `${getLanMatch()?.peerName ?? "the opponent"} wins`}
+            </div>
+            <div class="grid grid-cols-2 gap-2">
+              <div class="rounded bg-bg p-3">
+                <div class="text-xl font-bold text-main tabular-nums">
+                  {onlineResult()?.myGuesses ?? 0} guesses ·{" "}
+                  {onlineResult()?.myWon ? "solved" : "failed"}
+                </div>
+                <div class="text-xs text-sub">you</div>
+              </div>
+              <div class="rounded bg-bg p-3">
+                <div class="text-xl font-bold text-main tabular-nums">
+                  {onlineResult()?.theirGuesses ?? 0} guesses ·{" "}
+                  {onlineResult()?.theirSolved ? "solved" : "failed"}
+                </div>
+                <div class="text-xs text-sub">
+                  {getLanMatch()?.peerName ?? "the opponent"}
+                </div>
+              </div>
+            </div>
+            <div class="grid grid-cols-2 gap-2">
+              <Button
+                text={
+                  rematchSent() ? "rematch requested — waiting…" : "rematch"
+                }
+                fa={{ icon: "fa-redo" }}
+                class="w-full"
+                onClick={() => {
+                  const match = getLanMatch();
+                  if (match === undefined || rematchSent()) return;
+                  if (match.role === "host") {
+                    hostRematch(match);
+                  } else {
+                    sendLanMatchRematch();
+                    setRematchSent(true);
+                  }
+                }}
+              />
+              <Button
+                text="leave to lobby"
+                fa={{ icon: "fa-arrow-left" }}
+                class="w-full"
+                onClick={() => {
+                  clearLanMatch();
+                  void navigate({ to: "/games/online" });
+                }}
+              />
+            </div>
+          </section>
+        </Show>
         <section class="grid gap-1" aria-label="wordle grid">
           <For each={[0, 1, 2, 3, 4, 5]}>
             {(rowIndex) => (
