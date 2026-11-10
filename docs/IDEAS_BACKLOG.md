@@ -42,6 +42,7 @@
 - MSIX/Store submission و manifestهای winget/scoop
 - احیای بیلد لینوکس (pkg.tar.zst قدیمی) + ARM64 ویندوز
 - کانال آپدیت (stable/beta) — latest.json دو نسخه‌ای
+- toggle خاموش/روشن آپدیت خودکار + دکمهٔ «check for updates» در Settings (ثبت‌شده قبلاً به‌عنوان فاز ۵۶)
 - اتوماسیون ریلیز کامل: tag → بیلد → امضا → Release سه‌فایلی (حذف گام دستی فعلی)
 - CI متا: تست دودِ نصب‌کننده (سایلنت نصب روی runner + اجرا)
 
