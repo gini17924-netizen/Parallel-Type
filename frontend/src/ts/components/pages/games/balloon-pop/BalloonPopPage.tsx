@@ -541,8 +541,15 @@ export function BalloonPopPage(): JSXElement {
         style={{ height: "70vh" }}
         aria-label="balloon arena"
       >
-        <div class="absolute top-0 w-full border-t-2 border-dashed border-error"></div>
-        <div class="absolute top-1 w-full text-center text-[0.65rem] text-error">
+        <div
+          class="absolute w-full border-t-2 border-dashed border-error"
+          style={{ top: `${BALANCE.dangerLineVh}vh` }}
+          data-testid="bp-danger-line"
+        ></div>
+        <div
+          class="absolute w-full text-center text-[0.65rem] text-error"
+          style={{ top: `calc(${BALANCE.dangerLineVh}vh + 4px)` }}
+        >
           danger line
         </div>
         <For each={engineState()?.bubbles ?? []}>

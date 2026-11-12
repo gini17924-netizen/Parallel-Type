@@ -101,6 +101,26 @@ describe("balloon engine (idea G6 phase 1)", () => {
     expect(engine.state().combo).toBe(1);
   });
 
+  it("the escape fires exactly at the danger threshold (H3: the line is the truth)", () => {
+    const engine = createBalloonEngine({
+      spawn: makeSpawn(["alpha"]),
+      letters: ["a"],
+    });
+    //drive the physics until the balloon's y crosses the threshold: the
+    //escape must land on the very tick the first balloon's y crosses the
+    //danger line — later spawns keep rising behind it and are irrelevant
+    let escaped = false;
+    for (let guard = 0; guard < 100; guard++) {
+      const state = engine.tick(200); //the page's step, enlarged
+      if (state.bubbles.find((b) => b.id === 1) === undefined) {
+        escaped = true; //the first balloon's escape tick
+        break;
+      }
+    }
+    expect(escaped).toBe(true);
+    expect(engine.state().lives).toBe(2); //3 - 1 escape
+  });
+
   it("an escape costs a life, breaks the combo and removes the balloon", () => {
     //a fast balloon: 100 vh/s crosses the 94vh arena in 0.94s
     const engine = createBalloonEngine({

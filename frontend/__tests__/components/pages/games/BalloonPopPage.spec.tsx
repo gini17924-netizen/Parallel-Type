@@ -12,6 +12,7 @@ import {
   armLanMatch,
   handleLanPeerMessage,
 } from "../../../../src/ts/states/lan-match";
+import { BALANCE } from "../../../../src/ts/utils/balloon-pop/balance";
 import {
   _resetBalloonPopScoresForTests,
   BALLOON_POP_SCORES_KEY,
@@ -111,6 +112,18 @@ describe("balloon pop page (idea G6 phase 2)", () => {
     const text = pageText(app);
     expect(text).toContain("x1"); //the combo meter moved
     expect(text).toContain("1"); //the score left zero
+  });
+
+  it("the danger line renders exactly at the engine's pop threshold (H3)", async () => {
+    const app = await openBalloonPop();
+    vi.useFakeTimers();
+    button(app, "start stage 1")?.click();
+    await vi.advanceTimersByTimeAsync(100);
+    const line = app.container.querySelector<HTMLElement>(
+      '[data-testid="bp-danger-line"]',
+    );
+    expect(line).not.toBeNull();
+    expect(line?.style.top).toBe(`${BALANCE.dangerLineVh}vh`);
   });
 
   it("a rapid double-start does not double-tick the engine (KI-30)", async () => {
