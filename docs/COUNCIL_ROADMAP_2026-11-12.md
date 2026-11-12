@@ -42,7 +42,7 @@
 
 ## بلوک A — زیر‌بار (فازهای ۵۶-۶۴)
 
-**فاز ۵۶ — toggle و دکمهٔ آپدیتر**
+**فاز ۵۶** ✅ (6b0b720) — **toggle و دکمهٔ آپدیتر در Settings.** (انجام‌شده: فلگ پایدار در app CONFIG dir (`updates-settings.json` — missing/corrupt = on؛ فایلِ config نه data تا با نصب سفر کند نه با پروفایل‌ها) خوانده‌شده توسط boot check **قبل از لود فرانت**؛ سه فرمان registered: `updates_get_settings` / `updates_set_auto_check` / `updates_check_now` — دستی: current → پاس سبز؛ available → events `updates://status` (available/installed) + دانلود/نصب passively + restart (پاسش شاید هرگز نرسد — UI از قبل announcing می‌شود)؛ کارت UpdatesCard در Settings (toggle دو-دکمه‌ای + check button + خط وضعیت زنده؛ desktop-only fallback)؛ ماژول utils/updates.ts با accessor خودش (الگوی per-module). **درس E0255 (KI-53)**: فرمان‌های tauri در crate root باید `fn` باشند نه `pub fn` — pub، re-export ماکرو __cmd__ را دوباره import می‌کند و E0255 می‌دهد (backup_write/backup_read مرجع درست بودند)؛ + emit های main.rs باید app.emit با import Emitter باشند (helper emit فقط در lan.rs). تست‌ها: ۱۶ Rust + spec کارت ۴/۴ (load/toggle-persist/current/available) — سوئیت ۲۸۴۱/۲۸۴۱ + lint/tsc صفر. push هر دو ریموت.)
 - هدف: کنترل کاربر روی آپدیت خودکار + چک دستی.
 - فایل‌ها: `src-tauri/src/main.rs` (خواندن/نوشتن `updates.json` در app config dir؛ توابع خالص load/save + تست Rust)، فرمان‌های `updates_set_auto_check(bool)` و `updates_check_now()` (نتیجه → event)، `src/ts/components/...settings/` (toggle + دکمه + نمایش نتیجه) — متن انگلیسی.
 - گیت: cargo test ۱۴+ و سوئیت فرانت کامل و oxlint صفر.
