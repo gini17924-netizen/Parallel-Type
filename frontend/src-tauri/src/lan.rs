@@ -346,8 +346,8 @@ where
     {
         Err(_) => return Err("lan: join timed out".into()),
         Ok(Ok(Some(line))) => line,
-        Ok(_) => return Err("lan: join failed (connection dropped)".into()),
         Ok(Err(_)) => return Err("lan: join failed (line over the cap)".into()),
+        Ok(_) => return Err("lan: join failed (connection dropped)".into()),
     };
     let parsed: Option<Value> = serde_json::from_str(&line).ok();
     match parsed {
@@ -728,7 +728,7 @@ async fn run_host<S: LanEventSink + Clone>(
             .await
             {
                 Err(_) => break None, //the window closed
-                Ok(Ok(Some(line))) => Some(line),
+                Ok(Ok(Some(line))) => line,
                 Ok(_) => break None, //the client dropped
                 Ok(Err(_)) => break None, //an over-cap line
             };
@@ -1079,7 +1079,7 @@ mod tests {
         let stream = tokio::net::TcpStream::connect(addr)
             .await
             .expect("the client connects");
-        let (mut read, mut write) = tokio::io::split(stream);
+        let (read, mut write) = tokio::io::split(stream);
         let join = serde_json::json!({
             "type": "join", "name": "P2", "code": code
         });

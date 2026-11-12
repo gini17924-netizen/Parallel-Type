@@ -36,7 +36,7 @@ export async function updatesGetSettings(): Promise<
   const invoke = getInvoke();
   if (invoke === undefined) return undefined;
   try {
-    return (await invoke("updates_get_settings")) as UpdatesSettings;
+    return await invoke<UpdatesSettings>("updates_get_settings");
   } catch (error) {
     console.error("updates: settings read failed", error);
     return undefined;
@@ -62,7 +62,7 @@ export async function updatesCheckNow(): Promise<
   const invoke = getInvoke();
   if (invoke === undefined) return undefined;
   try {
-    return (await invoke("updates_check_now")) as UpdateCheckResult;
+    return await invoke<UpdateCheckResult>("updates_check_now");
   } catch (error) {
     console.error("updates: check failed", error);
     return undefined;
