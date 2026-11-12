@@ -51,6 +51,10 @@ const DISCOVERY_STALE_MS: u64 = 5000;
 const JOIN_TIMEOUT_SECS: u64 = 10;
 /// the client waits this long for the host's joined ack
 const ACK_TIMEOUT_SECS: u64 = 5;
+/// hardening (phase H1): the manual connect's TCP attempt gets this
+/// window — a firewall silently DROPPING the syn would otherwise hang
+/// the join for the OS-level timeout (~21s of silence)
+const CONNECT_TIMEOUT_SECS: u64 = 5;
 /// hardening (phase 53): a peer's inbound stream is rate-limited — the
 /// pipe serves exactly one two-player match, so anything beyond a
 /// generous match-sized budget is hostile (flooded snapshots, spam)
@@ -350,6 +354,9 @@ where
         Some(value) if value["type"] == "joined" => {
             Ok(value["name"].as_str().unwrap_or("the host").to_string())
         }
+        Some(value) if value["type"] == "join-rejected" => {
+            Err("lan: the code was rejected by the host".into())
+        }
         _ => Err("lan: join rejected".into()),
     }
 }
@@ -373,9 +380,20 @@ pub async fn lan_connect_client(
     {
         return Err("lan: already connected".into());
     }
-    let stream = tokio::net::TcpStream::connect(&addr)
-        .await
-        .map_err(|e| format!("lan: connect failed ({e})"))?;
+    let stream = match tokio::time::timeout(
+        Duration::from_secs(CONNECT_TIMEOUT_SECS),
+        tokio::net::TcpStream::connect(&addr),
+    )
+    .await
+    {
+        Err(_) => {
+            return Err(format!(
+                "lan: the host did not answer in {CONNECT_TIMEOUT_SECS}s — check the ip and the host's firewall"
+            ))
+        }
+        Ok(Err(e)) => return Err(format!("lan: connect failed ({e})")),
+        Ok(Ok(stream)) => stream,
+    };
     let (read, mut write) = tokio::io::split(stream);
     let join = serde_json::json!({ "type": "join", "name": name, "code": code });
     write
@@ -614,6 +632,28 @@ async fn run_beacon(
     }
 }
 
+/// classifies one pre-handshake line against the session's code — pure
+/// and testable: the correct join accepts, a WELL-FORMED join with a
+/// wrong code rejects immediately (the client gets a precise error),
+/// anything else is ignored
+#[derive(Debug)]
+enum JoinDecision {
+    Accept(String),
+    Reject,
+    Ignore,
+}
+
+fn decide_join(line: &str, code: &str) -> JoinDecision {
+    let parsed: Result<Value, _> = serde_json::from_str(line);
+    match parsed {
+        Ok(v) if v["type"] == "join" && v["code"] == code => {
+            JoinDecision::Accept(v["name"].as_str().unwrap_or("P2").to_string())
+        }
+        Ok(v) if v["type"] == "join" => JoinDecision::Reject,
+        _ => JoinDecision::Ignore,
+    }
+}
+
 async fn run_host(
     app: AppHandle,
     session_id: String,
@@ -647,23 +687,35 @@ async fn run_host(
     let mut reader = BufReader::new(read);
 
     // the first line must be a valid join with the session's code; a
-    // silent or wrong client is released so the slot does not pin forever
+    // silent client is released so the slot does not pin forever, and a
+    // WRONG code gets an immediate precise reject while the host keeps
+    // listening (the right client must still be able to join)
+    let join_deadline = tokio::time::Instant::now() + Duration::from_secs(JOIN_TIMEOUT_SECS);
     let joined = loop {
-        tokio::select! {
-            _ = &mut shutdown_rx => return,
-            _ = tokio::time::sleep(Duration::from_secs(JOIN_TIMEOUT_SECS)) => return,
-            line = next_bounded_line(&mut reader) => match line {
-                Ok(Some(line)) => {
-                    let parsed: Result<Value, _> = serde_json::from_str(&line);
-                    match parsed {
-                        Ok(v) if v["type"] == "join" && v["code"] == code.as_str() => {
-                            break v["name"].as_str().unwrap_or("P2").to_string();
-                        }
-                        _ => continue, //ignore anything else before the join
-                    }
+        let remaining = join_deadline.saturating_duration_since(tokio::time::Instant::now());
+        if remaining.is_zero() {
+            return; //the join window closed — the slot is released
+        }
+        let line = match tokio::time::timeout(remaining, next_bounded_line(&mut reader)).await {
+            Err(_) => return, //the join window closed
+            Ok(Ok(Some(line))) => line,
+            Ok(_) => return, //the client dropped
+            Ok(Err(_)) => return, //an over-cap line
+        };
+        match decide_join(&line, &code) {
+            JoinDecision::Accept(name) => break name,
+            JoinDecision::Reject => {
+                let reject = serde_json::json!({ "type": "join-rejected", "reason": "wrong code" });
+                if write
+                    .write_all(format!("{}
+", reject).as_bytes())
+                    .await
+                    .is_err()
+                {
+                    return;
                 }
-                _ => return,
-            },
+            }
+            JoinDecision::Ignore => continue, //anything else before the join
         }
     };
     // the joined ack completes the handshake — the client shows the
@@ -893,6 +945,47 @@ mod tests {
             limiter.admit(10, now),
             "a slid window admits again (the connection may recover)"
         );
+    }
+
+    #[test]
+    fn decide_join_classifies_the_handshake_lines() {
+        let correct = r#"{"type":"join","name":"P2","code":"ABCD"}"#;
+        match decide_join(correct, "ABCD") {
+            JoinDecision::Accept(name) => assert_eq!(name, "P2"),
+            other => panic!("the correct join must accept, got {other:?}"),
+        }
+        //a WELL-FORMED join with a wrong code: an immediate reject (the
+        //client gets a precise error instead of a silent 5s hang)
+        let wrong = r#"{"type":"join","name":"P2","code":"ZZZZ"}"#;
+        assert!(matches!(
+            decide_join(wrong, "ABCD"),
+            JoinDecision::Reject
+        ));
+        //anything else before the join is ignored
+        assert!(matches!(
+            decide_join(r#"{"type":"progress","x":1}"#, "ABCD"),
+            JoinDecision::Ignore
+        ));
+        assert!(matches!(decide_join("garbage", "ABCD"), JoinDecision::Ignore));
+    }
+
+    #[tokio::test]
+    async fn a_join_rejected_ack_fails_the_handshake_with_a_precise_error() {
+        let (client_side, mut host_side) = tokio::io::duplex(1024);
+        let fake_host = tokio::spawn(async move {
+            host_side
+                .write_all(br#"{"type":"join-rejected","reason":"wrong code"}"#)
+                .await
+                .expect("write the reject");
+            host_side.write_all(b"
+").await.expect("write newline");
+        });
+        let mut reader = BufReader::new(client_side);
+        let error = await_join_ack(&mut reader)
+            .await
+            .expect_err("a reject must fail the handshake");
+        assert!(error.contains("rejected"), "precise: {error}");
+        fake_host.await.expect("fake host task");
     }
 
     #[tokio::test]

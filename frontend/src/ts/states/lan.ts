@@ -126,23 +126,32 @@ export async function lanStartHost(
   return info;
 }
 
-/** joins a host by its ip:port + code */
+/** joins a host by its ip:port + code. Resolves undefined on success,
+ * or the PRECISE failure reason (the rust side names the step: the tcp
+ * window, the ack timeout, the rejected code) so the lobby can show
+ * what actually failed instead of one generic line */
 export async function lanJoin(
   addr: string,
   code: string,
   name: string,
-): Promise<boolean> {
+): Promise<string | undefined> {
   const invoke = getInvoke();
-  if (invoke === undefined) return false;
+  if (invoke === undefined) return "the LAN backend is only available inside the desktop app";
   wireLanEvents();
   lanRememberName(name);
   try {
     await invoke("lan_connect_client", { addr, code, name });
     setRole("client");
-    return true;
+    return undefined;
   } catch (error) {
     console.error("lan join failed", error);
-    return false;
+    const raw =
+      typeof error === "string"
+        ? error
+        : error instanceof Error
+          ? error.message
+          : "unknown join error";
+    return raw.replace(/^lan:\s*/, "");
   }
 }
 

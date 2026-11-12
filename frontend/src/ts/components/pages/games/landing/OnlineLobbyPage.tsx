@@ -66,6 +66,9 @@ export function OnlineLobbyPage(): JSXElement {
   const [joinAddr, setJoinAddr] = createSignal("");
   const [joinCode, setJoinCode] = createSignal("");
   const [message, setMessage] = createSignal<string | undefined>(undefined);
+  //H1: the manual join gets a visible in-flight state — silence on a
+  //click read as "nothing happens" (the user report)
+  const [connecting, setConnecting] = createSignal(false);
   //flips after a few silent seconds so the empty list gets the
   //"use the manual join" hint instead of just "listening…"
   const [discoveryWaited, setDiscoveryWaited] = createSignal(false);
@@ -110,30 +113,31 @@ export function OnlineLobbyPage(): JSXElement {
       setMessage("the LAN backend is only available inside the desktop app");
       return false;
     }
-    const ok = await lanJoin(addr, code, playerName());
-    if (!ok) return false;
+    setConnecting(true);
+    setMessage(undefined);
+    const error = await lanJoin(addr, code, playerName());
+    setConnecting(false);
+    if (error !== undefined) {
+      setMessage(`could not connect — ${error}`);
+      return false;
+    }
     setView("joining");
     return true;
   };
 
   const joinHost = async (): Promise<void> => {
     setMessage(undefined);
+    if (connecting()) return;
     if (joinAddr().trim() === "" || joinCode().trim() === "") {
       setMessage("enter the host ip and session code first");
       return;
     }
-    if (
-      !(await connectTo(joinAddr().trim(), joinCode().trim().toUpperCase()))
-    ) {
-      setMessage("could not connect — check the ip and the code");
-    }
+    await connectTo(joinAddr().trim(), joinCode().trim().toUpperCase());
   };
 
   const joinDiscovered = async (session: LanDiscovered): Promise<void> => {
     setMessage(undefined);
-    if (!(await connectTo(`${session.ip}:${session.port}`, session.code))) {
-      setMessage("could not connect — the match may have ended");
-    }
+    await connectTo(`${session.ip}:${session.port}`, session.code);
   };
 
   //the host builds the start through the registry contract and ships it —
@@ -418,9 +422,10 @@ export function OnlineLobbyPage(): JSXElement {
             <div class="text-error">{message()}</div>
           </Show>
           <Button
-            text="connect"
+            text={connecting() ? "connecting…" : "connect"}
             fa={{ icon: "fa-plug" }}
             class="w-full"
+            disabled={connecting()}
             onClick={() => void joinHost()}
           />
         </Show>

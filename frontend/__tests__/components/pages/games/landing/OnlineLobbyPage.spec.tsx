@@ -9,6 +9,28 @@ import { _resetLanStateForTests } from "../../../../../src/ts/states/lan";
 /** the frontend talks to the Rust pipe through window.__TAURI__ — this
  * fake records the invokes and captures the event listeners so the spec
  * can fire the Rust-side events (peer-joined etc.) */
+/** one-shot: the next lan_connect_client invoke rejects like the rust
+ * side does (a plain string error carrying the precise step) */
+function connectWithRejectOnce(): void {
+  const tauriWindow = (window as unknown as {
+    __TAURI__: {
+      core: {
+        invoke: (
+          cmd: string,
+          args?: Record<string, unknown>,
+        ) => Promise<unknown>;
+      };
+    };
+  }).__TAURI__;
+  const original = tauriWindow.core.invoke.bind(tauriWindow.core);
+  tauriWindow.core.invoke = async (cmd, args) => {
+    if (cmd === "lan_connect_client") {
+      throw "lan: the code was rejected by the host";
+    }
+    return original(cmd, args);
+  };
+}
+
 function installTauriMock(discovered: Record<string, unknown>[] = []): {
   invokes: { cmd: string; args: Record<string, unknown> }[];
   fire: (ev: string, payload: unknown) => void;
@@ -141,6 +163,80 @@ describe("online lobby (LAN, phase 2)", () => {
     //the Rust side announces the joined peer through lan://peer-joined
     tauri.fire("lan://peer-joined", { name: "HOST1" });
     expect(pageText(container)).toContain("connected vs HOST1");
+  });
+
+  it("a rejected join shows the precise rust error and re-enables the button", async () => {
+    const { container } = render(() => <OnlineLobbyPage />);
+    [...container.querySelectorAll("button")]
+      .find((b) => (b.textContent ?? "").includes("join a match"))
+      ?.click();
+    fireEvent.input(
+      container.querySelector(
+        'input[aria-label="host ip and port"]',
+      ) as HTMLInputElement,
+      { target: { value: "192.168.100.24:51987" } },
+    );
+    fireEvent.input(
+      container.querySelector(
+        'input[aria-label="session code"]',
+      ) as HTMLInputElement,
+      { target: { value: "WRONG" } },
+    );
+    connectWithRejectOnce();
+    const connectBtn = [...container.querySelectorAll("button")].find((b) =>
+      (b.textContent ?? "").includes("connect"),
+    );
+    connectBtn?.click();
+    await vi.waitFor(() => {
+      expect(pageText(container)).toContain(
+        "could not connect — the code was rejected by the host",
+      );
+    });
+    //the button is back (not stuck disabled)
+    expect(
+      [...container.querySelectorAll("button")].find((b) =>
+        (b.textContent ?? "").includes("connect"),
+      )?.disabled,
+    ).toBe(false);
+  });
+
+  it("the manual join shows an in-flight state while connecting", async () => {
+    const { container } = render(() => <OnlineLobbyPage />);
+    [...container.querySelectorAll("button")]
+      .find((b) => (b.textContent ?? "").includes("join a match"))
+      ?.click();
+    fireEvent.input(
+      container.querySelector(
+        'input[aria-label="host ip and port"]',
+      ) as HTMLInputElement,
+      { target: { value: "192.168.100.24:51987" } },
+    );
+    fireEvent.input(
+      container.querySelector(
+        'input[aria-label="session code"]',
+      ) as HTMLInputElement,
+      { target: { value: "N3DB" } },
+    );
+    //a never-resolving invoke: the in-flight state stays visible
+    (window as unknown as { __TAURI__: unknown }).__TAURI__ = {
+      core: {
+        invoke: () => new Promise(() => undefined), //never settles
+      },
+      event: {
+        listen: async () => () => undefined,
+      },
+    };
+    const connectBtn = [...container.querySelectorAll("button")].find((b) =>
+      (b.textContent ?? "").includes("connect"),
+    );
+    connectBtn?.click();
+    await vi.waitFor(() => {
+      expect(
+        [...container.querySelectorAll("button")]
+          .find((b) => (b.textContent ?? "").includes("connecting"))
+          ?.disabled,
+      ).toBe(true);
+    });
   });
 
   it("leaving resets to the lobby menu", async () => {
