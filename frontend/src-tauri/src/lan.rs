@@ -1122,27 +1122,32 @@ mod tests {
         ));
 
         //the host frontend's start queues through the pipe — and the
-        //SENDER STAYS ALIVE (the dropped sender would end the write task
-        //and close the socket mid-match, H1's own lesson)
+        //SENDER STAYS ALIVE (a dropped sender ends the write task, which
+        //aborts the read task and closes the socket mid-match — H1 again)
         let start = serde_json::json!({ "type": "start", "seed": 42, "params": {} });
         host_sends
             .send(format!("{}\n", start))
             .expect("the start queues");
 
-        //the scripted client: join -> ack -> the host's start -> its own progress
-        let sends = vec![serde_json::json!({ "type": "progress", "state": { "x": 3 } })];
+        //the scripted client: join -> ack -> the host's relayed start ->
+        //its own progress (each send waits for the line before it)
+        let sends = vec![
+            serde_json::json!({ "type": "progress", "state": { "x": 0 } }),
+            serde_json::json!({ "type": "progress", "state": { "x": 3 } }),
+        ];
         let read_lines = scripted_client(addr, "ABCD", sends).await;
 
         //the ack carries the HOST's name (the join handshake contract)
         assert!(read_lines[0].contains("HOST1"), "the ack names the host: {}", read_lines[0]);
-        //the host relayed the start back through the pipe
+        //the host relayed the queued start through the pipe
         assert!(read_lines[1].contains("start"), "the start relays: {}", read_lines[1]);
 
-        //the sink saw the join announcement; the client's progress needs a
-        //yield or two to reach it (the test runtime is current-thread)
+        //the sink saw the join announcement and both of the client's
+        //progress relays — they need a yield or two to arrive (the test
+        //runtime is current-thread)
         assert_eq!(sink.count("lan://peer-joined"), 1);
         let mut waited = 0u32;
-        while sink.count("lan://peer-message") == 0 && waited < 50 {
+        while sink.count("lan://peer-message") < 2 && waited < 50 {
             tokio::time::sleep(Duration::from_millis(50)).await;
             waited += 1;
         }
@@ -1207,7 +1212,9 @@ mod tests {
         let addr = listener.local_addr().expect("addr");
         let sink = TestSink::default();
         let (_shutdown_tx, shutdown_rx) = tokio::sync::oneshot::channel::<()>();
-        let (_, client_rx) = mpsc::unbounded_channel::<String>();
+        //the sender stays alive: a dropped one ends the write loop, which
+        //aborts the read task before the limiter ever gets to trip
+        let (_host_sends, client_rx) = mpsc::unbounded_channel::<String>();
         tokio::spawn(run_host(
             sink.clone(),
             "lan-1/ABCD".into(),
