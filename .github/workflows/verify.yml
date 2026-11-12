@@ -8,6 +8,13 @@ on:
     branches: [main]
   pull_request:
   workflow_dispatch:
+    inputs:
+      #the installer smoke costs a full windows build — opt-in only
+      smoke_windows:
+        description: 'also run the windows installer smoke (silent install → launch → process check → uninstall)'
+        required: false
+        type: boolean
+        default: false
 
 jobs:
   frontend:
@@ -65,3 +72,87 @@ jobs:
       - name: cargo test
         working-directory: frontend/src-tauri
         run: cargo test
+
+  windows-smoke:
+    # phase 64 — the installer smoke: a broken installer must surface
+    # BEFORE a release is cut with it. Manual: it costs a full windows
+    # build (dispatch → check smoke_windows).
+    name: windows — installer smoke (silent install → launch → uninstall)
+    runs-on: windows-latest
+    if: github.event_name == 'workflow_dispatch' && inputs.smoke_windows == true
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: pnpm
+          cache-dependency-path: pnpm-lock.yaml
+      - name: install (frontend + packages slice, frozen lockfile)
+        working-directory: .
+        run: pnpm install --frozen-lockfile --filter frontend --filter './packages/**'
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: frontend/src-tauri
+      - name: build the frontend (madge + ts-check + vite)
+        working-directory: frontend
+        env:
+          #same placeholder as the release workflow — the desktop fork has
+          #no server; the local .env.production is git-ignored
+          RECAPTCHA_SITE_KEY: desktop-build-placeholder
+        run: pnpm build
+      - name: build + sign the NSIS bundle
+        working-directory: frontend
+        env:
+          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+          TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ''
+        shell: bash
+        run: pnpm exec tauri build
+      - name: smoke — silent install, launch, process check, uninstall
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = "Stop"
+          $bundle = "frontend/src-tauri/target/release/bundle/nsis"
+          $installer = Get-ChildItem "$bundle" -Filter "*-setup.exe" | Select-Object -First 1
+          if (-not $installer) { throw "no installer was produced" }
+          Write-Host "installer: $($installer.FullName)"
+
+          #silent install — currentUser mode, no admin prompt expected
+          $p = Start-Process -FilePath $installer.FullName -ArgumentList "/S" -Wait -PassThru
+          if ($p.ExitCode -ne 0) { throw "silent install exited with $($p.ExitCode)" }
+
+          #locate the installed exe (known dirs first, then a bounded search)
+          $exe = @("$env:LOCALAPPDATA\ParallelType\ParallelType.exe",
+                   "$env:LOCALAPPDATA\Programs\ParallelType\ParallelType.exe") |
+                 Where-Object { Test-Path $_ } | Select-Object -First 1
+          if (-not $exe) {
+            $exe = Get-ChildItem "$env:LOCALAPPDATA" -Recurse -Filter "ParallelType.exe" `
+                    -Depth 3 -ErrorAction SilentlyContinue |
+                   Select-Object -First 1 -ExpandProperty FullName
+          }
+          if (-not $exe) { throw "ParallelType.exe was not found after the silent install" }
+          Write-Host "installed at: $exe (version $((Get-Item $exe).VersionInfo.ProductVersion))"
+
+          #launch and confirm the process is alive after 10s — a crash here
+          #is exactly the class of failure this job exists to catch
+          Start-Process -FilePath $exe | Out-Null
+          Start-Sleep -Seconds 10
+          $alive = Get-Process -Name "ParallelType" -ErrorAction SilentlyContinue
+          if (-not $alive) { throw "the app process was not alive 10s after launch" }
+          Write-Host "process alive: PID $($alive.Id) — stopping it"
+          $alive | Stop-Process -Force
+
+          #silent uninstall (NSIS copies itself to %TEMP% and re-executes —
+          #poll until the install dir is actually gone)
+          $dir = Split-Path $exe
+          $uninst = Join-Path $dir "Uninstall.exe"
+          if (-not (Test-Path $uninst)) { throw "Uninstall.exe is missing beside the app" }
+          Start-Process -FilePath $uninst -ArgumentList "/S" | Out-Null
+          $gone = $false
+          for ($i = 0; $i -lt 30; $i++) {
+            Start-Sleep -Seconds 2
+            if (-not (Test-Path $dir)) { $gone = $true; break }
+          }
+          if (-not $gone) { throw "the install dir survived the silent uninstall" }
+          Write-Host "smoke PASS: silent install → launch → alive → clean uninstall"
