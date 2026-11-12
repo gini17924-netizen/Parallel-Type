@@ -58,6 +58,21 @@ describe("balloon engine (idea G6 phase 1)", () => {
     expect(state.bubbles).toHaveLength(1);
   });
 
+  it("a wrong key in stage 2+ also zeroes the combo (H2: uniform rule)", () => {
+    const engine = createBalloonEngine({
+      spawn: makeSpawn(["alpha"]),
+      letters: ["a", "b"],
+      startStage: 2,
+    });
+    for (const ch of "alpha") {
+      engine.feedKey(ch); //completing the word pops it -> the combo grows
+    }
+    expect(engine.state().combo).toBe(1);
+    engine.tick(2500); //the spawn cadence (stage 2 ~1.2s+) puts the next balloon up
+    engine.feedKey("z"); //a wrong letter against the current target
+    expect(engine.state().combo).toBe(0);
+  });
+
   it("an unmatched key breaks the combo without touching balloons", () => {
     const engine = createBalloonEngine({
       spawn: makeSpawn(["alpha"]),

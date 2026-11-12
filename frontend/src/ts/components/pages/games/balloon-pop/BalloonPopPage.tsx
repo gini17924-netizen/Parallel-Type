@@ -27,6 +27,7 @@ import {
 } from "../../../../states/lan-match";
 import {
   BALANCE,
+  comboMult,
   type BalloonStage,
 } from "../../../../utils/balloon-pop/balance";
 import {
@@ -765,7 +766,10 @@ export function BalloonPopPage(): JSXElement {
             <HudCell label="stage" value={String(engineState()?.stage ?? 1)} />
             <HudCell label="level" value={String(engineState()?.level ?? 1)} />
             <HudCell label="score" value={String(engineState()?.score ?? 0)} />
-            <HudCell label="combo" value={`x${engineState()?.combo ?? 0}`} />
+            <HudCell
+              label="combo"
+              value={`${engineState()?.combo ?? 0} · x${comboMult(engineState()?.combo ?? 0)}`}
+            />
             <HudCell
               label="lives"
               value={"❤".repeat(engineState()?.lives ?? 0) || "—"}

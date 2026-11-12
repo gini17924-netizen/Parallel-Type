@@ -91,7 +91,7 @@ describe("balloon pop page (idea G6 phase 2)", () => {
     }
     //the HUD: three lives, zeroed combo, stage cell
     expect(pageText(app)).toContain("❤❤❤");
-    expect(pageText(app)).toContain("x0");
+    expect(pageText(app)).toContain("0 · x1"); //the raw combo + the multiplier (H2)
   });
 
   it("typing a balloon's letter pops it and moves the combo", async () => {
