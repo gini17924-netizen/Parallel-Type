@@ -122,6 +122,24 @@ describe("maze-runner engine (idea G14 phase 1)", () => {
     expect(engine.state().runnerIndex).toBeGreaterThan(before);
   });
 
+  it("a long gate block never bursts into teleport steps on open (H4)", () => {
+    const { engine, t } = makeEngine();
+    walkToGate(engine, t);
+    const blocked = engine.state().runnerIndex;
+    //the runner waits at the closed gate for five cells' worth of time
+    t.v += BALANCE.walkMsPerCell * 5;
+    engine.tick(t.v);
+    expect(engine.state().runnerIndex).toBe(blocked); //the wait holds
+    openActiveGate(engine, t);
+    const opened = engine.state().runnerIndex;
+    //the first post-open tick advances exactly ONE cell — the carry was
+    //capped while blocked, so no teleport burst through the maze
+    t.v += BALANCE.walkMsPerCell;
+    engine.tick(t.v);
+    const state = engine.state();
+    expect(state.runnerIndex).toBe(Math.min(opened + 1, state.path.length - 1));
+  });
+
   it("a wrong key keeps the partial and adds the penalty", () => {
     const { engine, t } = makeEngine();
     walkToGate(engine, t);

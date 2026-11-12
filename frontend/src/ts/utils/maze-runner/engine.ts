@@ -159,7 +159,13 @@ export function createMazeRunnerEngine(options: {
     }
     lastTickAt = nowMs;
     while (walkCarry >= BALANCE.walkMsPerCell) {
-      if (!canAdvance()) break;
+      if (!canAdvance()) {
+        //H4: a gate blocks the step — the runner WAITS at the gate. The
+        //carry caps at one cell's worth so the blocked seconds never pile
+        //up into a burst of teleport steps when the gate opens
+        walkCarry = BALANCE.walkMsPerCell;
+        break;
+      }
       walkCarry -= BALANCE.walkMsPerCell;
       runnerIndex += 1;
       if (runnerIndex >= path.length - 1) {
@@ -188,6 +194,10 @@ export function createMazeRunnerEngine(options: {
     if (gate.typed >= gate.word.length) {
       gate.open = true;
       gate.typed = 0;
+      //H4: the walk RESTARTS at the open moment — the blocked time and
+      //the typing time must not pile into the carry as a teleport burst
+      lastTickAt = nowMs;
+      walkCarry = 0;
     }
     return snapshot(nowMs);
   }
