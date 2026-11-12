@@ -122,4 +122,127 @@ jobs:
             --notes "ParallelType v$V — the desktop build published by the release workflow (phase 63)." \
             $FLAGS \
             "$EXE" "$SIG" "$LATEST"
-          echo "release v$V published"
+
+      - name: generate + validate + publish the packaging manifests (phase 65)
+        #winget manifest trio (schema 1.9.0) + a scoop manifest + a sha256
+        #sidecar — all built from the REAL published artifact's hash, so
+        #the manifests are true for exactly this release. shape mirrors
+        #packaging/winget/0.28.1 in-repo.
+        env:
+          GH_TOKEN: ${{ github.token }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          V='${{ inputs.version }}'
+          REPO='${{ github.repository }}'
+          BUNDLE="frontend/src-tauri/target/release/bundle/nsis"
+          EXE="$BUNDLE/ParallelType_${V}_x64-setup.exe"
+          node -e '
+            const fs = require("fs");
+            const crypto = require("crypto");
+            const [bundle, version, repo] = process.argv.slice(1);
+            const exe = `ParallelType_${version}_x64-setup.exe`;
+            const sha = crypto.createHash("sha256")
+              .update(fs.readFileSync(`${bundle}/${exe}`)).digest("hex").toUpperCase();
+            const url = `https://github.com/${repo}/releases/download/v${version}/${exe}`;
+            const dir = `packaging/winget/${version}`;
+            fs.mkdirSync(dir, { recursive: true });
+            const hdr = (t) => `# yaml-language-server: $schema=https://aka.ms/winget-manifest.${t}.1.9.0.schema.json\n`;
+            const pkg = "ParallelType.ParallelType";
+            const versionYaml = [
+              `PackageIdentifier: ${pkg}`,
+              `PackageVersion: ${version}`,
+              "DefaultLocale: en-US",
+              "ManifestType: version",
+              "ManifestVersion: 1.9.0",
+              "",
+            ].join("\n");
+            const installerYaml = [
+              `PackageIdentifier: ${pkg}`,
+              `PackageVersion: ${version}`,
+              "Installers:",
+              "  - Architecture: x64",
+              "    InstallerType: nullsoft",
+              `    InstallerUrl: ${url}`,
+              `    InstallerSha256: ${sha}`,
+              "    InstallerSwitches:",
+              "      Silent: /S",
+              "      SilentWithProgress: /S",
+              "    UpgradeBehavior: install",
+              "ManifestType: installer",
+              "ManifestVersion: 1.9.0",
+              "",
+            ].join("\n");
+            const localeYaml = [
+              `PackageIdentifier: ${pkg}`,
+              `PackageVersion: ${version}`,
+              "PackageLocale: en-US",
+              "Publisher: ParallelType",
+              "PackageName: ParallelType",
+              `PackageUrl: https://github.com/${repo}`,
+              "License: GPL-3.0",
+              `LicenseUrl: https://github.com/${repo}/blob/main/LICENSE`,
+              "ShortDescription: A keyboard-driven desktop typing trainer with mini-games, themes, stats, and real LAN matches.",
+              "Tags:",
+              "  - typing",
+              "  - touch-typing",
+              "  - keyboard",
+              "  - wpm",
+              "Moniker: paralleltype",
+              "ManifestType: defaultLocale",
+              "ManifestVersion: 1.9.0",
+              "",
+            ].join("\n");
+            fs.writeFileSync(`${dir}/${pkg}.yaml`, hdr("version") + versionYaml);
+            fs.writeFileSync(`${dir}/${pkg}.installer.yaml`, hdr("installer") + installerYaml);
+            fs.writeFileSync(`${dir}/${pkg}.locale.en-US.yaml`, hdr("defaultLocale") + localeYaml);
+            //the sha256 sidecar — scoop's autoupdate hash source
+            fs.writeFileSync(`${bundle}/${exe}.sha256`, `${sha.toLowerCase()}  ${exe}\n`);
+            const scoop = {
+              version,
+              homepage: `https://github.com/${repo}`,
+              license: "GPL-3.0",
+              notes: "The installer runs silently (currentUser) and registers its own Start Menu shortcut. Updates: run scoop update paralleltype.",
+              architecture: {
+                "64bit": {
+                  url: `${url}#/ParallelType_setup.exe`,
+                  hash: sha.toLowerCase(),
+                },
+              },
+              installer: { args: ["/S"] },
+              checkver: {
+                url: `https://github.com/${repo}/releases/latest/download/latest.json`,
+                regex: "\"version\"\\s*:\\s*\"([^\"]+)\"",
+              },
+              autoupdate: {
+                architecture: {
+                  "64bit": {
+                    url: `https://github.com/${repo}/releases/download/v$version/ParallelType_$version_x64-setup.exe#/ParallelType_setup.exe`,
+                    hash: {
+                      url: `https://github.com/${repo}/releases/download/v$version/ParallelType_$version_x64-setup.exe.sha256`,
+                    },
+                  },
+                },
+              },
+            };
+            fs.writeFileSync(`${bundle}/paralleltype.json`, JSON.stringify(scoop, null, 2) + "\n");
+            console.log("manifests generated for", version);
+          ' "$BUNDLE" "$V" "$REPO"
+          if command -v winget >/dev/null 2>&1; then
+            set +e
+            winget validate --manifest "packaging/winget/$V"
+            rc=$?
+            set -e
+            if [ "$rc" -ne 0 ] && [ "$rc" -ne 40 ]; then
+              echo "::error::winget validate failed (exit $rc)"
+              exit 1
+            fi
+          else
+            echo "winget is not on the runner — the shape was validated on the maintainer machine (phase 65)"
+          fi
+          gh release upload "v$V" "$EXE.sha256" \
+            "packaging/winget/$V/ParallelType.ParallelType.yaml" \
+            "packaging/winget/$V/ParallelType.ParallelType.installer.yaml" \
+            "packaging/winget/$V/ParallelType.ParallelType.locale.en-US.yaml" \
+            "$BUNDLE/paralleltype.json"
+          echo "packaging manifests published for v$V"

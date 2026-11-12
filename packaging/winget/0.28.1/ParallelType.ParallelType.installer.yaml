@@ -1,0 +1,14 @@
+# yaml-language-server: $schema=https://aka.ms/winget-manifest.installer.1.9.0.schema.json
+PackageIdentifier: ParallelType.ParallelType
+PackageVersion: 0.28.1
+Installers:
+  - Architecture: x64
+    InstallerType: nullsoft
+    InstallerUrl: https://github.com/gini17924-netizen/Parallel-Type/releases/download/v0.28.1/ParallelType_0.28.1_x64-setup.exe
+    InstallerSha256: 9017326B930D2C36EA42A91C2B1697AD5760668936B05E8E6F7E98C37AABE8E6
+    InstallerSwitches:
+      Silent: /S
+      SilentWithProgress: /S
+    UpgradeBehavior: install
+ManifestType: installer
+ManifestVersion: 1.9.0

@@ -1,0 +1,31 @@
+{
+  "version": "0.28.1",
+  "homepage": "https://github.com/gini17924-netizen/Parallel-Type",
+  "license": "GPL-3.0",
+  "notes": "The installer runs silently (currentUser) and registers its own Start Menu shortcut. Updates: run scoop update paralleltype.",
+  "architecture": {
+    "64bit": {
+      "url": "https://github.com/gini17924-netizen/Parallel-Type/releases/download/v0.28.1/ParallelType_0.28.1_x64-setup.exe#/ParallelType_setup.exe",
+      "hash": "9017326b930d2c36ea42a91c2b1697ad5760668936b05e8e6f7e98c37aabe8e6"
+    }
+  },
+  "installer": {
+    "args": [
+      "/S"
+    ]
+  },
+  "checkver": {
+    "url": "https://github.com/gini17924-netizen/Parallel-Type/releases/latest/download/latest.json",
+    "regex": "\"version\"\\s*:\\s*\"([^\"]+)\""
+  },
+  "autoupdate": {
+    "architecture": {
+      "64bit": {
+        "url": "https://github.com/gini17924-netizen/Parallel-Type/releases/download/v$version/ParallelType_$version_x64-setup.exe#/ParallelType_setup.exe",
+        "hash": {
+          "url": "https://github.com/gini17924-netizen/Parallel-Type/releases/download/v$version/ParallelType_$version_x64-setup.exe.sha256"
+        }
+      }
+    }
+  }
+}

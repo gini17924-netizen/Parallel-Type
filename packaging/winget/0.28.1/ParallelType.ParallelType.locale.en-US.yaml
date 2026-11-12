@@ -1,0 +1,18 @@
+# yaml-language-server: $schema=https://aka.ms/winget-manifest.defaultLocale.1.9.0.schema.json
+PackageIdentifier: ParallelType.ParallelType
+PackageVersion: 0.28.1
+PackageLocale: en-US
+Publisher: ParallelType
+PackageName: ParallelType
+PackageUrl: https://github.com/gini17924-netizen/Parallel-Type
+License: GPL-3.0
+LicenseUrl: https://github.com/gini17924-netizen/Parallel-Type/blob/main/LICENSE
+ShortDescription: A keyboard-driven desktop typing trainer with mini-games, themes, stats, and real LAN matches.
+Tags:
+  - typing
+  - touch-typing
+  - keyboard
+  - wpm
+Moniker: paralleltype
+ManifestType: defaultLocale
+ManifestVersion: 1.9.0
