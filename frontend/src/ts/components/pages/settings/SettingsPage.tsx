@@ -48,6 +48,7 @@ import { QuickNav } from "./QuickNav";
 import { SearchableAutoSetting } from "./SearchableAutoSetting";
 import { SearchableSetting } from "./SearchableSetting";
 import { SettingsSearch } from "./SettingsSearch";
+import { UpdatesCard } from "./UpdatesCard";
 
 export function SettingsPage(): JSXElement {
   return (
@@ -271,6 +272,7 @@ export function SettingsPage(): JSXElement {
       </div>
 
       <AccountSettingsNotice />
+      <UpdatesCard />
     </div>
   );
 }

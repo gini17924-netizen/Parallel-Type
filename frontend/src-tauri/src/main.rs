@@ -6,7 +6,7 @@ use std::sync::Mutex;
 use tauri::{
     menu::{Menu, MenuItem},
     tray::{MouseButton, MouseButtonState, TrayIconBuilder, TrayIconEvent},
-    Manager, WebviewUrl, WebviewWindow,
+    Emitter, Manager, WebviewUrl, WebviewWindow,
 };
 use tauri_plugin_global_shortcut::{GlobalShortcutExt, ShortcutState};
 use tauri_plugin_updater::UpdaterExt;
@@ -81,6 +81,8 @@ fn toggle_main_window(app: &tauri::AppHandle) {
 /// never move one without the other (flag on + placeholder endpoint fires
 /// doomed requests; endpoint set + flag off silently never updates).
 const UPDATES_ENABLED: bool = true;
+/// phase 56: the updater toggle persists here (the app config dir)
+const UPDATES_SETTINGS_FILE: &str = "updates-settings.json";
 
 /// Checks the update endpoint once at startup. Non-fatal: any failure
 /// (offline, unreachable host, bad json) is logged and ignored.
@@ -109,6 +111,84 @@ fn check_for_updates(app: &tauri::AppHandle) {
             Err(e) => eprintln!("update check failed: {e}"),
         }
     });
+}
+
+fn updates_settings_path(app: &tauri::AppHandle) -> Result<std::path::PathBuf, String> {
+    app.path()
+        .app_config_dir()
+        .map(|dir| dir.join(UPDATES_SETTINGS_FILE))
+        .map_err(|e| e.to_string())
+}
+
+/// phase 56: the updater's user-facing switch, persisted in the app
+/// CONFIG dir. Missing or corrupt file = ON — the safe default.
+fn load_auto_check(path: &std::path::Path) -> bool {
+    std::fs::read_to_string(path)
+        .ok()
+        .and_then(|raw| serde_json::from_str::<serde_json::Value>(&raw).ok())
+        .and_then(|value| value["autoCheck"].as_bool())
+        .unwrap_or(true)
+}
+
+fn save_auto_check(path: &std::path::Path, enabled: bool) -> Result<(), String> {
+    if let Some(parent) = path.parent() {
+        std::fs::create_dir_all(parent).map_err(|e| format!("updates: mkdir failed ({e})"))?;
+    }
+    std::fs::write(
+        path,
+        serde_json::json!({ "autoCheck": enabled }).to_string(),
+    )
+    .map_err(|e| format!("updates: write failed ({e})"))
+}
+
+/// phase 56: the manual "check for updates". Resolves "current" for a
+/// green answer; when an update exists it downloads and installs
+/// passively and the app restarts — the invoke response may never reach
+/// the frontend, so the UI announces each step through the
+/// `updates://status` events
+#[tauri::command]
+async fn updater_manual_check(app: tauri::AppHandle) -> Result<serde_json::Value, String> {
+    let update = app
+        .updater()
+        .map_err(|e| format!("updates: plugin unavailable ({e})"))?
+        .check()
+        .await
+        .map_err(|e| format!("updates: check failed ({e})"))?;
+    match update {
+        Some(update) => {
+            let version = update.version.clone();
+            app.emit(
+                "updates://status",
+                serde_json::json!({ "status": "available", "version": version }),
+            );
+            update
+                .download_and_install(|_chunk, _total| {}, || {})
+                .await
+                .map_err(|e| format!("updates: install failed ({e})"))?;
+            app.emit(
+                "updates://status",
+                serde_json::json!({ "status": "installed", "version": version }),
+            );
+            let restart_app = app.clone();
+            tauri::async_runtime::spawn(async move {
+                restart_app.restart();
+            });
+            Ok(serde_json::json!({ "status": "updated", "version": version }))
+        }
+        None => Ok(serde_json::json!({ "status": "current" })),
+    }
+}
+
+#[tauri::command]
+fn updater_get_settings(app: tauri::AppHandle) -> Result<serde_json::Value, String> {
+    let path = updates_settings_path(&app)?;
+    Ok(serde_json::json!({ "autoCheck": load_auto_check(&path) }))
+}
+
+#[tauri::command]
+fn updater_set_auto_check(app: tauri::AppHandle, enabled: bool) -> Result<(), String> {
+    let path = updates_settings_path(&app)?;
+    save_auto_check(&path, enabled)
 }
 
 fn build_tray(app: &tauri::AppHandle) -> tauri::Result<()> {
@@ -250,6 +330,9 @@ fn main() {
         .invoke_handler(tauri::generate_handler![
             backup_write,
             backup_read,
+            updater_get_settings,
+            updater_set_auto_check,
+            updater_manual_check,
             lan::lan_start_host,
             lan::lan_stop_host,
             lan::lan_send_message,
@@ -289,7 +372,11 @@ fn main() {
             register_global_shortcut(app.handle());
             focus_main_window(app.handle());
             if UPDATES_ENABLED {
-                check_for_updates(app.handle());
+                let path = updates_settings_path(app.handle())
+                    .unwrap_or_else(|_| std::path::PathBuf::new());
+                if load_auto_check(&path) {
+                    check_for_updates(app.handle());
+                }
             }
             Ok(())
         })
