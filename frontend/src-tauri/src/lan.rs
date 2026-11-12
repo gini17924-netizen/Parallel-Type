@@ -1088,6 +1088,7 @@ mod tests {
         let listener = TcpListener::bind("127.0.0.1:0").await.expect("bind");
         let addr = listener.local_addr().expect("addr");
         let sink = TestSink::default();
+        let (_shutdown_tx, shutdown_rx) = tokio::sync::oneshot::channel::<()>();
         let (_, client_rx) = mpsc::unbounded_channel::<String>();
         tokio::spawn(run_host(
             sink.clone(),
@@ -1095,7 +1096,7 @@ mod tests {
             "ABCD".into(),
             "HOST1".into(),
             listener,
-            tokio::sync::oneshot::channel().1,
+            shutdown_rx,
             client_rx,
         ));
 
@@ -1122,6 +1123,7 @@ mod tests {
         let listener = TcpListener::bind("127.0.0.1:0").await.expect("bind");
         let addr = listener.local_addr().expect("addr");
         let sink = TestSink::default();
+        let (_shutdown_tx, shutdown_rx) = tokio::sync::oneshot::channel::<()>();
         let (_, client_rx) = mpsc::unbounded_channel::<String>();
         tokio::spawn(run_host(
             sink.clone(),
@@ -1129,7 +1131,7 @@ mod tests {
             "ABCD".into(),
             "HOST1".into(),
             listener,
-            tokio::sync::oneshot::channel().1,
+            shutdown_rx,
             client_rx,
         ));
 
@@ -1172,6 +1174,7 @@ mod tests {
         let listener = TcpListener::bind("127.0.0.1:0").await.expect("bind");
         let addr = listener.local_addr().expect("addr");
         let sink = TestSink::default();
+        let (_shutdown_tx, shutdown_rx) = tokio::sync::oneshot::channel::<()>();
         let (_, client_rx) = mpsc::unbounded_channel::<String>();
         tokio::spawn(run_host(
             sink.clone(),
@@ -1179,7 +1182,7 @@ mod tests {
             "ABCD".into(),
             "HOST1".into(),
             listener,
-            tokio::sync::oneshot::channel().1,
+            shutdown_rx,
             client_rx,
         ));
 
