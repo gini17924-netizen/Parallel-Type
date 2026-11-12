@@ -698,7 +698,7 @@ async fn run_host<S: LanEventSink + Clone>(
     // accept + handshake loop: a rejected or silent client releases its
     // connection and the host keeps accepting — H1's 'keeps listening'
     // made real (a new client CAN join after a rejected one)
-    let (reader, write, joined) = 'handshake: loop {
+    let (mut reader, mut write, joined) = 'handshake: loop {
         let stream = tokio::select! {
             _ = &mut shutdown_rx => return,
             accepted = listener.accept() => match accepted {
@@ -706,7 +706,7 @@ async fn run_host<S: LanEventSink + Clone>(
                 Err(_) => return,
             },
         };
-        let (read_half, write_half) = tokio::io::split(stream);
+        let (read_half, mut write_half) = tokio::io::split(stream);
         let mut reader = BufReader::new(read_half);
 
         // the first line must be a valid join with the session's code; a
