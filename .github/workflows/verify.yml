@@ -31,13 +31,13 @@ jobs:
         #path filters relative to frontend/ matched nothing (run 2 lesson)
         working-directory: .
         run: pnpm install --frozen-lockfile --filter frontend --filter './packages/**'
-      # KI-51: the TS7.0.2 native preview reports ~1000 real strictness
-      # errors on linux while the windows build silently exits 0 — the
-      # local "tsc clean" gate was a false green. The strictness cleanup
-      # is its own future phase; here the debt stays VISIBLE, non-blocking.
-      - name: tsc (informational — see KI-51)
+      # phase 57 correction: run 2's ~1000 "strictness errors" were an
+      # artifact of the BROKEN install (the tsconfig extends chain didn't
+      # resolve, so tsgo checked under its own fallback profile). With the
+      # install fixed the code passes its own tsconfig on linux AND
+      # windows — the gate is real now, so it blocks.
+      - name: tsc
         run: npx tsc --noEmit
-        continue-on-error: true
       - name: vitest
         run: npx vitest run
       - name: oxlint (whole src tree)
