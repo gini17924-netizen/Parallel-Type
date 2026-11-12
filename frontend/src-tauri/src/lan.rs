@@ -695,46 +695,67 @@ async fn run_host<S: LanEventSink + Clone>(
         port,
         format!("255.255.255.255:{DISCOVERY_PORT}"),
     )));
-    let stream = tokio::select! {
-        _ = &mut shutdown_rx => return,
-        accepted = listener.accept() => match accepted {
-            Ok((stream, _addr)) => stream,
-            Err(_) => return,
-        },
-    };
-    let (read, mut write) = tokio::io::split(stream);
-    let mut reader = BufReader::new(read);
-
-    // the first line must be a valid join with the session's code; a
-    // silent client is released so the slot does not pin forever, and a
-    // WRONG code gets an immediate precise reject while the host keeps
-    // listening (the right client must still be able to join)
-    let join_deadline = tokio::time::Instant::now() + Duration::from_secs(JOIN_TIMEOUT_SECS);
-    let joined = loop {
-        let remaining = join_deadline.saturating_duration_since(tokio::time::Instant::now());
-        if remaining.is_zero() {
-            return; //the join window closed — the slot is released
-        }
-        let line = match tokio::time::timeout(remaining, next_bounded_line(&mut reader)).await {
-            Err(_) => return, //the join window closed
-            Ok(Ok(Some(line))) => line,
-            Ok(_) => return, //the client dropped
-            Ok(Err(_)) => return, //an over-cap line
+    // accept + handshake loop: a rejected or silent client releases its
+    // connection and the host keeps accepting — H1's 'keeps listening'
+    // made real (a new client CAN join after a rejected one)
+    let (reader, write, joined) = 'handshake: loop {
+        let stream = tokio::select! {
+            _ = &mut shutdown_rx => return,
+            accepted = listener.accept() => match accepted {
+                Ok((stream, _addr)) => stream,
+                Err(_) => return,
+            },
         };
-        match decide_join(&line, &code) {
-            JoinDecision::Accept(name) => break name,
-            JoinDecision::Reject => {
-                let reject = serde_json::json!({ "type": "join-rejected", "reason": "wrong code" });
-                if write
-                    .write_all(format!("{}
-", reject).as_bytes())
-                    .await
-                    .is_err()
-                {
-                    return;
-                }
+        let (read_half, write_half) = tokio::io::split(stream);
+        let mut reader = BufReader::new(read_half);
+
+        // the first line must be a valid join with the session's code; a
+        // silent client releases THIS connection (the beacon resumes) and
+        // a WRONG code gets an immediate precise reject — the host then
+        // accepts the next client
+        let join_deadline =
+            tokio::time::Instant::now() + Duration::from_secs(JOIN_TIMEOUT_SECS);
+        let outcome = loop {
+            let remaining =
+                join_deadline.saturating_duration_since(tokio::time::Instant::now());
+            if remaining.is_zero() {
+                break None; //the silent client released
             }
-            JoinDecision::Ignore => continue, //anything else before the join
+            let line = match tokio::time::timeout(
+                remaining,
+                next_bounded_line(&mut reader),
+            )
+            .await
+            {
+                Err(_) => break None, //the window closed
+                Ok(Ok(Some(line))) => Some(line),
+                Ok(_) => break None, //the client dropped
+                Ok(Err(_)) => break None, //an over-cap line
+            };
+            match decide_join(&line, &code) {
+                JoinDecision::Accept(name) => break Some(name),
+                JoinDecision::Reject => {
+                    let reject = serde_json::json!({
+                        "type": "join-rejected",
+                        "reason": "wrong code"
+                    });
+                    if write_half
+                        .write_all(format!("{}\n", reject).as_bytes())
+                        .await
+                        .is_err()
+                    {
+                        break None;
+                    }
+                    break None; //the reject is out — this connection is
+                                //released NOW, the host accepts the next
+                                //client instead of reading the rejected one
+                }
+                JoinDecision::Ignore => continue, //anything else before the join
+            }
+        };
+        match outcome {
+            Some(name) => break 'handshake (reader, write_half, name),
+            None => continue, //this connection released — the beacon re-announces
         }
     };
     // the joined ack completes the handshake — the client shows the
@@ -1089,7 +1110,7 @@ mod tests {
         let addr = listener.local_addr().expect("addr");
         let sink = TestSink::default();
         let (_shutdown_tx, shutdown_rx) = tokio::sync::oneshot::channel::<()>();
-        let (_, client_rx) = mpsc::unbounded_channel::<String>();
+        let (host_sends, client_rx) = mpsc::unbounded_channel::<String>();
         tokio::spawn(run_host(
             sink.clone(),
             "lan-1/ABCD".into(),
@@ -1100,11 +1121,16 @@ mod tests {
             client_rx,
         ));
 
-        //the scripted client: join -> ack -> start relay -> its own progress
-        let sends = vec![
-            serde_json::json!({ "type": "start", "seed": 42, "params": {} }),
-            serde_json::json!({ "type": "progress", "state": { "x": 3 } }),
-        ];
+        //the host frontend's start queues through the pipe — and the
+        //SENDER STAYS ALIVE (the dropped sender would end the write task
+        //and close the socket mid-match, H1's own lesson)
+        let start = serde_json::json!({ "type": "start", "seed": 42, "params": {} });
+        host_sends
+            .send(format!("{}\n", start))
+            .expect("the start queues");
+
+        //the scripted client: join -> ack -> the host's start -> its own progress
+        let sends = vec![serde_json::json!({ "type": "progress", "state": { "x": 3 } })];
         let read_lines = scripted_client(addr, "ABCD", sends).await;
 
         //the ack carries the HOST's name (the join handshake contract)
@@ -1112,8 +1138,14 @@ mod tests {
         //the host relayed the start back through the pipe
         assert!(read_lines[1].contains("start"), "the start relays: {}", read_lines[1]);
 
-        //the sink saw the join announcement and the client's relayed message
+        //the sink saw the join announcement; the client's progress needs a
+        //yield or two to reach it (the test runtime is current-thread)
         assert_eq!(sink.count("lan://peer-joined"), 1);
+        let mut waited = 0u32;
+        while sink.count("lan://peer-message") == 0 && waited < 50 {
+            tokio::time::sleep(Duration::from_millis(50)).await;
+            waited += 1;
+        }
         let relayed = sink.last("lan://peer-message").expect("the progress relayed");
         assert_eq!(relayed["message"]["type"].as_str(), Some("progress"));
     }
