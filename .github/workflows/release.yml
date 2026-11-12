@@ -51,15 +51,16 @@ jobs:
 
       - name: build the frontend (madge + ts-check + vite)
         working-directory: frontend
-        run: pnpm build
-
-      - name: build + sign the NSIS bundle
-        working-directory: frontend
         env:
           #vite refuses a production build without this defined; the desktop
           #fork has no server, so it is a placeholder (the local
           #.env.production is git-ignored and never reaches CI)
           RECAPTCHA_SITE_KEY: desktop-build-placeholder
+        run: pnpm build
+
+      - name: build + sign the NSIS bundle
+        working-directory: frontend
+        env:
           TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
           #the keypair was generated with an empty password — the CLI needs
           #the env var present, not a prompt
