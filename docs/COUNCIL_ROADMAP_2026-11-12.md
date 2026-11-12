@@ -32,7 +32,7 @@
 - گیت: spec (مسدود ۳s → باز شدن → حداکثر یک پرش خانه، بقیه نرمال) + سوئیت.
 - پایان: بدون پرش دیداری؛ مسیر همیشه روی خطوط maze.
 
-**فاز H5 — Type Pong: سطح‌بندی سختی (آفلاین)**
+**فاز H5** ✅ (90a6478) — **Type Pong: سطح‌بندی سختی (آفلاین).** (انجام‌شده: گزارش «سختی بالاست» → سه tier در BALANCE (`aiSpeedByDifficulty`: easy ۳۰ / normal ۶۰ / hard ۹۰ واحد/ثانیه)؛ persist جدا از آمار (`mtDesktopTypePongSettings` — تغییر tier هرگز شکل استور آمار را نمی‌زند)؛ پیکر سه‌دکمه‌ای در منو (فقط مود pong؛ آنلاین disabled — **LAN هیچ AI ندارد، هر دو پدال انسانی‌اند**)؛ wiring به createPongEngine؛ بریکر دست‌نخورده. spec: پیکر + persist + survive remount → ۱۰/۱۰ صفحه؛ سوئیت ۲۸۳۶/۲۸۳۶ + lint/tsc صفر. push هر دو ریموت.)
 - هدف: پیکر سطح برای مود pong آفلاین: easy/normal/hard → aiSpeed (30/60/90) + ذخیرهٔ انتخاب؛ LAN دست‌نخورده (هر دو پدال انسانی‌اند).
 - فایل‌ها: `TypeSnakePage` نه — `TypePongPage.tsx` (پیکر سطح + aiSpeed tier)، store (آمار per-tier مثل bot-duel؟ فقط tier فعلی)، spec.
 - گیت: spec هر سطح (سرعت AI تفاوت محسوس) + سوئیت.
