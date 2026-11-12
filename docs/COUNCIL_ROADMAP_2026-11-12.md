@@ -210,10 +210,7 @@
 - گیت: zip ساخته/اجرا می‌شود.
 - پایان: نسخهٔ portable قابل‌توزیع.
 
-**فاز ۸۸ — winget/scoop manifests**
-- هدف: manifestهای winget (با هش‌ها از README) + فرمول scoop؛ انتشار خودکار با فاز ۶۳.
-- گیت: `winget validate` سبز.
-- پایان: نصب با `winget install ParallelType`.
+**فاز ۸۸** ✅ (e27f3d2 + `winget validate` exit 0 — زودتر از موعد، در جریان بلوک A اجرا شد) — **manifestهای winget + scoop با انتشار خودکار.** (انجام‌شده: `packaging/winget/0.28.1/` سه‌فایلی با schema 1.9.0 (id `ParallelType.ParallelType`، Moniker `paralleltype`، InstallerType nullsoft، Silent `/S`، InstallerSha256 **واقعیِ artifact منتشرشده** = 9017326b…؛ `DefaultLocale` در version manifest — winget 1.29 بدون آن رد می‌کند؛ هشدارهای «Schema header not found» با سرآیند `yaml-language-server` صفر شدند) + `packaging/scoop/paralleltype.json` (checkver روی latest.json، autoupdate از sidecar `…setup.exe.sha256`)؛ گیت: `winget validate --manifest packaging/winget/0.28.1` → **exit 0** (winget لوکال v1.29.380). **انتشار خودکار با فاز ۶۳**: استپ تازهٔ release.yml — از artifact واقعی SHA256 می‌گیرد، هر سه yaml + scoop json + sidecar برای نسخهٔ تازه می‌سازد، روی runner اگر winget بود validate می‌کند (exit 40=هشدار قبول؛ بقیه fail) و پنج فایل را به release می‌چسباند. **نکات ساخت**: here-stringهای pwsh داخل `run: |` نمی‌گنجند (closer باید ستون صفر باشد → block scalar می‌شکند) → همان الگوی `node -e` در bash؛ JS داخل `node -e` argv را از index 1 دارد نه 2 (برخلاف script-file) — تست لوکال با `node -e "$(cat gen.js)"` عین semantics وردفلو شد؛ و درس تکراری «bash heredoc محتوای بزرگ را خراب می‌کند» دو بار دیگر چشید → اسکریپت‌ساز با Write tool. README: ردیف package managers انگلیسی + ردیف ۴ فارسی (نام فایل 0.28.0 در ردیف فارسی version-agnostic شد). **پایانِ «winget install ParallelType»** به PR در winget-pkgs (کامونی — نیازمند CLA حساب کاربر؛ قدم بیرونی بعدی) گره خورده — تا آن‌روز `winget install --manifest` و `scoop install <url>` راه‌های فعال‌اند. push هر دو ریموت.)
 
 **فاز ۸۹ — احیای لینوکس**
 - هدف: بیلد deb/pkg.tar.zst جدید (GTK/WebKit deps در CI از فاز ۵۱ موجود) + CI job لینوکس.
