@@ -1,0 +1,120 @@
+name: release
+
+# phase 63 — the release pipeline: one dispatch = tag → build → sign → publish.
+# the version input drives everything: the app version is overridden via
+# --config (no source files are touched), the v-tag is created at the checked
+# out HEAD, and exactly three files land in the release (NSIS installer,
+# its updater signature, latest.json). A pre-release stays out of the
+# updater's /latest endpoint, so it is the safe test vehicle.
+on:
+  workflow_dispatch:
+    inputs:
+      version:
+        description: 'release version (e.g. 0.28.2) — becomes the app version, the v-tag and the release'
+        required: true
+        type: string
+      prerelease:
+        description: 'mark as pre-release (the updater endpoint never serves pre-releases)'
+        required: false
+        type: boolean
+        default: false
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    name: build → sign → publish (windows nsis)
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: pnpm/action-setup@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: pnpm
+          cache-dependency-path: pnpm-lock.yaml
+
+      - name: install (frontend + packages slice, frozen lockfile)
+        #same shape as verify.yml — the workspace links must exist for the
+        #tsconfig extends chain (KI-51), and the filters resolve at the ROOT
+        working-directory: .
+        run: pnpm install --frozen-lockfile --filter frontend --filter './packages/**'
+
+      - uses: dtolnay/rust-toolchain@stable
+
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: frontend/src-tauri
+
+      - name: build the frontend (madge + ts-check + vite)
+        working-directory: frontend
+        run: pnpm build
+
+      - name: build + sign the NSIS bundle
+        working-directory: frontend
+        env:
+          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+          #the keypair was generated with an empty password — the CLI needs
+          #the env var present, not a prompt
+          TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ''
+        shell: bash
+        run: |
+          set -euo pipefail
+          pnpm exec tauri build --config '{"version":"${{ inputs.version }}"}'
+
+      - name: assemble latest.json
+        shell: bash
+        run: |
+          set -euo pipefail
+          V='${{ inputs.version }}'
+          BUNDLE="frontend/src-tauri/target/release/bundle/nsis"
+          ls -la "$BUNDLE"
+          #a missing signature means the build ran WITHOUT the key — never
+          #publish an installer the updater cannot verify (KI-49's silent path)
+          test -f "$BUNDLE/ParallelType_${V}_x64-setup.exe.sig" || {
+            echo "::error::no .sig beside the installer — the build was not signed"
+            exit 1
+          }
+          node -e '
+            const fs = require("fs");
+            const [bundle, version, repo] = process.argv.slice(1);
+            const exe = `ParallelType_${version}_x64-setup.exe`;
+            const signature = fs.readFileSync(`${bundle}/${exe}.sig`, "utf8").trim();
+            const manifest = {
+              version,
+              notes: `ParallelType v${version} — the signed desktop build (NSIS installer + updater artifacts).`,
+              pub_date: new Date().toISOString(),
+              platforms: {
+                "windows-x86_64": {
+                  signature,
+                  url: `https://github.com/${repo}/releases/download/v${version}/${exe}`
+                }
+              }
+            };
+            fs.writeFileSync(`${bundle}/latest.json`, JSON.stringify(manifest, null, 2) + "\n");
+            console.log("latest.json written for", version);
+          ' "$BUNDLE" "$V" "${{ github.repository }}"
+
+      - name: publish the release (tag + three files)
+        env:
+          GH_TOKEN: ${{ github.token }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          V='${{ inputs.version }}'
+          BUNDLE="frontend/src-tauri/target/release/bundle/nsis"
+          EXE="$BUNDLE/ParallelType_${V}_x64-setup.exe"
+          SIG="$EXE.sig"
+          LATEST="$BUNDLE/latest.json"
+          test -f "$EXE" && test -f "$SIG" && test -f "$LATEST"
+          FLAGS=""
+          if [ '${{ inputs.prerelease }}' = 'true' ]; then FLAGS="--prerelease"; fi
+          gh release create "v$V" \
+            --title "v$V" \
+            --notes "ParallelType v$V — the desktop build published by the release workflow (phase 63)." \
+            $FLAGS \
+            "$EXE" "$SIG" "$LATEST"
+          echo "release v$V published"
