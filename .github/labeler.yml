@@ -2,17 +2,12 @@ api:
   - changed-files:
       - any-glob-to-any-file:
           - "frontend/src/ts/ape/**/*"
-          - "backend/src/api/**/*"
 
 assets:
   - all:
       - changed-files:
           - any-glob-to-any-file: "frontend/static/**/*"
           - all-globs-to-all-files: "!frontend/static/**/*.html"
-
-backend:
-  - changed-files:
-      - any-glob-to-any-file: "backend/**/*"
 
 docs:
   - changed-files:

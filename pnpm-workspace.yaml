@@ -1,8 +1,6 @@
 packages:
   - frontend
-  - backend
   - packages/*
-  - frontend/storybook
 
 allowBuilds:
   "@firebase/util": true
