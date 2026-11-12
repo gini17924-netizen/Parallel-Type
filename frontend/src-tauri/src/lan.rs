@@ -270,7 +270,7 @@ pub async fn lan_start_host(
     let session2 = session_id.clone();
     let name2 = name.clone();
     tauri::async_runtime::spawn(async move {
-        run_host(app2, session2, code2, name2, listener, shutdown_rx, client_rx).await;
+        run_host(AppEventSink { app: app2 }, session2, code2, name2, listener, shutdown_rx, client_rx).await;
     });
 
     let mut guard = state.host.lock().map_err(|_| "lan state poisoned")?;
@@ -654,8 +654,27 @@ fn decide_join(line: &str, code: &str) -> JoinDecision {
     }
 }
 
-async fn run_host(
-    app: AppHandle,
+/// the outbound events a live connection produces — abstracted so the
+/// e2e tests can drive the REAL run_host over real TCP without an
+/// AppHandle (phase 60)
+trait LanEventSink: Send + 'static {
+    fn emit(&self, event: &str, payload: serde_json::Value);
+}
+
+/// the production sink: wraps the Tauri app handle
+#[derive(Clone)]
+struct AppEventSink {
+    app: tauri::AppHandle,
+}
+
+impl LanEventSink for AppEventSink {
+    fn emit(&self, event: &str, payload: serde_json::Value) {
+        let _ = self.app.emit(event, payload);
+    }
+}
+
+async fn run_host<S: LanEventSink + Clone>(
+    sink: S,
     session_id: String,
     code: String,
     host_name: String,
@@ -728,27 +747,27 @@ async fn run_host(
     {
         return;
     }
-    emit(&app, "lan://peer-joined", serde_json::json!({ "name": joined, "host": host_name, "sessionId": session_id }));
+    sink.emit("lan://peer-joined", serde_json::json!({ "name": joined, "host": host_name, "sessionId": session_id }));
     beacon.stop(); //the match is found — no more broadcasting
 
     // forward peer messages to the frontend; a protocol violation (no
     // string type, oversize, a blown rate window) closes the connection
-    let app2 = app.clone();
     let read_task = tauri::async_runtime::spawn(async move {
+        let sink = sink.clone();
         let mut limiter = RateLimiter::new();
         loop {
             match next_bounded_line(&mut reader).await {
                 Ok(Some(line)) => {
                     if !limiter.admit(line.len(), now_ms()) || !is_valid_message(&line) {
-                        emit(&app2, "lan://peer-left", serde_json::json!({ "reason": "protocol violation" }));
+                        sink.emit("lan://peer-left", serde_json::json!({ "reason": "protocol violation" }));
                         break;
                     }
                     if let Ok(message) = serde_json::from_str::<Value>(&line) {
-                        emit(&app2, "lan://peer-message", serde_json::json!({ "message": message }));
+                        sink.emit("lan://peer-message", serde_json::json!({ "message": message }));
                     }
                 }
                 _ => {
-                    emit(&app2, "lan://peer-left", serde_json::json!({ "reason": "disconnected" }));
+                    sink.emit("lan://peer-left", serde_json::json!({ "reason": "disconnected" }));
                     break;
                 }
             }
@@ -767,6 +786,7 @@ async fn run_host(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::sync::Arc;
 
     #[test]
     fn parses_a_valid_announcement() {
@@ -986,6 +1006,210 @@ mod tests {
             .expect_err("a reject must fail the handshake");
         assert!(error.contains("rejected"), "precise: {error}");
         fake_host.await.expect("fake host task");
+    }
+
+    /// the e2e test sink: collects everything the host emits
+    #[derive(Clone, Default)]
+    struct TestSink {
+        events: Arc<Mutex<Vec<(String, serde_json::Value)>>>,
+    }
+
+    impl LanEventSink for TestSink {
+        fn emit(&self, event: &str, payload: serde_json::Value) {
+            self
+                .events
+                .lock()
+                .expect("test sink lock")
+                .push((event.to_string(), payload));
+        }
+    }
+
+    impl TestSink {
+        fn count(&self, event: &str) -> usize {
+            self
+                .events
+                .lock()
+                .expect("test sink lock")
+                .iter()
+                .filter(|(e, _)| e == event)
+                .count()
+        }
+
+        fn last(&self, event: &str) -> Option<serde_json::Value> {
+            self
+                .events
+                .lock()
+                .expect("test sink lock")
+                .iter()
+                .rev()
+                .find(|(e, _)| e == event)
+                .map(|(_, p)| p.clone())
+        }
+    }
+
+    /// drives one scripted client through the REAL run_host over a real
+    /// TCP loopback: joins, reads the ack, exchanges messages. Returns
+    /// every line the client read.
+    async fn scripted_client(
+        addr: std::net::SocketAddr,
+        code: &str,
+        sends: Vec<serde_json::Value>,
+    ) -> Vec<String> {
+        let stream = tokio::net::TcpStream::connect(addr)
+            .await
+            .expect("the client connects");
+        let (mut read, mut write) = tokio::io::split(stream);
+        let join = serde_json::json!({
+            "type": "join", "name": "P2", "code": code
+        });
+        write
+            .write_all(format!("{}\n", join).as_bytes())
+            .await
+            .expect("write the join");
+        let mut read_lines: Vec<String> = Vec::new();
+        let mut reader = BufReader::new(read);
+        for send in sends {
+            let mut ack_line = String::new();
+            tokio::time::timeout(Duration::from_secs(3), reader.read_line(&mut ack_line))
+                .await
+                .expect("the ack within 3s")
+                .expect("the ack line reads");
+            read_lines.push(ack_line.trim_end().to_string());
+            write
+                .write_all(format!("{}\n", send).as_bytes())
+                .await
+                .expect("write the send");
+        }
+        read_lines
+    }
+
+    #[tokio::test]
+    async fn e2e_host_relays_a_full_match_over_real_tcp() {
+        let listener = TcpListener::bind("127.0.0.1:0").await.expect("bind");
+        let addr = listener.local_addr().expect("addr");
+        let sink = TestSink::default();
+        let (_, client_rx) = mpsc::unbounded_channel::<String>();
+        tokio::spawn(run_host(
+            sink.clone(),
+            "lan-1/ABCD".into(),
+            "ABCD".into(),
+            "HOST1".into(),
+            listener,
+            tokio::sync::oneshot::channel().1,
+            client_rx,
+        ));
+
+        //the scripted client: join -> ack -> start relay -> its own progress
+        let sends = vec![
+            serde_json::json!({ "type": "start", "seed": 42, "params": {} }),
+            serde_json::json!({ "type": "progress", "state": { "x": 3 } }),
+        ];
+        let read_lines = scripted_client(addr, "ABCD", sends).await;
+
+        //the ack carries the HOST's name (the join handshake contract)
+        assert!(read_lines[0].contains("HOST1"), "the ack names the host: {}", read_lines[0]);
+        //the host relayed the start back through the pipe
+        assert!(read_lines[1].contains("start"), "the start relays: {}", read_lines[1]);
+
+        //the sink saw the join announcement and the client's relayed message
+        assert_eq!(sink.count("lan://peer-joined"), 1);
+        let relayed = sink.last("lan://peer-message").expect("the progress relayed");
+        assert_eq!(relayed["message"]["type"].as_str(), Some("progress"));
+    }
+
+    #[tokio::test]
+    async fn e2e_a_wrong_code_rejects_and_the_host_keeps_listening() {
+        let listener = TcpListener::bind("127.0.0.1:0").await.expect("bind");
+        let addr = listener.local_addr().expect("addr");
+        let sink = TestSink::default();
+        let (_, client_rx) = mpsc::unbounded_channel::<String>();
+        tokio::spawn(run_host(
+            sink.clone(),
+            "lan-1/ABCD".into(),
+            "ABCD".into(),
+            "HOST1".into(),
+            listener,
+            tokio::sync::oneshot::channel().1,
+            client_rx,
+        ));
+
+        //client 1: the WRONG code — an immediate join-rejected, no 5s hang
+        let stream = tokio::net::TcpStream::connect(addr).await.expect("connect");
+        let (mut read, mut write) = tokio::io::split(stream);
+        let wrong = serde_json::json!({ "type": "join", "name": "P2", "code": "WRONG" });
+        write
+            .write_all(format!("{}\n", wrong).as_bytes())
+            .await
+            .expect("write the wrong join");
+        let mut reject_line = String::new();
+        tokio::time::timeout(Duration::from_secs(2), BufReader::new(read).read_line(&mut reject_line))
+            .await
+            .expect("the reject within 2s")
+            .expect("the reject line reads");
+        assert!(
+            reject_line.contains("join-rejected"),
+            "precise: {reject_line}"
+        );
+
+        //client 2: the correct code still joins — the host kept listening
+        let stream2 = tokio::net::TcpStream::connect(addr).await.expect("connect");
+        let (mut read2, mut write2) = tokio::io::split(stream2);
+        let good = serde_json::json!({ "type": "join", "name": "P2", "code": "ABCD" });
+        write2
+            .write_all(format!("{}\n", good).as_bytes())
+            .await
+            .expect("write the good join");
+        let mut ack_line = String::new();
+        tokio::time::timeout(Duration::from_secs(2), BufReader::new(read2).read_line(&mut ack_line))
+            .await
+            .expect("the ack within 2s")
+            .expect("the ack line reads");
+        assert!(ack_line.contains("joined"), "the correct client joins: {ack_line}");
+    }
+
+    #[tokio::test]
+    async fn e2e_a_flood_trips_the_rate_limiter() {
+        let listener = TcpListener::bind("127.0.0.1:0").await.expect("bind");
+        let addr = listener.local_addr().expect("addr");
+        let sink = TestSink::default();
+        let (_, client_rx) = mpsc::unbounded_channel::<String>();
+        tokio::spawn(run_host(
+            sink.clone(),
+            "lan-1/ABCD".into(),
+            "ABCD".into(),
+            "HOST1".into(),
+            listener,
+            tokio::sync::oneshot::channel().1,
+            client_rx,
+        ));
+
+        //the client joins, then floods well past the message cap
+        let stream = tokio::net::TcpStream::connect(addr).await.expect("connect");
+        let (mut read, mut write) = tokio::io::split(stream);
+        let join = serde_json::json!({ "type": "join", "name": "P2", "code": "ABCD" });
+        write
+            .write_all(format!("{}\n", join).as_bytes())
+            .await
+            .expect("write the join");
+        let flood = serde_json::json!({ "type": "progress", "state": { "x": 1 } })
+            .to_string();
+        for _ in 0..(RATE_MAX_MESSAGES + 40) {
+            let _ = write
+                .write_all(format!("{}\n", flood).as_bytes())
+                .await;
+        }
+        //the limiter trips: the sink sees the peer-left (the connection cut)
+        let mut waited = 0u32;
+        while sink.count("lan://peer-left") == 0 && waited < 50 {
+            tokio::time::sleep(Duration::from_millis(50)).await;
+            waited += 1;
+        }
+        assert!(
+            sink.count("lan://peer-left") >= 1,
+            "the flood must cut the connection"
+        );
+        //the flood's reads: the pipe closes — whatever surfaces, fine
+        let _ = BufReader::new(read).read_line(&mut String::new()).await;
     }
 
     #[tokio::test]
