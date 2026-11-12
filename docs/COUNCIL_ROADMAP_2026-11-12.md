@@ -48,19 +48,19 @@
 - گیت: cargo test ۱۴+ و سوئیت فرانت کامل و oxlint صفر.
 - پایان: toggle در Settings کار می‌کند؛ بوت با فلگ خاموش چک نمی‌کند؛ دکمهٔ دستی «آپدیت هست/نیست» را نشان می‌دهد.
 
-**فاز ۵۷ — strictness: لجر + خوشهٔ بزرگ**
+**فاز ۵۷** ✅ (e2c3e09 + run 43269892635 سبز) — **strictness: بازتعریف کامل — بدهی واقعی نبود.** (انجام‌شده: dispatch تمیز با نصب درست → tsc روی لینوکس **سبز کامل** — مقایسه با run 2 کشف کرد **۱۰۰۷ «خطای strictness» ساختگی بودند**: نصب شکستهٔ run 2، زنجیرهٔ `extends: @monkeytype/typescript-config/base.json` را unresolved گذاشت و tsgo تحت پروفایل fallback خودش چک کرد؛ با نصب درست (۶a72a6d/b5d42ef) کد فورک تحت tsconfig خودش روی لینوکس و ویندوز هر دو سبز است. فاز ۵۶، فلگ informational را حذف و tsc را **blocking** کرد؛ فازهای ۵۸/۵۹ به این فاز ادغام شدند. **KI-51 اصلاح شد**: «false green ویندوز» اشتباه بود — هر دو پلتفرم سبزند؛ درس واقعی: شکستن زنجیرهٔ extends، پروفایل چک را بی‌صدا عوض می‌کند — گیت install باید قبل از tsc بیاید.)
 - هدف: فهرست‌کردن کامل بدهی tsc لینوکس و زدن خوشه‌های شناخته‌شده.
 - فایل‌ها: `docs/strictness-ledger.md` (خروجی کامل `tsc --noEmit` لینوکس grouped per file — از CI استخراج)، سپس فیکس خوشهٔ ۱: `frontend/scripts/*` + `src/ts/auth.tsx` + `src/ts/collections/*` (TS7006/TS4111/TS2339 — تایپ صریح، index-access با براکت، تایپ رکوردها).
 - گیت: `npx tsc --noEmit` روی آن فایل‌ها صفر (CI informational شمارش را کم نشان دهد) + سوئیت کامل سبز.
 - پایان: لجر در docs + آن خوشه‌ها صفر.
 
-**فاز ۵۸ — strictness: صفرکردن باقی‌مانده**
+- **فاز ۵۸** ✅ بسته شد — ادغام در ۵۷ (بدهی واقعی نبود؛ کشف در سند ۵۷).
 - هدف: تمام خطاهای لجر تا صفر (خوشه‌های باقی‌مانده per-file).
 - فایل‌ها: طبق لجر فاز ۵۷.
 - گیت: tsc لینوکس = ۰ خطا (در CI informational سبز شود) + سوئیت کامل.
 - پایان: بدهی strictness صفر؛ نیازمند فاز ۵۷.
 
-**فاز ۵۹ — strictness: گیت واقعی**
+- **فاز ۵۹** ✅ بسته شد — ادغام در ۵۷ (tsc blocking در CI اجرا و سبز شد).
 - هدف: tsc در CI از informational به **blocking**.
 - فایل‌ها: `.github/workflows/verify.yml` (حذف continue-on-error) + pre-commit hook (اضافه‌کردن tsc به lint-staged یا هوک جدا).
 - گیت: یک run سبز با tsc blocking.
