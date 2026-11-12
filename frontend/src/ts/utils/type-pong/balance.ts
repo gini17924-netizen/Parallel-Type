@@ -27,6 +27,9 @@ export const BALANCE = {
   /** the AI paddle: the tracking speed in court-units per second,
    * derived from the tier wpm (1 wpm = 1 unit/s on the 100-wide court) */
   aiSpeedPerWpm: 1,
+  /** H5: the offline difficulty tiers — the AI's tracking speed per
+   * level (the LAN mode has no AI: both paddles are human) */
+  aiSpeedByDifficulty: { easy: 30, normal: 60, hard: 90 },
   /** the paddle lerp: each correct char pulls the paddle this fraction
    * of the remaining distance to the ball's live x */
   paddlePullPerChar: 0.5,

@@ -54,6 +54,29 @@ const store = new LocalStorageWithSchema<TypePongScores>({
 
 export type RecordPongResult = { isNewBestRally: boolean };
 
+/** H5: the offline pong difficulty persists separately from the scores
+ * (changing it must never touch the stats shape) */
+const DifficultySchema = z.object({
+  pong: z.enum(["easy", "normal", "hard"]),
+});
+export type PongDifficulty = z.infer<typeof DifficultySchema>["pong"];
+
+const settingsStore = new LocalStorageWithSchema<{
+  pong: PongDifficulty;
+}>({
+  key: "mtDesktopTypePongSettings",
+  schema: DifficultySchema,
+  fallback: { pong: "normal" },
+});
+
+export function getPongDifficulty(): PongDifficulty {
+  return settingsStore.get().pong;
+}
+
+export function setPongDifficulty(difficulty: PongDifficulty): void {
+  settingsStore.set({ pong: difficulty });
+}
+
 /** records a finished pong match: the pong namespace + the history */
 export function recordPongMatch(input: {
   won: boolean;

@@ -54,6 +54,9 @@ import {
 } from "../../../../utils/type-pong/pong";
 import {
   getPongStats,
+  getPongDifficulty,
+  setPongDifficulty,
+  type PongDifficulty,
   recordPongMatch,
   recordBreakerRun,
 } from "../../../../utils/type-pong/store";
@@ -85,6 +88,10 @@ function HudCell(props: { label: string; value: string }): JSXElement {
 export function TypePongPage(): JSXElement {
   const [pagePhase, setPagePhase] = createSignal<PagePhase>("menu");
   const [mode, setMode] = createSignal<GameMode>("pong");
+  //H5: the offline pong difficulty — the AI's tracking speed tier. The
+  //LAN mode has no AI (both paddles are human), so it never applies there
+  const [difficulty, setDifficulty] =
+    createSignal<PongDifficulty>(getPongDifficulty());
   const [pongState, setPongState] = createSignal<PongState | undefined>(
     undefined,
   );
@@ -327,7 +334,7 @@ export function TypePongPage(): JSXElement {
     pongEngine = createPongEngine({
       nextWord,
       rng: Math.random,
-      aiSpeed: 60,
+      aiSpeed: BALANCE.aiSpeedByDifficulty[difficulty()],
     });
     setPongState(pongEngine.state());
     setPagePhase("playing");
@@ -458,6 +465,28 @@ export function TypePongPage(): JSXElement {
             onClick={() => setMode("breaker")}
           />
         </div>
+        <Show when={mode() === "pong"}>
+          <div class="text-sub">bot speed (offline)</div>
+          <div class="grid grid-cols-3 gap-2">
+            <For
+              each={
+                Object.keys(BALANCE.aiSpeedByDifficulty) as PongDifficulty[]
+              }
+            >
+              {(d) => (
+                <Button
+                  text={d}
+                  class={cn("w-full", difficulty() === d && "bg-main text-bg")}
+                  disabled={lanMode()}
+                  onClick={() => {
+                    setDifficulty(d);
+                    setPongDifficulty(d);
+                  }}
+                />
+              )}
+            </For>
+          </div>
+        </Show>
         <Button
           text="start match"
           fa={{ icon: "fa-play" }}

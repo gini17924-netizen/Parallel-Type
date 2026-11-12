@@ -68,6 +68,29 @@ describe("type pong page (idea G13 phase 2)", () => {
     expect(text).toContain("First to 5 wins");
   });
 
+  it("the difficulty picker persists the tier (H5)", async () => {
+    const app = await openTypePong();
+    const easy = [...app.container.querySelectorAll("button")].find((b) =>
+      (b.textContent ?? "").includes("easy"),
+    );
+    expect(easy).toBeDefined();
+    easy?.click();
+    const stored = JSON.parse(
+      window.localStorage.getItem("mtDesktopTypePongSettings") ?? "{}",
+    ) as { pong: string };
+    expect(stored.pong).toBe("easy");
+    //the selection highlights and survives a remount
+    expect(easy?.className).toContain("bg-main");
+    const app2 = renderApp();
+    await app2.settle();
+    await app2.router.navigate({ to: "/games/type-pong" });
+    await app2.settle();
+    const easy2 = [...app2.container.querySelectorAll("button")].find((b) =>
+      (b.textContent ?? "").includes("easy"),
+    );
+    expect(easy2?.className).toContain("bg-main");
+  });
+
   it("a started match shows the court, the paddles and the ball", async () => {
     const app = await openTypePong();
     vi.useFakeTimers();
