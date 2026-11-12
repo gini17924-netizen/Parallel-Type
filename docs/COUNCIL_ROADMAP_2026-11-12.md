@@ -78,11 +78,7 @@
 - گیت: سناریو دوباره سبز روی دو ماشین.
 - پایان: بدون یافتهٔ باز. نیازمند فاز ۶۱.
 
-**فاز ۶۳ — اتوماسیون ریلیز**
-- هدف: tag → build → sign → publish سه‌فایلی یک‌جا (workflow_dispatch با ورودی نسخه + secret امضا).
-- فایل‌ها: `.github/workflows/release.yml`.
-- گیت: یک انتشار آزمایشی کامل با workflow.
-- پایان: انتشار نسخهٔ بعد = فقط ساخت tag.
+**فاز ۶۳** ✅ (088f4ab + run 43291650512 سبز — release v0.28.2-rc1 منتشر شد) — **اتوماسیون ریلیز: یک dispatch = tag → build → sign → publish.** (انجام‌شده: `.github/workflows/release.yml` با workflow_dispatch و ورودی نسخه — نسخهٔ app با `--config '{"version":...}'` override می‌شود (هیچ فایل سورسی لمس نمی‌شود)، فرانت با گیت خودش بیلد می‌شود (madge + ts-check + vite)، NSIS با secret ریپو امضا می‌شود، `latest.json` از `.sig` واقعی ساخته می‌شود (sig غایب = شکست run — نصب‌کنندهٔ غیرقابل‌تأیید هرگز منتشر نمی‌شود؛ درس KI-49) و gh سه فایل را با تگ منتشر می‌کند؛ ورودی prerelease وسیلهٔ آزمایش امن است — `/latest` آپدیتر هرگز pre-release نمی‌دهد. **زیرساخت کشف‌شده**: کلید امضا `~/.tauri/paralleltype-updater.key` فرمت single-line base64 دارد که مستقیم **محتوای** `TAURI_SIGNING_PRIVATE_KEY` است (فرمت unwrapped/مسیر را CLI 2.12.4 رد می‌کند: `-k` مقدار را base64 می‌گیرد؛ env با خط کامنت هم شکست می‌خورد)؛ رمز کلید **خالی** است (اثبات: امضای واقعی با CLI و `TAURI_SIGNING_PRIVATE_KEY_PASSWORD=""`)؛ keynum امضای تازه == pubkey شارپ (`2a04402efdcc3bcb`) و ساختار sig عیناً همان sig کارکردهٔ 0.28.1 است؛ secret با API (sealed-box/pynacl) ست شد. **درس‌های CI**: (۱) `.env.production` لوکال git-ignored است و vite بیلد production را بدون `RECAPTCHA_SITE_KEY` رد می‌کند → placeholder باید روی استپ *بیلد فرانت* باشد نه استپ tauri (بار اول به استپ اشتباه دادم و همان خطا برگشت)؛ (۲) re2 optional dep روی ویندوز runner gyp error می‌دهد ولی blocking نیست. انتشار آزمایشی کامل: **v0.28.2-rc1 pre-release منتشر شد** (سه فایل: installer 17MB + sig + latest.json با URL pin-شده به تگ) و `/latest` همچنان v0.28.1 — تولیدی دست‌نخورده. گیت verify هر سه کامیت سبز. انتشار نسخهٔ بعد = فقط dispatch با ورودی نسخه. push هر دو ریموت.)
 
 **فاز ۶۴ — smoke نصب‌کننده در CI**
 - هدف: تست دود: NSIS سایلنت روی runner ویندوز + اجرا + چک پروسه.
