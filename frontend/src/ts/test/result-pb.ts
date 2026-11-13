@@ -17,13 +17,15 @@ export type PbEligibility = {
 };
 
 /**
- * null when pbs don't apply at all (quote mode or the result isn't saved)
+ * null when pbs don't apply at all (the result isn't saved). quote mode
+ * IS eligible (phase 66): the offline store owns quote pbs, keyed by
+ * mode2 = the quote id and the language
  */
 export function getPbEligibility(
   result: CompletedResult,
   dontSave: boolean,
 ): PbEligibility | null {
-  if (result.mode === "quote" || dontSave) return null;
+  if (dontSave) return null;
 
   const funboxesOk =
     result.funbox.length === 0 ||

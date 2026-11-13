@@ -1169,10 +1169,12 @@ export async function finish(difficultyFailed = false): Promise<void> {
         ) as unknown as SnapshotResult<Mode>;
         snapshotResult._id = makeLocalResultId();
         const funboxMetadata = getFunbox(snapshotResult.funbox);
-        //mirror the server's PB rules (backend result controller): quotes,
-        //bailed-out results and stop-on-letter runs below 100% never get a PB
+        //offline PB rules: bailed-out results and stop-on-letter runs
+        //below 100% never get a PB. QUOTES DO — the server's quote
+        //exclusion existed because the server owned quote pbs; here the
+        //local store owns them, keyed by mode2 = the quote id AND the
+        //language, so persian sessions live in their own buckets (phase 66)
         const canGetPb =
-          snapshotResult.mode !== "quote" &&
           !snapshotResult.bailedOut &&
           !(completedEvent.stopOnLetter && completedEvent.acc < 100) &&
           funboxMetadata.every((f) => f.canGetPb);

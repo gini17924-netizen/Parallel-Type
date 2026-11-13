@@ -186,10 +186,9 @@ describe("recomputePersonalBestsAfterDelete", () => {
     expect(entriesOf(pbFixture)).toHaveLength(0);
   });
 
-  it("ignores quote, bailed-out and ineligible-funbox results", () => {
+  it("ignores bailed-out and ineligible-funbox results", () => {
     const best = makeResult({ _id: "pb", wpm: 120, isPb: true });
     const ineligible = [
-      makeResult({ _id: "q", wpm: 200, mode: "quote" }),
       makeResult({ _id: "b", wpm: 200, bailedOut: true }),
       makeResult({
         _id: "s",
@@ -209,6 +208,27 @@ describe("recomputePersonalBestsAfterDelete", () => {
     );
     expect(result.promotedId).toBeUndefined();
     expect(entriesOf(pbFixture)).toHaveLength(0);
+  });
+
+  it("promotes a quote row after delete — quotes own their pbs (phase 66)", () => {
+    const best = makeResult({
+      _id: "pb",
+      wpm: 120,
+      isPb: true,
+      mode: "quote",
+      mode2: "20",
+    });
+    const pbFixture = personalBestsFrom([best]);
+    const quoteRow = makeResult({
+      _id: "q",
+      wpm: 200,
+      mode: "quote",
+      mode2: "20",
+    });
+    const result = recomputePersonalBestsAfterDelete(pbFixture, best, [
+      quoteRow,
+    ]);
+    expect(result.promotedId).toBe("q");
   });
 
   it("does not touch the bucket when the deleted row was not a PB", () => {

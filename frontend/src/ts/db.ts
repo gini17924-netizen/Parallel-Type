@@ -223,7 +223,10 @@ function saveLocalPB<M extends Mode>(
   raw: number,
   consistency: number,
 ): void {
-  if (mode === "quote") return;
+  //quote mode saves too (phase 66): mode2 is the quote id and the
+  //language is part of the key, so persian sessions never touch the
+  //english buckets — the old exclusion mirrored the server, which owned
+  //quote pbs; the offline build owns them locally
   if (!dbSnapshot) return;
   function cont(): void {
     if (!dbSnapshot) return;

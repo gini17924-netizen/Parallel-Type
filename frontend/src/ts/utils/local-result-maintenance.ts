@@ -78,9 +78,10 @@ export function recomputeStreak(
   };
 }
 
-/** PB eligibility, mirroring the save path (test-logic offline branch). */
+/** PB eligibility, mirroring the save path (test-logic offline branch).
+ * quote results are eligible since phase 66 — the local store owns quote
+ * pbs, keyed by mode2 = the quote id and the language */
 function canBePersonalBest(result: SnapshotResult<Mode>): boolean {
-  if (result.mode === "quote") return false;
   if (result.bailedOut) return false;
   //stopOnLetter exists on stored rows (cloned from the completed event) but
   //not on the SnapshotResult type
