@@ -191,6 +191,90 @@ fn updater_set_auto_check(app: tauri::AppHandle, enabled: bool) -> Result<(), St
     save_auto_check(&path, enabled)
 }
 
+/// Phase 71: the user's own text library — `.txt` files dropped into the
+/// app CONFIG dir's `texts/` folder become typable through the custom-text
+/// modal. The folder is created on demand so there is always an obvious
+/// place to drop files.
+const USER_TEXTS_DIR: &str = "texts";
+/// a single text file larger than this is refused — typing material, not
+/// a data dump
+const USER_TEXT_MAX_BYTES: u64 = 1024 * 1024;
+
+fn texts_dir(app: &tauri::AppHandle) -> Result<std::path::PathBuf, String> {
+    let dir = app
+        .path()
+        .app_config_dir()
+        .map(|dir| dir.join(USER_TEXTS_DIR))
+        .map_err(|e| e.to_string())?;
+    std::fs::create_dir_all(&dir).map_err(|e| e.to_string())?;
+    Ok(dir)
+}
+
+/// no separators, no dot-dot, no leading dot — the name may only ever be
+/// joined onto the texts dir itself
+fn sanitize_text_name(name: &str) -> Result<String, String> {
+    if name.is_empty()
+        || name.contains('/')
+        || name.contains('\\')
+        || name.contains("..")
+        || name.starts_with('.')
+    {
+        return Err("invalid text file name".to_string());
+    }
+    Ok(name.to_string())
+}
+
+#[derive(serde::Serialize)]
+struct UserTextFile {
+    name: String,
+    size: u64,
+}
+
+#[tauri::command]
+fn texts_folder_path(app: tauri::AppHandle) -> Result<String, String> {
+    let dir = texts_dir(&app)?;
+    Ok(dir.to_string_lossy().to_string())
+}
+
+#[tauri::command]
+fn texts_list(app: tauri::AppHandle) -> Result<Vec<UserTextFile>, String> {
+    let dir = texts_dir(&app)?;
+    let entries =
+        std::fs::read_dir(&dir).map_err(|e| format!("read texts dir: {e}"))?;
+    let mut files: Vec<UserTextFile> = Vec::new();
+    for entry in entries.flatten() {
+        let metadata = match entry.metadata() {
+            Ok(metadata) => metadata,
+            Err(_) => continue,
+        };
+        if !metadata.is_file() {
+            continue;
+        }
+        let name = entry.file_name().to_string_lossy().to_string();
+        if !name.to_lowercase().ends_with(".txt") {
+            continue;
+        }
+        files.push(UserTextFile {
+            name,
+            size: metadata.len(),
+        });
+    }
+    files.sort_by(|a, b| a.name.cmp(&b.name));
+    Ok(files)
+}
+
+#[tauri::command]
+fn texts_read(app: tauri::AppHandle, name: String) -> Result<String, String> {
+    let clean = sanitize_text_name(&name)?;
+    let dir = texts_dir(&app)?;
+    let path = dir.join(&clean);
+    let metadata = std::fs::metadata(&path).map_err(|e| format!("stat: {e}"))?;
+    if metadata.len() > USER_TEXT_MAX_BYTES {
+        return Err("file too large (1MB limit for typing texts)".to_string());
+    }
+    std::fs::read_to_string(&path).map_err(|e| format!("read failed: {e}"))
+}
+
 fn build_tray(app: &tauri::AppHandle) -> tauri::Result<()> {
     let toggle =
         MenuItem::with_id(app, "toggle", "Show/Hide ParallelType", true, None::<&str>)?;
@@ -333,6 +417,9 @@ fn main() {
             updater_get_settings,
             updater_set_auto_check,
             updater_manual_check,
+            texts_folder_path,
+            texts_list,
+            texts_read,
             lan::lan_start_host,
             lan::lan_stop_host,
             lan::lan_send_message,

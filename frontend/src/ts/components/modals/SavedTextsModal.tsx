@@ -9,6 +9,16 @@ import {
 } from "../../states/notifications";
 import { showSimpleModal } from "../../states/simple-modal";
 import * as CustomText from "../../test/custom-text";
+import {
+  getLastPickedFile,
+  invalidateUserTextsCache,
+  isUserTextsAvailable,
+  setLastPickedFile,
+  userTextsFolderPath,
+  userTextsList,
+  userTextsRead,
+  type UserTextFile,
+} from "../../utils/user-texts";
 import { download } from "../../utils/misc";
 import { AnimatedModal } from "../common/AnimatedModal";
 import { Button } from "../common/Button";
@@ -45,10 +55,38 @@ export function SavedTextsModal(props: {
   // we need to trigger a refresh when it changes to update the reset button state
   const [trackProgress, refreshProgress] = createTrigger();
 
+  //phase 71: the user's own text files (desktop only — the commands live
+  //in the tauri shell)
+  const isDesktopBuild = () => isUserTextsAvailable();
+  const [userFiles, setUserFiles] = createSignal<UserTextFile[]>([]);
+  const [folderPath, setFolderPath] = createSignal<string | undefined>(
+    undefined,
+  );
+
   const refresh = () => {
     setNames(CustomText.getCustomTextNames(false));
     setLongNames(CustomText.getCustomTextNames(true));
     refreshProgress();
+    void refreshFiles();
+  };
+
+  const refreshFiles = async (): Promise<void> => {
+    invalidateUserTextsCache();
+    const files = await userTextsList(true);
+    setUserFiles(files ?? []);
+    setFolderPath(await userTextsFolderPath());
+  };
+
+  const handleFileClick = async (name: string): Promise<void> => {
+    const text = await userTextsRead(name);
+    if (text === undefined) {
+      showErrorNotification("could not read the text file");
+      return;
+    }
+    setLastPickedFile(name);
+    setCustomTextIndicator({ name, isLong: false });
+    props.setChainedData({ text, long: false, pipeDelimiter: false });
+    hideModal("SavedTexts");
   };
 
   const handleNameClick = (name: string, long: boolean) => {
@@ -207,6 +245,49 @@ export function SavedTextsModal(props: {
       </div>
 
       <Separator />
+
+      <Show when={isDesktopBuild()}>
+        <div class="text-2xl text-sub">From your text files</div>
+        <div class="text-xs text-sub">
+          drop .txt files into the app's <span class="font-bold">texts</span>{" "}
+          folder and they appear here
+          <Show when={folderPath() !== undefined}> — {folderPath()}</Show>
+        </div>
+        <div class="grid gap-2" data-testid="user-texts-list">
+          <Show
+            when={userFiles().length > 0}
+            fallback={
+              <div class="text-sub">
+                No text files found yet — add some and refresh
+              </div>
+            }
+          >
+            <For each={userFiles()}>
+              {(file) => (
+                <div class="flex items-center gap-2">
+                  <Button
+                    variant="button"
+                    text={`${getLastPickedFile() === file.name ? "★ " : ""}${file.name} (${Math.max(1, Math.round(file.size / 1024))} KB)`}
+                    class="flex-1"
+                    onClick={() => {
+                      void handleFileClick(file.name);
+                    }}
+                  />
+                </div>
+              )}
+            </For>
+          </Show>
+          <Button
+            variant="button"
+            text="refresh file list"
+            fa={{ icon: "fa-sync-alt", fixedWidth: true }}
+            onClick={() => {
+              void refreshFiles();
+            }}
+          />
+        </div>
+        <Separator />
+      </Show>
 
       <div class="text-em-xs text-error">
         Heads up! These texts are only stored locally. If you switch devices or
