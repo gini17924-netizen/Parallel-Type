@@ -224,7 +224,7 @@ export async function exportStatsHtmlFile(): Promise<void> {
     xp: snapshot.xp,
     streak: snapshot.streak,
     maxStreak: snapshot.maxStreak,
-    personalBests: snapshot.personalBests as StatsExportData["personalBests"],
+    personalBests: snapshot.personalBests,
     results: results.map((result) => ({
       wpm: result.wpm,
       acc: result.acc,
