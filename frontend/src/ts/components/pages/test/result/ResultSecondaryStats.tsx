@@ -13,6 +13,7 @@ import {
 import Ape from "../../../../ape";
 import { useTagsLiveQuery } from "../../../../collections/tags";
 import { getConfig } from "../../../../config/store";
+import { dictationSpellingAccuracy } from "../../../../utils/dictation-stats";
 import QuotesController, {
   Quote,
 } from "../../../../controllers/quotes-controller";
@@ -401,6 +402,16 @@ function getTestType(
   if (result.lazyMode) lines.push("lazy");
   if (result.funbox.length > 0) {
     lines.push(result.funbox.map((it) => it.replace(/_/g, " ")).join(", "));
+  }
+  //phase 68: dictation (the tts funbox hides the words) — the session's
+  //accuracy is the spelling score; the average comes from the store
+  if (result.funbox.includes("tts")) {
+    const average = dictationSpellingAccuracy();
+    lines.push(
+      average === undefined
+        ? `spelling accuracy ${result.acc}%`
+        : `spelling accuracy ${result.acc}% (average ${average}%)`,
+    );
   }
   if (result.difficulty === "expert" || result.difficulty === "master") {
     lines.push(result.difficulty);

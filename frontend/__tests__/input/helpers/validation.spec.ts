@@ -208,6 +208,52 @@ describe("shouldGoToNextWord", () => {
     ).toBe(true);
   });
 
+  //phase 68: persian orthography tolerance — the soft-typed form (with
+  //ZWNJ) commits the same word as the plain form; the target itself is
+  //already stripped at generation. stopOnError is on so `correct` gates
+  //the result (with it off every word advances regardless).
+  it("commits the soft-typed persian form against a stripped target", () => {
+    replaceConfig({ language: "persian", stopOnError: "word" });
+    expect(
+      shouldGoToNextWord({
+        data: " ",
+        inputValue: "می‌روم",
+        targetWord: "میروم ",
+        commitCharacterType: "separator",
+      }),
+    ).toBe(true);
+    //the plain form commits too
+    expect(
+      shouldGoToNextWord({
+        data: " ",
+        inputValue: "میروم",
+        targetWord: "میروم ",
+        commitCharacterType: "separator",
+      }),
+    ).toBe(true);
+    //a truly different word still fails
+    expect(
+      shouldGoToNextWord({
+        data: " ",
+        inputValue: "میمانم",
+        targetWord: "میروم ",
+        commitCharacterType: "separator",
+      }),
+    ).toBe(false);
+  });
+
+  it("stays exact for non-persian languages (soft chars are errors)", () => {
+    replaceConfig({ language: "english", stopOnError: "word" });
+    expect(
+      shouldGoToNextWord({
+        data: " ",
+        inputValue: "mi\u200crom",
+        targetWord: "mirom ",
+        commitCharacterType: "separator",
+      }),
+    ).toBe(false);
+  });
+
   // the empty-input guard must not block a nospace commit on a 1-letter word,
   // otherwise such words can never be advanced
   it.each([

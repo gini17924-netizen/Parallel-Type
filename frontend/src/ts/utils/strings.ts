@@ -346,6 +346,38 @@ export function areCharactersVisuallyEqual(
   return false;
 }
 
+/**
+ * Soft persian orthography: ZWNJ (نیم‌فاصله), diacritics and tatweel are
+ * invisible in speech and hard to type — word comparisons for persian
+ * languages are made without them (phase 68). The regex lives at module
+ * scope: the strip runs per word at generation and per commit.
+ */
+const SOFT_PERSIAN_CHARS = /[\u064B-\u065F\u0670\u0640\u200c]/g;
+
+export function stripSoftPersianChars(word: string): string {
+  return word.replace(SOFT_PERSIAN_CHARS, "");
+}
+
+/**
+ * Word-level visual equality with persian orthography tolerance: the
+ * ZWNJ-typed and the plain-typed forms of the same word both match the
+ * same target ("می‌روم" == "میروم"). Non-persian languages compare
+ * exactly, as before.
+ */
+export function areWordsVisuallyEqual(
+  typed: string,
+  target: string,
+  language?: string,
+): boolean {
+  if (typed === target) return true;
+  if (language === undefined || !language.startsWith("persian")) {
+    return false;
+  }
+  return (
+    stripSoftPersianChars(typed) === stripSoftPersianChars(target)
+  );
+}
+
 export function toHex(buffer: ArrayBuffer): string {
   const u8 = new Uint8Array(buffer);
 

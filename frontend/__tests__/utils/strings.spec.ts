@@ -959,4 +959,36 @@ describe("string utils", () => {
       });
     });
   });
+
+  describe("persian orthography tolerance (phase 68)", () => {
+    it("strips ZWNJ, diacritics and tatweel", () => {
+      expect(Strings.stripSoftPersianChars("می‌روم")).toBe("میروم");
+      expect(Strings.stripSoftPersianChars("مُشَکَّلات")).toBe("مشکلات");
+      expect(Strings.stripSoftPersianChars("کتـاب")).toBe("کتاب");
+      expect(Strings.stripSoftPersianChars("سلام")).toBe("سلام");
+    });
+
+    it("matches the soft-typed and plain forms for persian", () => {
+      expect(Strings.areWordsVisuallyEqual("می‌روم", "میروم", "persian")).toBe(
+        true,
+      );
+      expect(
+        Strings.areWordsVisuallyEqual("میروم", "می‌روم", "persian_1k"),
+      ).toBe(true);
+      expect(Strings.areWordsVisuallyEqual("سلام", "سلام", "persian")).toBe(
+        true,
+      );
+      expect(Strings.areWordsVisuallyEqual("میروم", "میمانم", "persian")).toBe(
+        false,
+      );
+    });
+
+    it("stays exact for non-persian languages", () => {
+      expect(Strings.areWordsVisuallyEqual("mi‌rom", "mirom", "english")).toBe(
+        false,
+      );
+      expect(Strings.areWordsVisuallyEqual("abc", "abc", undefined)).toBe(true);
+      expect(Strings.areWordsVisuallyEqual("abc", "abd", undefined)).toBe(false);
+    });
+  });
 });

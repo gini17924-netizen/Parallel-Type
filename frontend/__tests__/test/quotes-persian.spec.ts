@@ -150,6 +150,28 @@ describe("phase 66 — the persian quotes mode", () => {
       expect(ret.allRightToLeft).toBe(true);
       expect(ret.allJoiningScript).toBe(true);
     });
+
+    it("the targets are stripped of soft persian orthography (phase 68)", async () => {
+      setConfig("mode", "custom");
+      setConfig("language", "persian");
+      //dynamic import AFTER resetModules — the generator's copy of
+      //CustomText must be the same instance this test writes to
+      const CustomText = await import("../../src/ts/test/custom-text");
+      CustomText.setText(["می‌روم", "سلام", "مُشکّلات"]);
+      CustomText.setLimitMode("word");
+      CustomText.setLimitValue(3);
+      CustomText.setMode("repeat");
+      WordsGenerator = await import("../../src/ts/test/words-generator");
+      const ret = await WordsGenerator.generateWords(persian);
+      //the words carry their commit separator — compare trimmed
+      const trimmed = ret.words.map((w) => w.trim());
+      expect(trimmed).toContain("میروم");
+      expect(trimmed).toContain("مشکلات");
+      //no ZWNJ, diacritics or tatweel anywhere in the generated targets
+      for (const word of ret.words) {
+        expect(word).not.toMatch(/[\u064B-\u065F\u0670\u0640\u200c]/);
+      }
+    });
   });
 
   describe("quote pbs land in language-keyed buckets", () => {

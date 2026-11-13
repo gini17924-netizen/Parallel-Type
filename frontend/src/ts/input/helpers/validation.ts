@@ -1,4 +1,5 @@
 import { Config } from "../../config/store";
+import { areWordsVisuallyEqual } from "../../utils/strings";
 import { type CommitCharacterType } from "./util";
 
 /**
@@ -65,7 +66,14 @@ export function shouldGoToNextWord(options: {
     return false;
   }
 
-  const correct = inputValue + data === targetWord;
+  //phase 68: persian orthography tolerance — the soft-typed form (with
+  //ZWNJ/diacritics) commits the same word as the plain form; the target
+  //itself is already stripped at generation
+  const correct = areWordsVisuallyEqual(
+    inputValue + data,
+    targetWord,
+    Config.language,
+  );
 
   //stop on error
   if (Config.stopOnError === "word" && !correct) {

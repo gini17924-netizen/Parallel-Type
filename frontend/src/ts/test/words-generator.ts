@@ -735,6 +735,13 @@ export async function generateWords(
     wordList = wordList.reverse();
   }
 
+  //phase 68: the target must be typeable — soft persian orthography
+  //(ZWNJ, diacritics) is stripped from the target words; the commit
+  //checker still accepts the soft-typed form (validation.ts)
+  if (language.name.startsWith("persian")) {
+    wordList = wordList.map(Strings.stripSoftPersianChars);
+  }
+
   const funbox = findSingleActiveFunboxWithFunction("withWords");
   if (funbox) {
     const result = await funbox.functions.withWords(wordList);

@@ -116,6 +116,7 @@ import { getFunbox } from "@monkeytype/funbox";
 import { SnapshotResult } from "../constants/default-snapshot";
 import { DESKTOP_OFFLINE, makeLocalResultId } from "../utils/local-persistence";
 import { registerCodeSession } from "../utils/code-drill";
+import { recordDictationSession } from "../utils/dictation-stats";
 import {
   registerDrillResult,
   takeActiveDrillWords,
@@ -1234,6 +1235,18 @@ export async function finish(difficultyFailed = false): Promise<void> {
             TestWords.words.get().map((w) => w.text),
             getInputHistory(eventLog),
           );
+        }
+        //dictation (phase 68): the tts funbox hides the words — the
+        //session's accuracy IS the spelling score (exact "tts" match:
+        //tts_seen shows the words and is not dictation)
+        if (Config.funbox.includes("tts")) {
+          recordDictationSession({
+            timestamp: snapshotResult.timestamp,
+            language: snapshotResult.language,
+            mode: snapshotResult.mode,
+            spellingAccuracy: snapshotResult.acc,
+            wpm: snapshotResult.wpm,
+          });
         }
         //signed-out sessions never reset this counter upstream; on desktop
         //every result is saved, so the accumulated seconds would inflate
