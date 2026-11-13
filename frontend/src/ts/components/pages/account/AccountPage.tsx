@@ -7,7 +7,7 @@ import {
   useResultsLiveQuery,
 } from "../../../collections/results";
 import { SnapshotResult } from "../../../constants/default-snapshot";
-import { getSnapshot, importLocalBackup } from "../../../db";
+import { importLocalBackup } from "../../../db";
 import { isAuthenticated } from "../../../states/core";
 import { hideLoaderBar, showLoaderBar } from "../../../states/loader-bar";
 import {

@@ -188,9 +188,7 @@ export function buildStatsExportHtml(data: StatsExportData): string {
 
 <h2>wpm &amp; accuracy trend</h2>
 <div class="chart">${
-    chart === undefined
-      ? "<p class=\"sub\">not enough results to draw a trend yet</p>"
-      : chart
+    chart ?? "<p class=\"sub\">not enough results to draw a trend yet</p>"
   }</div>
 
 <h2>personal bests (${pbRows.length})</h2>
@@ -226,8 +224,7 @@ export async function exportStatsHtmlFile(): Promise<void> {
     xp: snapshot.xp,
     streak: snapshot.streak,
     maxStreak: snapshot.maxStreak,
-    personalBests:
-      snapshot.personalBests as unknown as StatsExportData["personalBests"],
+    personalBests: snapshot.personalBests as StatsExportData["personalBests"],
     results: results.map((result) => ({
       wpm: result.wpm,
       acc: result.acc,
