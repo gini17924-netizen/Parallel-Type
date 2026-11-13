@@ -249,7 +249,7 @@ export function SavedTextsModal(props: {
       <Show when={isDesktopBuild()}>
         <div class="text-2xl text-sub">From your text files</div>
         <div class="text-xs text-sub">
-          drop .txt files into the app's <span class="font-bold">texts</span>{" "}
+          drop .txt files into the app&apos;s <span class="font-bold">texts</span>{" "}
           folder and they appear here
           <Show when={folderPath() !== undefined}> — {folderPath()}</Show>
         </div>
