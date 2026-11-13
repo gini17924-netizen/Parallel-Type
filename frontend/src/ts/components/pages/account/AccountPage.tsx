@@ -7,7 +7,7 @@ import {
   useResultsLiveQuery,
 } from "../../../collections/results";
 import { SnapshotResult } from "../../../constants/default-snapshot";
-import { importLocalBackup } from "../../../db";
+import { getSnapshot, importLocalBackup } from "../../../db";
 import { isAuthenticated } from "../../../states/core";
 import { hideLoaderBar, showLoaderBar } from "../../../states/loader-bar";
 import {
@@ -29,6 +29,7 @@ import {
 } from "../../../utils/local-persistence";
 import { computeStreakFromResults } from "../../../utils/local-streak";
 import { exportResultsCsv } from "../../../utils/result-export";
+import { exportStatsHtmlFile } from "../../../utils/stats-export";
 import { Advertisement } from "../../common/Advertisement";
 import AsyncContent from "../../common/AsyncContent";
 import { Button } from "../../common/Button";
@@ -245,6 +246,29 @@ export function AccountPage(): JSXElement {
                   .catch((error: unknown) => {
                     console.error("Failed to export results CSV", error);
                     showErrorNotification("Failed to export results", {
+                      error,
+                    });
+                  })
+                  .finally(() => {
+                    hideLoaderBar();
+                    setIsExporting(false);
+                  });
+              }}
+            />
+            <Button
+              text="Export stats (HTML)"
+              fa={{ icon: "fa-file-code" }}
+              class="w-full"
+              disabled={isExporting()}
+              onClick={() => {
+                setIsExporting(true);
+                showLoaderBar();
+                //phase 72: the whole stats report as ONE self-contained
+                //html file — inline css, inline svg, no scripts, no network
+                void exportStatsHtmlFile()
+                  .catch((error: unknown) => {
+                    console.error("Failed to export the stats HTML", error);
+                    showErrorNotification("Failed to export stats", {
                       error,
                     });
                   })
