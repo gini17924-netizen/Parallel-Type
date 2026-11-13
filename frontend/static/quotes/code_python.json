@@ -1,10 +1,22 @@
 {
   "language": "code_python",
   "groups": [
-    [0, 100],
-    [101, 300],
-    [301, 600],
-    [601, 9999]
+    [
+      0,
+      100
+    ],
+    [
+      101,
+      300
+    ],
+    [
+      301,
+      600
+    ],
+    [
+      601,
+      9999
+    ]
   ],
   "quotes": [
     {
@@ -462,6 +474,18 @@
       "source": "eChat source code line 96-102",
       "id": 77,
       "length": 132
+    },
+    {
+      "text": "# میانگین زمان پاسخ از فایل گزارش\nimport json\n\ndef average_ms(path):\n\twith open(path, encoding=\"utf-8\") as fh:\n\t\trows = json.load(fh)\n\t# ردیف های بدون زمان را رد کن\n\ttimes = [r[\"ms\"] for r in rows if \"ms\" in r]\n\tif not times:\n\t\traise ValueError(\"no samples\")\n\treturn sum(times) / len(times)",
+      "source": "python-average-ms",
+      "id": 78,
+      "length": 290
+    },
+    {
+      "text": "# حذف خطوط تکراری گزارش و شمردن هر گروه\nfrom collections import Counter\n\ndef dedupe(path):\n\tseen = set()\n\tcounts = Counter()\n\tfor line in open(path, encoding=\"utf-8\"):\n\t\tline = line.strip()\n\t\tif not line or line in seen:\n\t\t\tcounts[\"dup\" if line in seen else \"new\"] += 1\n\t\t\tcontinue\n\t\tseen.add(line)\n\t\tcounts[\"new\"] += 1\n\treturn counts",
+      "source": "python-dedupe-log",
+      "id": 79,
+      "length": 334
     }
   ]
 }

@@ -115,6 +115,7 @@ import {
 import { getFunbox } from "@monkeytype/funbox";
 import { SnapshotResult } from "../constants/default-snapshot";
 import { DESKTOP_OFFLINE, makeLocalResultId } from "../utils/local-persistence";
+import { registerCodeSession } from "../utils/code-drill";
 import {
   registerDrillResult,
   takeActiveDrillWords,
@@ -1224,6 +1225,14 @@ export async function finish(difficultyFailed = false): Promise<void> {
             drillWords,
             getInputHistory(eventLog),
             Config.language,
+          );
+        }
+        //code sessions: per-symbol stats feed the code-symbols drill
+        //(phase 67) — the snippet's own words are the expected side
+        if (Config.language.startsWith("code_")) {
+          registerCodeSession(
+            TestWords.words.get().map((w) => w.text),
+            getInputHistory(eventLog),
           );
         }
         //signed-out sessions never reset this counter upstream; on desktop

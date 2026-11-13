@@ -1,10 +1,22 @@
 {
   "language": "code_typescript",
   "groups": [
-    [0, 100],
-    [101, 300],
-    [301, 600],
-    [601, 9999]
+    [
+      0,
+      100
+    ],
+    [
+      101,
+      300
+    ],
+    [
+      301,
+      600
+    ],
+    [
+      601,
+      9999
+    ]
   ],
   "quotes": [
     {
@@ -132,6 +144,18 @@
       "source": "typescript-algorithms",
       "id": 21,
       "length": 508
+    },
+    {
+      "text": "// لیست کاربران را از حافظه پنهان می خواند\nexport class UserCache {\n\tprivate users = new Map<string, User>();\n\tget(id: string): User | undefined {\n\t\t// شناسه باید رشته ای غیرخالی باشد\n\t\tif (id.length === 0) throw new Error(\"empty id\");\n\t\treturn this.users.get(id);\n\t}\n\tset(user: User): void {\n\t\tthis.users.set(user.id, user);\n\t}\n}",
+      "source": "typescript-user-cache",
+      "id": 22,
+      "length": 330
+    },
+    {
+      "text": "// تلاش دوباره با تاخیر نمایی\nexport async function retry<T>(fn: () => Promise<T>, times = 3): Promise<T> {\n\tlet delay = 250;\n\tfor (let attempt = 1; attempt <= times; attempt++) {\n\t\ttry {\n\t\t\treturn await fn();\n\t\t} catch (error) {\n\t\t\tif (attempt === times) throw error;\n\t\t\t// صبر و بعد تاخیر دو برابر\n\t\t\tawait new Promise((r) => setTimeout(r, delay));\n\t\t\tdelay *= 2;\n\t\t}\n\t}\n\tthrow new Error(\"unreachable\");\n}",
+      "source": "typescript-retry",
+      "id": 23,
+      "length": 407
     }
   ]
 }

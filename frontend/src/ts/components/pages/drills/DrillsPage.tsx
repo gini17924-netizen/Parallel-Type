@@ -33,6 +33,10 @@ import {
   buildCurrentWeakness,
   generateSmartDrillWords,
 } from "../../../utils/smart-drill";
+import {
+  buildSymbolDrillPlan,
+  loadCodeDrillState,
+} from "../../../utils/code-drill";
 import { Button } from "../../common/Button";
 import { H2 } from "../../common/Headers";
 
@@ -77,6 +81,10 @@ export function DrillsPage(): JSXElement {
   const [enterAccuracy, setEnterAccuracy] = createSignal<number | undefined>(
     undefined,
   );
+  //phase 67: code-symbol stats (own store — never mixes with letters)
+  const [codeStats, setCodeStats] = createSignal<{ total: number; weakest: string }>(
+    { total: 0, weakest: "" },
+  );
 
   const refreshEnterAccuracy = (): void => {
     const stat = getLearnState().keyStats[ENTER_STAT_KEY];
@@ -86,6 +94,19 @@ export function DrillsPage(): JSXElement {
     }
     const total = stat.correct + stat.incorrect;
     setEnterAccuracy(total > 0 ? stat.correct / total : undefined);
+  };
+
+  const refreshCodeStats = (): void => {
+    const state = loadCodeDrillState();
+    const entries = Object.entries(state.symbols);
+    const total = entries.reduce((sum, [, s]) => sum + s.correct + s.incorrect, 0);
+    const weakest = entries
+      .filter(([, s]) => s.correct + s.incorrect > 0)
+      .sort((a, b) => b[1].incorrect / (b[1].correct + b[1].incorrect) - a[1].incorrect / (a[1].correct + a[1].incorrect))
+      .slice(0, 5)
+      .map(([ch]) => ch)
+      .join(" ");
+    setCodeStats({ total, weakest });
   };
 
   onMount(async () => {
@@ -98,6 +119,7 @@ export function DrillsPage(): JSXElement {
     setDetailed(weakLettersDetailed(8));
     setRusty(rustyLetters(8));
     refreshEnterAccuracy();
+    refreshCodeStats();
   });
 
   return (
@@ -263,6 +285,35 @@ export function DrillsPage(): JSXElement {
             })();
           }}
         />
+      </section>
+
+      <section class="grid gap-4 rounded bg-sub-alt p-4" data-testid="code-symbols-card">
+        <div class="text-sub">code symbols (phase 67)</div>
+        <Show
+          when={codeStats().total > 0}
+          fallback={
+            <div class="text-xs text-sub">
+              type a code snippet first — every code session feeds these
+              stats ({}[]();= and friends are what break code speed)
+            </div>
+          }
+        >
+          <div class="text-xs text-sub">
+            weakest so far: {codeStats().weakest}
+          </div>
+          <Button
+            text="start code symbols drill"
+            fa={{ icon: "fa-code" }}
+            class="w-full"
+            onClick={() => {
+              const plan = buildSymbolDrillPlan(loadCodeDrillState());
+              //D1 pattern: register the words so the test-finish hook
+              //merges this attempt into the symbol stats
+              setActiveDrillWords(plan.words);
+              startDrill(plan.words, "code symbols drill");
+            }}
+          />
+        </Show>
       </section>
 
       <section class="grid gap-4 rounded bg-sub-alt p-4">

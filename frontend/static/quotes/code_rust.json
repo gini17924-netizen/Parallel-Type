@@ -1,10 +1,22 @@
 {
   "language": "code_rust",
   "groups": [
-    [0, 100],
-    [101, 300],
-    [301, 600],
-    [601, 9999]
+    [
+      0,
+      100
+    ],
+    [
+      101,
+      300
+    ],
+    [
+      301,
+      600
+    ],
+    [
+      601,
+      9999
+    ]
   ],
   "quotes": [
     {
@@ -1662,6 +1674,18 @@
       "length": 40,
       "source": "Conditional assignment - programming-idioms.org",
       "text": "x = if condition() { \"a\" } else { \"b\" };"
+    },
+    {
+      "text": "// شمارنده واژه ها: فایل را خط به خط می خواند\nuse std::collections::HashMap;\nuse std::fs;\n\nfn main() {\n\t// مسیر فایل از اولین آرگومان خط فرمان می آید\n\tlet path = std::env::args().nth(1).expect(\"usage: wc <file>\");\n\tlet text = fs::read_to_string(&path).expect(\"cannot read file\");\n\tlet mut counts: HashMap<String, u32> = HashMap::new();\n\tfor line in text.lines() {\n\t\t// جداکننده ساده: هر چیزی که حرف نیست\n\t\tfor word in line.split(|c: char| !c.is_alphanumeric()) {\n\t\t\tif word.is_empty() { continue; }\n\t\t\t*counts.entry(word.to_lowercase()).or_insert(0) += 1;\n\t\t}\n\t}\n\t// مرتب سازی نزولی بر اساس تعداد\n\tlet mut pairs: Vec<_> = counts.into_iter().collect();\n\tpairs.sort_by(|a, b| b.1.cmp(&a.1));\n\tfor (word, n) in pairs.iter().take(10) {\n\t\tprintln!(\"{}: {}\", word, n);\n\t}\n}",
+      "source": "rust-word-counter",
+      "id": 278,
+      "length": 767
+    },
+    {
+      "text": "// خواندن امن فایل پیکربندی با زنجیره Result\nfn read_config(path: &str) -> Result<String, String> {\n\tfs::read_to_string(path).map_err(|e| format!(\"read failed: {}\", e))\n}\n\nfn parse_port(text: &str) -> Result<u16, String> {\n\t// پورت باید عددی در بازه معتبر باشد\n\ttext.trim().parse::<u16>().map_err(|e| format!(\"bad port: {}\", e))\n}",
+      "source": "rust-result-chain",
+      "id": 279,
+      "length": 330
     }
   ]
 }
