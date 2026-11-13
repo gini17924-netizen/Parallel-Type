@@ -172,6 +172,33 @@ describe("phase 66 — the persian quotes mode", () => {
         expect(word).not.toMatch(/[\u064B-\u065F\u0670\u0640\u200c]/);
       }
     });
+
+    it("the ZWNJ drill bypasses the strip — its targets keep the half-space (phase 69)", async () => {
+      setConfig("mode", "custom");
+      setConfig("language", "persian");
+      const { setCustomTextIndicator } = await import(
+        "../../src/ts/states/core"
+      );
+      const { ZWNJ_DRILL_NAME } = await import(
+        "../../src/ts/utils/persian-drills"
+      );
+      const CustomText = await import("../../src/ts/test/custom-text");
+      setCustomTextIndicator({ name: ZWNJ_DRILL_NAME, isLong: false });
+      CustomText.setText(["می‌روم", "کتاب‌ها"]);
+      CustomText.setLimitMode("word");
+      CustomText.setLimitValue(2);
+      CustomText.setMode("repeat");
+      WordsGenerator = await import("../../src/ts/test/words-generator");
+      const kept = await WordsGenerator.generateWords(persian);
+      const keptTrimmed = kept.words.map((w) => w.trim());
+      expect(keptTrimmed).toContain("می‌روم");
+      expect(keptTrimmed).toContain("کتاب‌ها");
+
+      //contrast: any other indicator gets the phase-68 strip
+      setCustomTextIndicator({ name: "some other drill", isLong: false });
+      const stripped = await WordsGenerator.generateWords(persian);
+      expect(stripped.words.map((w) => w.trim())).toContain("میروم");
+    });
   });
 
   describe("quote pbs land in language-keyed buckets", () => {

@@ -37,6 +37,13 @@ import {
   buildSymbolDrillPlan,
   loadCodeDrillState,
 } from "../../../utils/code-drill";
+import {
+  buildPersianPunctuationDrillWords,
+  buildZwnjDrillWords,
+  PERSIAN_DRILL_WORD_COUNT,
+  PERSIAN_PUNCTUATION_DRILL_NAME,
+  ZWNJ_DRILL_NAME,
+} from "../../../utils/persian-drills";
 import { Button } from "../../common/Button";
 import { H2 } from "../../common/Headers";
 
@@ -315,6 +322,43 @@ export function DrillsPage(): JSXElement {
           />
         </Show>
       </section>
+
+      <Show when={language().startsWith("persian")}>
+        <section
+          class="grid gap-4 rounded bg-sub-alt p-4"
+          data-testid="persian-drills-card"
+        >
+          <div class="text-sub">specialized persian drills (phase 69)</div>
+          <div class="grid grid-cols-2 gap-2">
+            <Button
+              text="ZWNJ drill"
+              fa={{ icon: "fa-keyboard" }}
+              class="w-full"
+              onClick={() => {
+                const words = buildZwnjDrillWords();
+                startDrill(words, ZWNJ_DRILL_NAME);
+              }}
+            />
+            <Button
+              text="punctuation drill"
+              fa={{ icon: "fa-quote-right" }}
+              class="w-full"
+              onClick={() => {
+                const words = buildPersianPunctuationDrillWords(
+                  PERSIAN_DRILL_WORD_COUNT,
+                  Date.now(),
+                  wordList(),
+                );
+                startDrill(words, PERSIAN_PUNCTUATION_DRILL_NAME);
+              }}
+            />
+          </div>
+          <div class="text-xs text-sub">
+            the ZWNJ drill keeps half-spaces in the targets (shift+space
+            types them) — everything else stays plain-typed
+          </div>
+        </section>
+      </Show>
 
       <section class="grid gap-4 rounded bg-sub-alt p-4">
         <div class="text-sub">

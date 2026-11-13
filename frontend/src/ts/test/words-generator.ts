@@ -15,6 +15,8 @@ import * as Misc from "../utils/misc";
 import * as Strings from "../utils/strings";
 import * as Arrays from "../utils/arrays";
 import * as GetText from "../utils/generate";
+import { getCustomTextIndicator } from "../states/core";
+import { ZWNJ_DRILL_NAME } from "../utils/persian-drills";
 import { FunboxWordOrder } from "../utils/json-data";
 import {
   findSingleActiveFunboxWithFunction,
@@ -737,8 +739,12 @@ export async function generateWords(
 
   //phase 68: the target must be typeable — soft persian orthography
   //(ZWNJ, diacritics) is stripped from the target words; the commit
-  //checker still accepts the soft-typed form (validation.ts)
-  if (language.name.startsWith("persian")) {
+  //checker still accepts the soft-typed form (validation.ts).
+  //phase 69 exception: the ZWNJ drill teaches typing ZWNJ — its targets
+  //must keep the soft characters the strip would remove
+  const zwnjDrillActive =
+    getCustomTextIndicator()?.name === ZWNJ_DRILL_NAME;
+  if (language.name.startsWith("persian") && !zwnjDrillActive) {
     wordList = wordList.map(Strings.stripSoftPersianChars);
   }
 
