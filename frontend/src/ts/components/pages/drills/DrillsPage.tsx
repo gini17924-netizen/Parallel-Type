@@ -21,6 +21,7 @@ import {
   fetchWordList,
   generateDrillWords,
   getLearnState,
+  masteryPathForLanguage,
   rowDrillsForLanguage,
   rustyLetters,
   setActiveDrillWords,
@@ -28,7 +29,9 @@ import {
   weakLetterDrillWords,
   weakLetters,
   weakLettersDetailed,
+  type MasteryPathGroup,
 } from "../../../utils/learn-stats";
+import { loadKeybrLetterStats } from "../../../utils/keybr-letter-stats";
 import {
   buildCurrentWeakness,
   generateSmartDrillWords,
@@ -92,6 +95,8 @@ export function DrillsPage(): JSXElement {
   const [codeStats, setCodeStats] = createSignal<{ total: number; weakest: string }>(
     { total: 0, weakest: "" },
   );
+  //phase 70: the per-key mastery chain (mastered → current → locked)
+  const [masteryPath, setMasteryPath] = createSignal<MasteryPathGroup[]>([]);
 
   const refreshEnterAccuracy = (): void => {
     const stat = getLearnState().keyStats[ENTER_STAT_KEY];
@@ -127,6 +132,9 @@ export function DrillsPage(): JSXElement {
     setRusty(rustyLetters(8));
     refreshEnterAccuracy();
     refreshCodeStats();
+    setMasteryPath(
+      masteryPathForLanguage(getLearnState(), loadKeybrLetterStats(), language()),
+    );
   });
 
   return (
@@ -137,6 +145,59 @@ export function DrillsPage(): JSXElement {
           Targeted practice: drill a row, a hand, or your weakest keys. The test
           runs in custom mode with words filtered to your selection.
         </p>
+      </section>
+
+      <section class="grid gap-4 rounded bg-sub-alt p-4" data-testid="mastery-path-card">
+        <div class="text-sub">mastery path (phase 70)</div>
+        <div class="text-xs text-sub">
+          a key masters at ≥20 correct chars with ≥95% accuracy — and
+          ≤800ms/char once the keybr engine holds timing for it; the next
+          group opens when the current one fully masters
+        </div>
+        <div class="grid gap-2">
+          <For each={masteryPath()}>
+            {(group) => (
+              <div class="flex items-center gap-2">
+                <span class="w-4 text-center">
+                  {group.status === "mastered"
+                    ? "✓"
+                    : group.status === "current"
+                      ? "→"
+                      : "·"}
+                </span>
+                <span
+                  class={`text-sm ${group.status === "locked" ? "text-sub" : ""}`}
+                >
+                  {group.letters}
+                </span>
+                <div class="flex flex-wrap gap-1">
+                  <For each={group.keys}>
+                    {(key) => (
+                      <span
+                        class={`rounded px-1 text-xs ${
+                          key.mastered
+                            ? "bg-main text-bg"
+                            : group.status === "locked"
+                              ? "bg-sub text-sub"
+                              : "bg-sub text-text"
+                        }`}
+                        title={`acc ${(key.accuracy * 100).toFixed(0)}% · ${
+                          key.samples
+                        } samples${
+                          key.meanMsPerChar !== undefined
+                            ? ` · ${Math.round(key.meanMsPerChar)}ms/char`
+                            : ""
+                        }`}
+                      >
+                        {key.letter}
+                      </span>
+                    )}
+                  </For>
+                </div>
+              </div>
+            )}
+          </For>
+        </div>
       </section>
 
       <section class="grid gap-4">

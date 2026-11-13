@@ -1,6 +1,9 @@
 import { Language } from "@monkeytype/schemas/languages";
 import { LEARN_STATE_KEY } from "./local-persistence";
-import { loadKeybrLetterStats } from "./keybr-letter-stats";
+import {
+  loadKeybrLetterStats,
+  type KeybrLetterStat,
+} from "./keybr-letter-stats";
 import { buildWeaknessMap } from "./weakness-model";
 import { normalizeEnterStatKey } from "./enter-drill";
 
@@ -433,23 +436,117 @@ export function mergeKeyStats(
   return state;
 }
 
+/**
+ * Phase 70 — the mastery criterion: a key is mastered when it has ≥ N
+ * correct chars with accuracy ≥ A, AND — when keybr speed evidence
+ * exists for it — a mean time-to-type ≤ X ms/char. The speed signal
+ * comes from the keybr histograms only; keys with no keybr evidence
+ * pass on the accuracy rule alone, so the curriculum never stalls for
+ * drill-only users.
+ */
+export type MasteryCriterion = {
+  minSamples: number;
+  minAccuracy: number;
+  maxMeanMsPerChar: number;
+};
+
+export const DEFAULT_MASTERY_CRITERION: MasteryCriterion = {
+  minSamples: UNLOCK_MIN_SAMPLES,
+  minAccuracy: UNLOCK_ACCURACY,
+  maxMeanMsPerChar: 800,
+};
+
+export type KeyMastery = {
+  letter: string;
+  samples: number;
+  /** 0..1 — from the learn state's drill history */
+  accuracy: number;
+  /** undefined when the keybr histograms hold no timing for the letter */
+  meanMsPerChar?: number;
+  mastered: boolean;
+};
+
+export function keyMastery(
+  letter: string,
+  keyStat: KeyStat | undefined,
+  keybrStat: KeybrLetterStat | undefined,
+  criterion: MasteryCriterion = DEFAULT_MASTERY_CRITERION,
+): KeyMastery {
+  const correct = keyStat?.correct ?? 0;
+  const incorrect = keyStat?.incorrect ?? 0;
+  const samples = correct + incorrect;
+  const accuracy = samples === 0 ? 0 : correct / samples;
+  const speedEvidence =
+    keybrStat !== undefined &&
+    keybrStat.correct > 0 &&
+    keybrStat.totalTimeToType > 0;
+  const meanMsPerChar = speedEvidence
+    ? keybrStat.totalTimeToType / keybrStat.correct
+    : undefined;
+  const accuracyOk =
+    samples >= criterion.minSamples &&
+    incorrect / samples <= 1 - criterion.minAccuracy;
+  const speedOk =
+    meanMsPerChar === undefined ||
+    meanMsPerChar <= criterion.maxMeanMsPerChar;
+  return {
+    letter,
+    samples,
+    accuracy,
+    meanMsPerChar,
+    mastered: samples > 0 && accuracyOk && speedOk,
+  };
+}
+
+/** one group of the mastery path: the chain state comes from
+ * unlockedGroups (mastered < current < locked), the per-key mastery from
+ * the criterion */
+export type MasteryPathGroup = {
+  letters: string;
+  status: "mastered" | "current" | "locked";
+  keys: KeyMastery[];
+};
+
+export function masteryPathForLanguage(
+  state: LearnState,
+  keybrStats: Record<string, KeybrLetterStat>,
+  language: string,
+  criterion: MasteryCriterion = DEFAULT_MASTERY_CRITERION,
+): MasteryPathGroup[] {
+  const groups = groupsForLanguage(language);
+  return groups.map((letters, index) => {
+    const status: MasteryPathGroup["status"] =
+      index < state.unlockedGroups - 1
+        ? "mastered"
+        : index === state.unlockedGroups - 1
+          ? "current"
+          : "locked";
+    const keys = letters.split("").map((letter) =>
+      keyMastery(letter, state.keyStats[letter], keybrStats[letter], criterion),
+    );
+    return { letters, status, keys };
+  });
+}
+
 /** returns the new unlockedGroups count (or the same value if not ready) */
-export function evaluateUnlock(state: LearnState, language: string): number {
+export function evaluateUnlock(
+  state: LearnState,
+  language: string,
+  keybrStats: Record<string, KeybrLetterStat> = loadKeybrLetterStats(),
+  criterion: MasteryCriterion = DEFAULT_MASTERY_CRITERION,
+): number {
   const groups = groupsForLanguage(language);
   if (state.unlockedGroups >= groups.length) return state.unlockedGroups;
 
   const currentLetters = groups[state.unlockedGroups - 1]?.split("") ?? [];
-  const allMastered = currentLetters.every((letter) => {
-    const stat = state.keyStats[letter];
-    if (stat === undefined) return false; //not typed at all yet
-    const total = stat.correct + stat.incorrect;
-    return (
-      total >= UNLOCK_MIN_SAMPLES &&
-      stat.incorrect / total <= 1 - UNLOCK_ACCURACY
+  const allMastered =
+    currentLetters.length > 0 &&
+    currentLetters.every((letter) =>
+      keyMastery(letter, state.keyStats[letter], keybrStats[letter], criterion)
+        .mastered,
     );
-  });
 
-  if (allMastered && currentLetters.length > 0) {
+  if (allMastered) {
     return Math.min(state.unlockedGroups + 1, groups.length);
   }
   return state.unlockedGroups;
