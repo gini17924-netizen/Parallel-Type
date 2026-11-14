@@ -21,7 +21,6 @@ import {
   type LanDiscovered,
 } from "../../../../states/lan";
 import {
-  clearLanChat,
   getLanChatLog,
   CHAT_MAX_CHARS,
   sendLanChat,
@@ -502,7 +501,7 @@ export function OnlineLobbyPage(): JSXElement {
           <input
             class="flex-1 rounded bg-bg p-2 text-sm text-text"
             placeholder="say something… (280 max)"
-            maxlength={CHAT_MAX_CHARS}
+            maxLength={CHAT_MAX_CHARS}
             value={chatDraft()}
             data-testid="chat-input"
             onInput={(event) => {

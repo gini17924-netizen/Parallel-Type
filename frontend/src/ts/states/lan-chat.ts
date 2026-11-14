@@ -66,7 +66,7 @@ export function receiveLanChat(
     clientId,
     from: claimed ?? senderName(clientId),
     text,
-    ts: typeof message["ts"] === "number" ? (message["ts"] as number) : Date.now(),
+    ts: typeof message["ts"] === "number" ? message["ts"] : Date.now(),
   };
   const next = [...chatLog(), entry];
   if (next.length > CHAT_LOG_CAP) {
