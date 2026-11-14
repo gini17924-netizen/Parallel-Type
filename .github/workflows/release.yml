@@ -324,3 +324,77 @@ jobs:
             "packaging/winget/$V/ParallelType.ParallelType.locale.en-US.yaml" \
             "$BUNDLE/paralleltype.json"
           echo "packaging manifests published for v$V"
+
+  linux:
+    name: build the linux bundles (deb + rpm + appimage)
+    #phase 89 — linux distribution returns: the same version override, the
+    #same frontend build and the phase 51 apt list; the bundles attach to
+    #the release the windows job just published. runs after it (needs:) so
+    #the upload target always exists. the ledger named pkg.tar.zst (arch);
+    #tauri v2 has no pacman bundler — deb + rpm + appimage are the real
+    #three (recorded as the deviation).
+    needs: release
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: pnpm/action-setup@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: pnpm
+          cache-dependency-path: pnpm-lock.yaml
+
+      - name: install (frontend + packages slice, frozen lockfile)
+        run: pnpm install --frozen-lockfile --filter frontend --filter './packages/**'
+
+      - uses: dtolnay/rust-toolchain@stable
+
+      - name: install the tauri linux prerequisites (phase 51's list)
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libgtk-3-dev libwebkit2gtk-4.1-dev libayatana-appindicator3-dev librsvg2-dev
+
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: frontend/src-tauri
+
+      - name: build the frontend (madge + ts-check + vite)
+        working-directory: frontend
+        env:
+          RECAPTCHA_SITE_KEY: desktop-build-placeholder
+        run: pnpm build
+
+      - name: build the linux bundles
+        working-directory: frontend
+        env:
+          #the updater-artifact flag is on, so the appimage signing wants
+          #the key present — same secret, same empty-password shape
+          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+          TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ""
+        run: pnpm exec tauri build --config '{"version":"${{ inputs.version }}"}'
+
+      - name: upload the linux bundles to the release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          V='${{ inputs.version }}'
+          BUNDLE="frontend/src-tauri/target/release/bundle"
+          ls -la "$BUNDLE"
+          DEB="$(ls "$BUNDLE/deb/"*.deb 2>/dev/null | head -1 || true)"
+          RPM="$(ls "$BUNDLE/rpm/"*.rpm 2>/dev/null | head -1 || true)"
+          APP="$(ls "$BUNDLE/appimage/"*.AppImage 2>/dev/null | head -1 || true)"
+          test -n "$DEB" || { echo "::error::no .deb was produced"; exit 1; }
+          test -n "$RPM" || { echo "::error::no .rpm was produced"; exit 1; }
+          test -n "$APP" || { echo "::error::no .AppImage was produced"; exit 1; }
+          #the appimage carries an updater signature when the key was live —
+          #upload it too, but never gate on it (deb/rpm get no signature)
+          APPSIG="$(ls "$BUNDLE/appimage/"*.AppImage.sig 2>/dev/null | head -1 || true)"
+          if [ -n "$APPSIG" ]; then
+            gh release upload "v$V" "$DEB" "$RPM" "$APP" "$APPSIG"
+          else
+            gh release upload "v$V" "$DEB" "$RPM" "$APP"
+          fi
+          echo "linux bundles published for v$V"
