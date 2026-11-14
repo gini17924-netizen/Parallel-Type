@@ -126,10 +126,7 @@
 
 ## بلوک D — بازی‌ها (فازهای ۸۵-۸۶)
 
-**فاز ۸۵ — بازی‌های تازه (از ایده‌ها)**
-- هدف: ۱-۲ بازی تازه با همان قرارداد (موتور خالص + صفحه + store + بک‌آپ + LanPlayable در صورت فیت).
-- گیت: الگوی کامل G-waves (موتور spec + صفحه spec + بک‌آپ).
-- پایان: بازی(ها) در هاب و قابل‌آنلاین در صورت fit.
+**فاز ۸۵** ✅ (5bd8df7 + verify سبز) — **بازی تازه: tower defense تایپی (ایدهٔ نام‌بردهٔ بانک).** (انجام‌شده: قرارداد کامل G-wave — `utils/tower-defense/` چهار ماژول: balance (تن‌ها vertical: spawn از بالای میدان، march به سمت برج در پایین، برج ۱۰hp، موج‌ها ۵→۱۲، تانک هر موج سوم ۳×، breach = ۱hp + شکستن کمبو، موج پاک‌شده برج را +۲ تعمیر می‌کند capped)؛ spawner خالص با rng تزریقی؛ موتور خالص — targeting = واژهٔ شروع‌شده اول وگرنه نزدیک‌ترین به برج (بزرگ‌ترین y) — الگوی lane-defense عمودی؛ store (bests + history ۱۰تایی با LocalStorageWithSchema)؛ lan.ts الگوی S — seed مشترک → موج‌های identical روی هر دو ماشین، encode/decode progress {score, towerHp} و verdict نمره‌محور با برک‌استوارت survival. صفحه: میدان عمودی ۸۶vh با دش برج، نوار واژه‌ها، HUD آنلاین سه‌ستونه، ورودی گیت‌شده، و نمای result با verdict آنلاین + دکمه‌های rematch (هاست/کلاینت). ثبت کامل: LanGameId + route union + PageName + barrel + hub card (app-structure) + game-category (reflex-survival) + routes.ts. **دو اشکال تست خودم**: target = نزدیک‌ترین به برج نه enemies[0] (حلقهٔ بی‌نهایت) و loop ۴۰-تیکی کل موج‌های بعدی را هم breach می‌کند (باید فقط اولین breach asserted شود). **درس CI**: tail -1 روی خروجی oxlint خطاها را پنهان می‌کرد — خروجی کامل را ببین؛ ۸ یافتهٔ یکجا (unused importها از الگوی کپی‌شده، اپاستروف، self-closing، نمای result مصرف‌نشده که با سیم‌کشی معنا یافت). سوئیت ۲۹۶۱/۲۹۶۱ + tsc/oxlint صفر + verify CI سبز. push هر دو ریموت.)
 
 **فاز ۸۶ — preset سختی + قهرمانان**
 - هدف: صدور/ورود preset سختی per-game (JSON)؛ جدول قهرمانان LAN روی هاست.
