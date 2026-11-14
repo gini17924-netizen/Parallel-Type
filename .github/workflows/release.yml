@@ -375,7 +375,11 @@ jobs:
             console.log("beta.json written for", version);
           ' "$BUNDLE" "$V" "$REPO"
           gh release view beta >/dev/null 2>&1 || {
-            gh release create beta --title "beta channel" --notes "the beta updater manifest lives here - refreshed by every pre-release dispatch (phase 90)."
+            #--prerelease is LOAD-BEARING: without it the beta release ranks
+            #as the repo's LATEST (a newer tag than v0.28.1) and GitHub's
+            #releases/latest stops resolving the stable updater's manifest
+            #(the 101 lesson — caught live and patched on the release)
+            gh release create beta --title "beta channel" --notes "the beta updater manifest lives here - refreshed by every pre-release dispatch (phase 90)." --prerelease
           }
           gh release upload beta "$BUNDLE/beta.json" --clobber
           echo "beta.json published for v$V"
