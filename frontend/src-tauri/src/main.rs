@@ -290,7 +290,10 @@ fn leaderboard_path(app: &tauri::AppHandle) -> Result<std::path::PathBuf, String
 }
 
 #[tauri::command]
-fn lan_leaderboard_write(app: tauri::AppHandle, entry: Value) -> Result<Value, String> {
+fn lan_leaderboard_write(
+    app: tauri::AppHandle,
+    entry: serde_json::Value,
+) -> Result<serde_json::Value, String> {
     if !entry.is_object() {
         return Err("lan: the leaderboard entry must be an object".into());
     }
@@ -298,7 +301,7 @@ fn lan_leaderboard_write(app: tauri::AppHandle, entry: Value) -> Result<Value, S
     if let Some(dir) = path.parent() {
         std::fs::create_dir_all(dir).map_err(|e| e.to_string())?;
     }
-    let mut entries: Vec<Value> = match std::fs::read_to_string(&path) {
+    let mut entries: Vec<serde_json::Value> = match std::fs::read_to_string(&path) {
         Ok(text) => serde_json::from_str(&text).unwrap_or_default(),
         Err(_) => Vec::new(),
     };
@@ -316,7 +319,7 @@ fn lan_leaderboard_write(app: tauri::AppHandle, entry: Value) -> Result<Value, S
 }
 
 #[tauri::command]
-fn lan_leaderboard_read(app: tauri::AppHandle) -> Result<Vec<Value>, String> {
+fn lan_leaderboard_read(app: tauri::AppHandle) -> Result<Vec<serde_json::Value>, String> {
     let path = leaderboard_path(&app)?;
     let text = match std::fs::read_to_string(&path) {
         Ok(text) => text,

@@ -186,7 +186,8 @@ export function receiveGauntletResult(
     dayKey,
     stages: typeof stages === "number" ? Math.min(3, Math.max(0, Math.floor(stages))) : 0,
     score,
-    timestamp: typeof message["timestamp"] === "number" ? (message["timestamp"] as number) : Date.now(),
+    timestamp:
+      typeof message["timestamp"] === "number" ? message["timestamp"] : Date.now(),
   });
 }
 
