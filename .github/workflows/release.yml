@@ -340,6 +340,46 @@ jobs:
             "$BUNDLE/paralleltype.json"
           echo "packaging manifests published for v$V"
 
+      - name: refresh beta.json on the fixed beta release (phase 90)
+        #beta reads ONLY pre-releases: every pre-release dispatch rewrites
+        #the manifest on the fixed `beta` release so its static URL
+        #(releases/download/beta/beta.json — a tag, not the moving
+        #releases/latest, which structurally excludes pre-releases) always
+        #serves the newest beta. a stable dispatch never touches it.
+        if: ${{ inputs.prerelease == true }}
+        env:
+          GH_TOKEN: ${{ github.token }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          V='${{ inputs.version }}'
+          REPO='${{ github.repository }}'
+          BUNDLE="frontend/src-tauri/target/release/bundle/nsis"
+          node -e '
+            const fs = require("fs");
+            const [bundle, version, repo] = process.argv.slice(1);
+            const exe = `ParallelType_${version}_x64-setup.exe`;
+            const signature = fs.readFileSync(`${bundle}/${exe}.sig`, "utf8").trim();
+            const manifest = {
+              version,
+              notes: `ParallelType ${version} — the beta channel build (pre-releases only).`,
+              pub_date: new Date().toISOString(),
+              platforms: {
+                "windows-x86_64": {
+                  signature,
+                  url: `https://github.com/${repo}/releases/download/v${version}/${exe}`
+                }
+              }
+            };
+            fs.writeFileSync(`${bundle}/beta.json`, JSON.stringify(manifest, null, 2) + "\n");
+            console.log("beta.json written for", version);
+          ' "$BUNDLE" "$V" "$REPO"
+          gh release view beta >/dev/null 2>&1 || {
+            gh release create beta --title "beta channel" --notes "the beta updater manifest lives here - refreshed by every pre-release dispatch (phase 90)."
+          }
+          gh release upload beta "$BUNDLE/beta.json" --clobber
+          echo "beta.json published for v$V"
+
   linux:
     name: build the linux bundles (deb + rpm + appimage)
     #phase 89 — linux distribution returns: the same version override, the

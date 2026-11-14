@@ -11,10 +11,25 @@ on:
     inputs:
       #the installer smoke costs a full windows build — opt-in only
       smoke_windows:
-        description: 'also run the windows installer smoke (silent install → launch → process check → uninstall)'
+        description: "also run the windows installer smoke (silent install → launch → process check → uninstall)"
         required: false
         type: boolean
         default: false
+      #phase 90: the updater channel smoke builds NOTHING — it installs the
+      #published release installers, so both versions must already exist
+      smoke_channels:
+        description: "also run the updates channel smoke (stable no-op + beta auto-update on real release artifacts)"
+        required: false
+        type: boolean
+        default: false
+      channel_smoke_from:
+        description: "the channel-aware build to install (e.g. 0.28.5)"
+        required: false
+        type: string
+      channel_smoke_to:
+        description: "the newer beta that must auto-land (e.g. 0.28.6)"
+        required: false
+        type: string
 
 jobs:
   frontend:
@@ -106,7 +121,7 @@ jobs:
         working-directory: frontend
         env:
           TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
-          TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ''
+          TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ""
         shell: bash
         run: pnpm exec tauri build
       - name: smoke — silent install, launch, process check, uninstall
@@ -156,3 +171,118 @@ jobs:
           }
           if (-not $gone) { throw "the install dir survived the silent uninstall" }
           Write-Host "smoke PASS: silent install → launch → alive → clean uninstall"
+
+  updates-channel-smoke:
+    # phase 90 — the updater channel gate: two installs, two channels, on
+    # REAL published release artifacts (nothing is built here — both
+    # installers are downloaded from the releases, so both versions must
+    # already exist). install #1 boots on the stable channel (the default)
+    # and must NEVER pull a beta — GitHub's releases/latest structurally
+    # excludes pre-releases. install #2 gets channel=beta in the settings
+    # file and its boot check must pull the newer beta: download + install
+    # + restart, then the installed exe version must match. the pwsh
+    # literals stay pure ASCII (the phase 87 mojibake lesson).
+    name: windows — updates channel smoke (stable no-op + beta update)
+    runs-on: windows-latest
+    if: github.event_name == 'workflow_dispatch' && inputs.smoke_channels == true
+    steps:
+      - name: smoke — two installs, two channels
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = "Stop"
+          $from = "${{ inputs.channel_smoke_from }}"
+          $to = "${{ inputs.channel_smoke_to }}"
+          if (-not $from) { throw "channel_smoke_from is required" }
+          if (-not $to) { throw "channel_smoke_to is required" }
+          $repo = "${{ github.repository }}"
+          $tmp = Join-Path $env:RUNNER_TEMP "channel-smoke"
+          New-Item -ItemType Directory -Force -Path $tmp | Out-Null
+
+          function Get-Installer([string]$version) {
+            $url = "https://github.com/$repo/releases/download/v$version/ParallelType_${version}_x64-setup.exe"
+            $out = Join-Path $tmp "setup-$version.exe"
+            Invoke-WebRequest -Uri $url -OutFile $out
+            return $out
+          }
+
+          function Get-InstalledExe {
+            $exe = @("$env:LOCALAPPDATA\ParallelType\ParallelType.exe",
+                     "$env:LOCALAPPDATA\Programs\ParallelType\ParallelType.exe") |
+                   Where-Object { Test-Path $_ } | Select-Object -First 1
+            if (-not $exe) {
+              $exe = Get-ChildItem "$env:LOCALAPPDATA" -Recurse -Filter "ParallelType.exe" `
+                      -Depth 3 -ErrorAction SilentlyContinue |
+                     Select-Object -First 1 -ExpandProperty FullName
+            }
+            if (-not $exe) { throw "ParallelType.exe was not found after the silent install" }
+            return $exe
+          }
+
+          function Install-App([string]$installerPath) {
+            $p = Start-Process -FilePath $installerPath -ArgumentList "/S" -Wait -PassThru
+            if ($p.ExitCode -ne 0) { throw "silent install exited with $($p.ExitCode)" }
+            return Get-InstalledExe
+          }
+
+          function Uninstall-App([string]$exePath) {
+            Get-Process -Name "ParallelType" -ErrorAction SilentlyContinue | Stop-Process -Force
+            Start-Sleep -Seconds 2
+            $dir = Split-Path $exePath
+            $uninst = Join-Path $dir "Uninstall.exe"
+            if (-not (Test-Path $uninst)) { throw "Uninstall.exe is missing beside the app" }
+            Start-Process -FilePath $uninst -ArgumentList "/S" | Out-Null
+            $gone = $false
+            for ($i = 0; $i -lt 30; $i++) {
+              Start-Sleep -Seconds 2
+              if (-not (Test-Path $dir)) { $gone = $true; break }
+            }
+            if (-not $gone) { throw "the install dir survived the silent uninstall" }
+          }
+
+          function ExeVersion([string]$exePath) {
+            return (Get-Item $exePath).VersionInfo.ProductVersion
+          }
+
+          # ---- install #1: the STABLE channel (the default) ----
+          $installerFrom = Get-Installer $from
+          $exe1 = Install-App $installerFrom
+          $ver1 = ExeVersion $exe1
+          Write-Host "install #1: $exe1 (version $ver1)"
+          Start-Process -FilePath $exe1 | Out-Null
+          Start-Sleep -Seconds 15
+          $p1 = Get-Process -Name "ParallelType" -ErrorAction SilentlyContinue
+          if (-not $p1) { throw "the stable boot was not alive 15s after launch" }
+          #observe a full minute: the stable manifest must never deliver a
+          #beta, and (as shipped today) it points below $from, so nothing
+          #installs at all
+          for ($i = 0; $i -lt 12; $i++) {
+            Start-Sleep -Seconds 5
+            $v = ExeVersion $exe1
+            if ($v.StartsWith($to)) { throw "the stable boot pulled a beta ($v) - the stable endpoint leaked a pre-release" }
+          }
+          Write-Host "stable PASS: alive for a full minute, no beta pulled (exe still $(ExeVersion $exe1))"
+          Uninstall-App $exe1
+          Write-Host "install #1 uninstalled"
+
+          # ---- install #2: the BETA channel ----
+          $exe2 = Install-App $installerFrom
+          $ver2 = ExeVersion $exe2
+          Write-Host "install #2: $exe2 (version $ver2)"
+          $cfgDir = "$env:APPDATA\com.monkeytype.desktop"
+          New-Item -ItemType Directory -Force -Path $cfgDir | Out-Null
+          #the settings file shape the rust side reads (phases 56 + 90)
+          Set-Content -Path (Join-Path $cfgDir "updates-settings.json") `
+            -Value '{"autoCheck": true, "channel": "beta"}' -Encoding UTF8
+          Write-Host "channel=beta written; booting - the boot check must pull $to over $from"
+          Start-Process -FilePath $exe2 | Out-Null
+          $landed = $false
+          for ($i = 0; $i -lt 60; $i++) {
+            Start-Sleep -Seconds 5
+            if ((ExeVersion $exe2).StartsWith($to)) { $landed = $true; break }
+          }
+          if (-not $landed) {
+            throw "the beta update did not land within 300s (exe still $(ExeVersion $exe2))"
+          }
+          Write-Host "beta PASS: the boot check pulled $to over $from (exe now $(ExeVersion $exe2))"
+          Uninstall-App $exe2
+          Write-Host "channel smoke PASS: two channels, two installs"

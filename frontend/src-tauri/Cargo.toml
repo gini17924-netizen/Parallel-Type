@@ -19,6 +19,9 @@ tauri-plugin-global-shortcut = "2"
 tauri-plugin-single-instance = "2"
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
+#phase 90: the channel endpoints are parsed at runtime for the builder's
+#endpoints(Vec<Url>) — the crate rides the tree via tauri already
+url = "2"
 #the discovery listener binds with SO_REUSEADDR so diagnostics (and a
 #second app instance) can share the broadcast port
 socket2 = "0.6"

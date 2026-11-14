@@ -24,6 +24,9 @@ function getInvoke(): TauriInvoke | undefined {
 export type UpdatesSettings = {
   /** whether the boot check for updates is enabled (default: on) */
   autoCheck: boolean;
+  /** which manifest the updater reads — stable only ever sees full
+   * releases, beta reads the pre-release manifest (phase 90) */
+  channel: "stable" | "beta";
 };
 
 export type UpdateCheckResult =
@@ -50,6 +53,21 @@ export async function updatesSetAutoCheck(enabled: boolean): Promise<void> {
     await invoke("updates_set_auto_check", { enabled });
   } catch (error) {
     console.error("updates: auto-check flip failed", error);
+  }
+}
+
+/** phase 90: flips the update channel. The NEXT check (boot or manual)
+ * reads the new channel's manifest — an already-downloaded update is not
+ * affected. beta serves pre-releases only. */
+export async function updatesSetChannel(
+  channel: "stable" | "beta",
+): Promise<void> {
+  const invoke = getInvoke();
+  if (invoke === undefined) return;
+  try {
+    await invoke("updates_set_channel", { channel });
+  } catch (error) {
+    console.error("updates: channel flip failed", error);
   }
 }
 

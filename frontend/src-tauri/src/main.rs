@@ -84,12 +84,53 @@ const UPDATES_ENABLED: bool = true;
 /// phase 56: the updater toggle persists here (the app config dir)
 const UPDATES_SETTINGS_FILE: &str = "updates-settings.json";
 
-/// Checks the update endpoint once at startup. Non-fatal: any failure
-/// (offline, unreachable host, bad json) is logged and ignored.
-fn check_for_updates(app: &tauri::AppHandle) {
+/// phase 90: the two updater channels. The endpoint choice is a RUNTIME
+/// decision (the settings file's `channel` key) — the tauri.conf.json
+/// endpoint stays the stable default for safety and the builder overrides
+/// it per check. beta reads ONLY the pre-release manifest: the release
+/// workflow refreshes beta.json on the fixed `beta` release at every
+/// pre-release dispatch, while GitHub's releases/latest never resolves a
+/// pre-release, so the stable endpoint is structurally beta-free.
+const UPDATE_ENDPOINT_STABLE: &str =
+    "https://github.com/gini17924-netizen/Parallel-Type/releases/latest/download/latest.json";
+const UPDATE_ENDPOINT_BETA: &str =
+    "https://github.com/gini17924-netizen/Parallel-Type/releases/download/beta/beta.json";
+
+/// one channel-aware update check — the endpoint is picked from the
+/// settings' channel and overrides the config default via the builder
+/// (the signature pubkey and the rest of the plugin config still come
+/// from tauri.conf.json)
+async fn channel_check(
+    app: &tauri::AppHandle,
+    channel: &str,
+) -> Result<Option<tauri_plugin_updater::Update>, String> {
+    let endpoint = if channel == "beta" {
+        UPDATE_ENDPOINT_BETA
+    } else {
+        UPDATE_ENDPOINT_STABLE
+    };
+    let url: url::Url = endpoint
+        .parse()
+        .map_err(|e| format!("updates: bad endpoint url ({e})"))?;
+    let updater = app
+        .updater_builder()
+        .endpoints(vec![url])
+        .map_err(|e| format!("updates: endpoint rejected ({e})"))?
+        .build()
+        .map_err(|e| format!("updates: builder failed ({e})"))?;
+    updater
+        .check()
+        .await
+        .map_err(|e| format!("updates: check failed ({e})"))
+}
+
+/// Checks the channel's update endpoint once at startup. Non-fatal: any
+/// failure (offline, unreachable host, bad json) is logged and ignored.
+fn check_for_updates(app: &tauri::AppHandle, channel: &str) {
     let app = app.clone();
+    let channel = channel.to_string();
     tauri::async_runtime::spawn(async move {
-        match app.updater().expect("updater plugin").check().await {
+        match channel_check(&app, &channel).await {
             Ok(Some(update)) => {
                 println!(
                     "update available: {} -> {}",
@@ -120,23 +161,40 @@ fn updates_settings_path(app: &tauri::AppHandle) -> Result<std::path::PathBuf, S
         .map_err(|e| e.to_string())
 }
 
-/// phase 56: the updater's user-facing switch, persisted in the app
-/// CONFIG dir. Missing or corrupt file = ON — the safe default.
-fn load_auto_check(path: &std::path::Path) -> bool {
-    std::fs::read_to_string(path)
+/// phase 56/90: the updater's user-facing switches, persisted in the app
+/// CONFIG dir. Missing or corrupt file = ON + stable — the safe defaults.
+/// Read-modify-write: the two toggles must never wipe each other's key.
+fn load_settings(path: &std::path::Path) -> (bool, String) {
+    let parsed = std::fs::read_to_string(path)
         .ok()
-        .and_then(|raw| serde_json::from_str::<serde_json::Value>(&raw).ok())
+        .and_then(|raw| serde_json::from_str::<serde_json::Value>(&raw).ok());
+    let auto_check = parsed
+        .as_ref()
         .and_then(|value| value["autoCheck"].as_bool())
-        .unwrap_or(true)
+        .unwrap_or(true);
+    let channel = parsed
+        .as_ref()
+        .and_then(|value| value["channel"].as_str())
+        .unwrap_or("stable")
+        .to_string();
+    (auto_check, channel)
 }
 
-fn save_auto_check(path: &std::path::Path, enabled: bool) -> Result<(), String> {
+fn load_channel(path: &std::path::Path) -> String {
+    load_settings(path).1
+}
+
+fn save_settings(
+    path: &std::path::Path,
+    auto_check: bool,
+    channel: &str,
+) -> Result<(), String> {
     if let Some(parent) = path.parent() {
         std::fs::create_dir_all(parent).map_err(|e| format!("updates: mkdir failed ({e})"))?;
     }
     std::fs::write(
         path,
-        serde_json::json!({ "autoCheck": enabled }).to_string(),
+        serde_json::json!({ "autoCheck": auto_check, "channel": channel }).to_string(),
     )
     .map_err(|e| format!("updates: write failed ({e})"))
 }
@@ -147,13 +205,10 @@ fn save_auto_check(path: &std::path::Path, enabled: bool) -> Result<(), String> 
 /// the frontend, so the UI announces each step through the
 /// `updates://status` events
 #[tauri::command]
-async fn updater_manual_check(app: tauri::AppHandle) -> Result<serde_json::Value, String> {
-    let update = app
-        .updater()
-        .map_err(|e| format!("updates: plugin unavailable ({e})"))?
-        .check()
-        .await
-        .map_err(|e| format!("updates: check failed ({e})"))?;
+async fn updates_check_now(app: tauri::AppHandle) -> Result<serde_json::Value, String> {
+    let channel =
+        load_channel(&updates_settings_path(&app).map_err(|e| format!("updates: {e}"))?);
+    let update = channel_check(&app, &channel).await?;
     match update {
         Some(update) => {
             let version = update.version.clone();
@@ -180,15 +235,34 @@ async fn updater_manual_check(app: tauri::AppHandle) -> Result<serde_json::Value
 }
 
 #[tauri::command]
-fn updater_get_settings(app: tauri::AppHandle) -> Result<serde_json::Value, String> {
+fn updates_get_settings(app: tauri::AppHandle) -> Result<serde_json::Value, String> {
     let path = updates_settings_path(&app)?;
-    Ok(serde_json::json!({ "autoCheck": load_auto_check(&path) }))
+    let (auto_check, channel) = load_settings(&path);
+    Ok(serde_json::json!({ "autoCheck": auto_check, "channel": channel }))
 }
 
 #[tauri::command]
-fn updater_set_auto_check(app: tauri::AppHandle, enabled: bool) -> Result<(), String> {
+fn updates_set_auto_check(app: tauri::AppHandle, enabled: bool) -> Result<(), String> {
     let path = updates_settings_path(&app)?;
-    save_auto_check(&path, enabled)
+    let (_, channel) = load_settings(&path);
+    save_settings(&path, enabled, &channel)
+}
+
+/// phase 90: the stable/beta switch. The channel is validated here so a
+/// hostile invoke cannot smuggle a third value into the settings file.
+/// (the updater_* names above were fixed to updates_* in phase 90: the
+/// frontend had invoked updates_get_settings / updates_set_auto_check /
+/// updates_check_now since phase 56 while the commands registered as
+/// updater_* — the manual check button and the settings read silently
+/// no-op'd on "no such command" for every release before this one)
+#[tauri::command]
+fn updates_set_channel(app: tauri::AppHandle, channel: String) -> Result<(), String> {
+    if channel != "stable" && channel != "beta" {
+        return Err("updates: the channel must be stable or beta".to_string());
+    }
+    let path = updates_settings_path(&app)?;
+    let (auto_check, _) = load_settings(&path);
+    save_settings(&path, auto_check, &channel)
 }
 
 /// Phase 71: the user's own text library — `.txt` files dropped into the
@@ -469,9 +543,10 @@ fn main() {
         .invoke_handler(tauri::generate_handler![
             backup_write,
             backup_read,
-            updater_get_settings,
-            updater_set_auto_check,
-            updater_manual_check,
+            updates_get_settings,
+            updates_set_auto_check,
+            updates_set_channel,
+            updates_check_now,
             texts_folder_path,
             texts_list,
             texts_read,
@@ -519,8 +594,9 @@ fn main() {
             if UPDATES_ENABLED {
                 let path = updates_settings_path(app.handle())
                     .unwrap_or_else(|_| std::path::PathBuf::new());
-                if load_auto_check(&path) {
-                    check_for_updates(app.handle());
+                let (auto_check, channel) = load_settings(&path);
+                if auto_check {
+                    check_for_updates(app.handle(), &channel);
                 }
             }
             Ok(())
