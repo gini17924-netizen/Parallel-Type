@@ -325,7 +325,7 @@ fn lan_leaderboard_read(app: tauri::AppHandle) -> Result<Vec<serde_json::Value>,
         Ok(text) => text,
         Err(_) => return Ok(Vec::new()),
     };
-    let entries: Vec<Value> =
+    let entries: Vec<serde_json::Value> =
         serde_json::from_str(&text).map_err(|e| format!("corrupt leaderboard: {e}"))?;
     Ok(entries)
 }
