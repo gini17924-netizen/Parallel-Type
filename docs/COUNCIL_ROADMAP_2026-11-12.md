@@ -166,10 +166,7 @@
 
 ## بلوک G — گیمیفیکیشن (فازهای ۹۷-۹۹)
 
-**فاز ۹۷ — نشان‌ها/achievements**
-- هدف: معیارهای خالص (WPM/استریک/بازی‌ها) → نشان‌ها با UI کابینت + استور.
-- گیت: spec معیارها + سوئیت.
-- پایان: کابینت نشان‌ها کار می‌کند.
+**فاز ۹۷** ✅ (8b5162d + 9e03106 + verify run 43627217445 سبز) — **نشان‌ها/achievements — کابینت کار می‌کند.** (انجام‌شده: هستهٔ خالص — utils/achievements/definitions.ts: AchievementSnapshot (totalTests، bestWpm، bestAcc، gauntletMaxStreak، gamesWithBest، lanGamesChampioned، customThemesCount) و ۱۴ معیار به‌صورت تابع ساده روی آن: نردبان تست (۱/۱۰/۵۰/۱۰۰)، نردبان سرعت (۶۰/۱۰۰/۱۵۰ wpm)، چشم تیز (۹۸٪ acc)، استریک گانتلت (۳/۷ روز)، جفت گیمر (۳/۸ بازی با personal best)، قهرمان اتاق LAN و theme smith — هیچ‌چیز store یا DOM نمی‌داند. state — mtDesktopAchievements (id → timestamp unlock؛ الگوی independent-store)؛ sync تنها مسیر نوشتن است: buildAchievementSnapshot از storeهای واقعی می‌سازد (نتایج از indexedDB با loadLocalResults، آمار گانتلت با maxStreak، ۸ probe best بازی‌ها، جداول champions برای bot-duel/tower-defense، تم‌های کاربر فاز ۹۲) و فقط idهای تازه را با timestamp مهر می‌زند و برمی‌گرداند. کابینت زیر کارت‌های خانه: هر نشان با tier (bronze/silver/gold)، unlocked روشن و locked کم‌رنگ، شمارنده earned/total؛ صفحهٔ خانه در mount refresh می‌کند و نشان‌های تازه را با notification اعلام می‌کند. **دو درس CI**: (۱) زنجیرهٔ fire-and-forget refreshAchievements بدون catch بود — وعدهٔ async که پس از teardown محیط تست فرود می‌آمد (window نابود در LocalStorageWithSchema) به‌صورت unhandled ران CI را شکست با این‌که ۲۹۶۸ پاس بود؛ catch باربر در caller اضافه شد (خطای واقعی db هم دیگر throw نمی‌کند)؛ (۲) صفحهٔ خانه و app-structure برای خواندن نتایج به fake-indexeddb/auto نیاز گرفتند. spec: ۹ (شناسنامهٔ کامل، خالی هیچ نمی‌دهد، نردبان‌ها پله‌پله، معیارهای per-field، sync-once و ماندگاری timestamp، پروجکشن کابینت، reset)؛ tsc/oxlint صفر + verify سبز. push هر دو ریموت.)
 
 **فاز ۹۸ — استریک چندبعدی**
 - هدف: استریک روزانه/هفتگی/per-game یکجا با نمایش واحد.
