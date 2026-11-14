@@ -8,6 +8,7 @@ import {
   sectionHasPicker,
 } from "../../src/ts/constants/app-structure";
 import { getRoutePage } from "../../src/ts/states/router";
+import { skipOnboarding } from "../../src/ts/utils/onboarding/state";
 import { App, cleanupApp, renderApp } from "../__harness__/app-shell";
 
 function pageText(app: App): string {
@@ -109,6 +110,9 @@ describe("home hub routing", () => {
   });
 
   it("renders the home hub with all three section cards", async () => {
+    //the phase 96 tour auto-opens for a fresh install and hides the cards —
+    //this test's subject is the cards themselves, so the user is marked seen
+    skipOnboarding();
     const app = renderApp();
     await app.settle();
     await app.router.navigate({ to: "/home" });
