@@ -14,6 +14,7 @@ import {
   _resetGauntletStoresForTests,
 } from "../../../../src/ts/utils/daily-gauntlet/store";
 import { _resetDailyRegistryForTests } from "../../../../src/ts/utils/games/game-registry";
+import { recordGauntletResult } from "../../../../src/ts/utils/lan/leaderboard";
 import { App, cleanupApp, renderApp } from "../../../__harness__/app-shell";
 
 function pageText(app: App): string {
@@ -191,5 +192,61 @@ describe("daily gauntlet page (idea G22 phase 4)", () => {
     //today has no stamp → the fresh menu
     expect(pageText(app)).toContain("start today's gauntlet");
     expect(loadGauntletState()?.dayKey ?? "").not.toBe("2020-01-01");
+  });
+});
+
+describe("the daily comparison board bidi (phase 94)", () => {
+  beforeEach(() => {
+    (globalThis as { indexedDB: unknown }).indexedDB = new IDBFactory();
+  });
+
+  afterEach(() => {
+    cleanupApp();
+    _resetGauntletStoresForTests();
+    _resetDailyRegistryForTests();
+  });
+
+  it("a Persian board name renders with dir=auto (regression)", async () => {
+    //reach the complete view exactly like the completion test does
+    const app = await openGauntlet();
+    void app;
+    button(app, "start today's gauntlet")?.click();
+    await app.settle();
+    const saved = loadGauntletState();
+    const dayKey = saved?.dayKey ?? "";
+    const stages = saved?.stages ?? [];
+    let state = createGauntlet(dayKey, stages);
+    for (const s of stages) {
+      state = advanceGauntlet(state, {
+        gameId: s.gameId,
+        normalized: 700,
+        raw: {},
+        won: true,
+      });
+    }
+    saveGauntletState(state);
+    const app2 = await openGauntlet();
+    //a Persian name joins the board; the row's name span must be dir=auto
+    recordGauntletResult({
+      name: "علی",
+      dayKey,
+      stages: 3,
+      score: 700,
+      timestamp: Date.now(),
+    });
+    await vi.waitFor(() => {
+      const names = [
+        ...app2.container.querySelectorAll('[data-testid="board-name"]'),
+      ];
+      //the board holds the local row AND the Persian guest row — every
+      //row must be dir=auto and the Persian row must actually be there
+      expect(
+        names.every((el) => el.getAttribute("dir") === "auto"),
+        "every board row is dir=auto",
+      ).toBe(true);
+      expect(names.some((el) => (el.textContent ?? "").includes("علی"))).toBe(
+        true,
+      );
+    });
   });
 });

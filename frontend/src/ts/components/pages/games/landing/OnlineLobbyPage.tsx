@@ -353,7 +353,11 @@ export function OnlineLobbyPage(): JSXElement {
               <For each={champions()}>
                 {(row, rank) => (
                   <div class="flex items-center justify-between gap-2 rounded bg-bg p-2 text-xs">
-                    <span class="font-bold text-main">
+                    <span
+                      class="font-bold text-main"
+                      dir="auto"
+                      data-testid="champion-name"
+                    >
                       {rank() + 1}. {row.name}
                     </span>
                     <span class="text-sub tabular-nums">
@@ -621,7 +625,13 @@ export function OnlineLobbyPage(): JSXElement {
               {(message) => (
                 <div class="rounded bg-bg p-2 text-xs">
                   <span class="font-bold text-main">{message.from}: </span>
-                  <span class="text-sub">{message.text}</span>
+                  <span
+                    class="text-sub"
+                    dir="auto"
+                    data-testid="chat-message-text"
+                  >
+                    {message.text}
+                  </span>
                 </div>
               )}
             </For>

@@ -2,18 +2,10 @@ import { For, JSXElement, Show, createSignal, onMount } from "solid-js";
 
 import { playClick } from "../../../../controllers/sound-controller";
 import { navigate } from "../../../../router/navigate";
+import { getLanPeerName } from "../../../../states/lan";
 import { registerDailyBotDuel } from "../../../../utils/bot-duel/daily";
 import { cn } from "../../../../utils/cn";
 import { buildDaily, dayKeyOf } from "../../../../utils/daily-gauntlet/compose";
-import {
-  getLanPeerName,
-} from "../../../../states/lan";
-import {
-  gauntletBoardFor,
-  hydrateGauntletBoard,
-  recordGauntletResult,
-  sendGauntletResult,
-} from "../../../../utils/lan/leaderboard";
 import {
   gauntletTotal,
   type GauntletState,
@@ -33,6 +25,12 @@ import {
   type DailyStage as DailyStageType,
   type DailyStageResult as DailyStageResultType,
 } from "../../../../utils/games/game-registry";
+import {
+  gauntletBoardFor,
+  hydrateGauntletBoard,
+  recordGauntletResult,
+  sendGauntletResult,
+} from "../../../../utils/lan/leaderboard";
 import { registerDailySprint } from "../../../../utils/sprint/daily";
 import { registerDailyWordBlast } from "../../../../utils/word-blast/daily";
 import { Button } from "../../../common/Button";
@@ -499,7 +497,10 @@ export function DailyGauntletPage(): JSXElement {
         </Show>
       </Show>
       <Show when={view() === "complete" || view() === "voided"}>
-        <section class="grid gap-2 rounded bg-sub-alt p-4" data-testid="gauntlet-board">
+        <section
+          class="grid gap-2 rounded bg-sub-alt p-4"
+          data-testid="gauntlet-board"
+        >
           <div class="text-sub">the daily comparison board</div>
           <div class="text-xs text-sub">
             same seed for everyone — the day key {today}
@@ -508,7 +509,13 @@ export function DailyGauntletPage(): JSXElement {
             <For each={gauntletBoardFor(today)}>
               {(row) => (
                 <div class="flex items-center justify-between gap-2 rounded bg-bg p-2 text-xs">
-                  <span class="font-bold text-main">{row.name}</span>
+                  <span
+                    class="font-bold text-main"
+                    dir="auto"
+                    data-testid="board-name"
+                  >
+                    {row.name}
+                  </span>
                   <span class="text-sub tabular-nums">
                     stages {row.stages}/3 — score {row.score}
                   </span>

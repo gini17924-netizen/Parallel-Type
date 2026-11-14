@@ -13,6 +13,11 @@ vi.mock("../../../../../src/ts/utils/json-data", async (importOriginal) => ({
 
 import { OnlineLobbyPage } from "../../../../../src/ts/components/pages/games/landing/OnlineLobbyPage";
 import { _resetLanStateForTests } from "../../../../../src/ts/states/lan";
+import { sendLanChat } from "../../../../../src/ts/states/lan-chat";
+import {
+  recordLanChampion,
+  resetLanChampions,
+} from "../../../../../src/ts/utils/lan/champions";
 
 /** the frontend talks to the Rust pipe through window.__TAURI__ — this
  * fake records the invokes and captures the event listeners so the spec
@@ -440,6 +445,56 @@ describe("online lobby (LAN, phase 3 — discovery)", () => {
       expect(message["params"]).toEqual({ length: 30 });
       expect(Array.isArray(message["words"])).toBe(true);
       expect(message["words"]).toHaveLength(30); //standard, fallback pool
+    });
+  });
+});
+
+describe("online lobby — the bidi surfaces (phase 94)", () => {
+  let tauri: ReturnType<typeof installTauriMock>;
+
+  beforeEach(() => {
+    (globalThis as { indexedDB: unknown }).indexedDB = new IDBFactory();
+    window.localStorage.clear();
+    _resetLanStateForTests();
+    resetLanChampions();
+    tauri = installTauriMock();
+  });
+
+  afterEach(() => {
+    delete (window as unknown as { __TAURI__?: unknown }).__TAURI__;
+    cleanup();
+  });
+
+  it("a Persian chat message renders with dir=auto (regression)", async () => {
+    const { container } = render(() => <OnlineLobbyPage />);
+    //the chat lives in the connected view — host first
+    const hostBtn = [...container.querySelectorAll("button")].find((b) =>
+      (b.textContent ?? "").includes("host a match"),
+    );
+    hostBtn?.click();
+    //the connected view (where the chat lives) opens when a peer joins
+    tauri.fire("lan://peer-joined", { name: "P2" });
+    await vi.waitFor(() => {
+      expect(
+        container.querySelector('[data-testid="chat-section"]'),
+      ).not.toBeNull();
+    });
+    sendLanChat("عالی بود gg");
+    await vi.waitFor(() => {
+      const msg = container.querySelector('[data-testid="chat-message-text"]');
+      expect(msg?.getAttribute("dir")).toBe("auto");
+      expect(msg?.textContent).toContain("عالی بود gg");
+    });
+  });
+
+  it("a Persian champion name renders with dir=auto (regression)", async () => {
+    //the champions table reads the store at mount — record first
+    recordLanChampion("bot-duel", "علی", 120, 95);
+    const { container } = render(() => <OnlineLobbyPage />);
+    await vi.waitFor(() => {
+      const name = container.querySelector('[data-testid="champion-name"]');
+      expect(name?.getAttribute("dir")).toBe("auto");
+      expect(name?.textContent).toContain("علی");
     });
   });
 });
