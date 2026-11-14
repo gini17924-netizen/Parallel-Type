@@ -180,7 +180,6 @@ export function RelayPage(): JSXElement {
                 value={myTyped()}
                 data-testid="relay-input"
                 disabled={!myTurn()}
-                spellcheck={false}
                 autocomplete="off"
                 onInput={(event) => {
                   setMyTyped(event.currentTarget.value);
