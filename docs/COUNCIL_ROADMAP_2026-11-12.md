@@ -106,11 +106,7 @@
 
 ## بلوک C — موج آنلاین ۲ (فازهای ۷۷-۸۴) — **نیازمند بلوک A (e2e فاز ۶۰)**
 
-**فاز ۷۷ — pipe v2: چند-هم‌بازی**
-- هدف: هاست N کلاینت (room model) — پیام‌ها با clientId رله؛ پروتکل backward-compatible؛ سقف N=۸.
-- فایل‌ها: `src-tauri/src/lan.rs` (RoomHandle + رله multi)، `states/lan-match.ts` (کلاینت‌ها map).
-- گیت: تست Rust multi-peer + e2e فاز ۶۰ با ۳ بازیکن.
-- پایان: ۳ دستگاه یک مسابقه ببینند.
+**فاز ۷۷** ✅ (3511da4 + verify سبز) — **pipe v2: room model چند-هم‌بازی.** (انجام‌شده: `run_host` به اتاق تبدیل شد — هر کلاینت که handshake را رد کند (id به ترتیب join، ۱..N) وارد room می‌شود و هاست تا پر شدن پذیرش را ادامه می‌دهد؛ سقف N=۸ — joinر نهم `join-rejected` دقیق «room full» می‌گیرد و هاست همچنان می‌شنود؛ **beacon فقط وقتی پر می‌شود می‌ایستد** (joinرهای بعدی هم باید هاست را ببینند — رفتار v1 که با اولین join می‌ایستاد شکست). رله: read task هر کلاینت پیام validated را به هر کلاینت دیگر با **clientId فرستنده داخل شیء پیام** می‌فرستد (v1 فیلد اضافه را نادیده می‌گیرد — کل backward-compat همین‌جاست) + mirror به فرانت هاست با clientId؛ ack هم clientId حمل می‌کند (`await_join_ack` فقط type/name می‌خواند). مسیر ارسال هاست خود room است: HostHandle آن را حمل می‌کند، `lan_send_message` broadcast به همه (شکل v1 حفظ شد — پیرِ تنها شد room) و `lan_send_to_client` هدف‌گیری تک‌کلاینت؛ مرده‌ها توسط read task خودشان prune می‌شوند و peer-joined/peer-left با clientId می‌آیند. فرانت: lan.ts رستر (clientId→name) + sender id کنار last-message + **اولین join همان primary peer می‌ماند** تا جریان ۲-نفره بایت‌به‌بایت قبلی بماند؛ lan-match نقشهٔ کلاینت‌ها — progress/finished اعضای room per clientId می‌نشیند (slot اصلی دست‌نخورده) و re-arm نقشه را فراموش می‌کند. spec: سه e2e بازنویسی‌شده روی room + **دو گیت تازه**: سه کلاینت یک اتاق را می‌بینند (start به هر سه می‌رسد، progress کلاینت ۱ با clientId=1 به بقیه می‌رسد، هاست هم می‌بیند) و joinر نهم رد می‌شود + ۵ تست نقشه در lan-match. سوئیت ۲۹۱۱/۲۹۱۱ + tsc/oxlint صفر + verify CI سبز. **دو درس CI**: `tokio::io::split` عمومی ReadHalf<T> می‌دهد نه OwnedReadHalf — تست‌های persistent باید `into_split()` کنند و read_line فقط روی BufReader است؛ عدم‌هم‌خوانی pass تایپ‌آور oxlint بین پلتفرم‌ها دوباره (no-delete در prune، castهای user-texts) — CI مرجع. push هر دو ریموت.)
 
 **فاز ۷۸ — تورنمنت حذفی**
 - هدف: براکت N نفره روی room، نوبت‌بندی مسابقه‌ها، جدول نتایج.
