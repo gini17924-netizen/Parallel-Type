@@ -45,11 +45,12 @@ describe("app structure (home hub sections)", () => {
     expect(sectionHasPicker(must("learning"))).toBe(true);
   });
 
-  it("practice has typing test and drills behind a picker", () => {
+  it("practice has typing test, drills and streaks behind a picker", () => {
     const practice = must("practice");
     expect(practice.subSections?.map((sub) => sub.id)).toEqual([
       "test",
       "drills",
+      "streaks",
     ]);
     expect(sectionHasPicker(practice)).toBe(true);
   });

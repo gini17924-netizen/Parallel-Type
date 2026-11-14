@@ -74,6 +74,13 @@ export const APP_SECTIONS: readonly AppSection[] = [
         icon: "fa-dumbbell",
         route: "/drills",
       },
+      {
+        id: "streaks",
+        title: "streaks",
+        description: "every chain you keep alive — days, weeks, games",
+        icon: "fa-fire",
+        route: "/streaks",
+      },
     ],
   },
   {
