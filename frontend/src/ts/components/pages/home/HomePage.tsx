@@ -37,15 +37,22 @@ import {
 export function HomePage(): JSXElement {
   onMount(() => {
     startOnboardingIfNeeded();
-    //phase 97: sync the badge cabinet from the stores; fresh badges announce
-    void refreshAchievements().then((fresh) => {
-      for (const id of fresh) {
-        const badge = cabinetBadges().find((b) => b.id === id);
-        if (badge !== undefined) {
-          showSuccessNotification(`achievement unlocked: ${badge.title}`);
+    //phase 97: sync the badge cabinet from the stores; fresh badges announce.
+    //the catch is load-bearing: the refresh reads indexedDB asynchronously —
+    //if it lands after teardown (or the db fails) the rejection must not
+    //escape as an unhandled one
+    void refreshAchievements()
+      .then((fresh) => {
+        for (const id of fresh) {
+          const badge = cabinetBadges().find((b) => b.id === id);
+          if (badge !== undefined) {
+            showSuccessNotification(`achievement unlocked: ${badge.title}`);
+          }
         }
-      }
-    });
+      })
+      .catch((error: unknown) => {
+        console.error("achievements refresh failed", error);
+      });
   });
 
   const [editing, setEditing] = createSignal(false);
