@@ -29,6 +29,21 @@ jobs:
     name: build → sign → publish (windows nsis)
     runs-on: windows-latest
     steps:
+      - name: guard the version input (rpm forbids hyphens)
+        #rpm's version grammar has no hyphen (it separates version from
+        #release), so a version like 0.28.4-rc1 dies mid-bundle AFTER a
+        #four-minute compile — fail fast here instead; the rc-ness of a
+        #test release is expressed by the prerelease flag, not the string
+        shell: bash
+        run: |
+          set -euo pipefail
+          case '${{ inputs.version }}' in
+            *-*)
+              echo "::error::the version must not contain a hyphen (rpm forbids it) - express the prerelease-ness with the prerelease flag"
+              exit 1
+              ;;
+          esac
+
       - uses: actions/checkout@v4
 
       - uses: pnpm/action-setup@v4
@@ -336,6 +351,18 @@ jobs:
     needs: release
     runs-on: ubuntu-latest
     steps:
+      - name: guard the version input (rpm forbids hyphens)
+        #same rule as the windows job's guard — fail before any build time
+        shell: bash
+        run: |
+          set -euo pipefail
+          case '${{ inputs.version }}' in
+            *-*)
+              echo "::error::the version must not contain a hyphen (rpm forbids it) - express the prerelease-ness with the prerelease flag"
+              exit 1
+              ;;
+          esac
+
       - uses: actions/checkout@v4
 
       - uses: pnpm/action-setup@v4
