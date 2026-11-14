@@ -1,6 +1,5 @@
 import { z } from "zod";
 
-import { setConfig } from "../../config/setters";
 import { download } from "../misc";
 
 /**
@@ -11,9 +10,10 @@ import { download } from "../misc";
  * settings. Everything else in the receiver's config stays theirs.
  *
  * Validation rides the CONFIG schema itself (a pick of it), so a preset
- * can never carry a value the app wouldn't accept. PURE: applyPreset is
- * the only impure function and it just forwards to setConfig (which runs
- * the app's own validation again).
+ * can never carry a value the app wouldn't accept. PURE: applyPreset takes
+ * the setter injected (the caller wires it to the app's setConfig, which
+ * runs the app's own validation again) — this module must stay out of the
+ * config/test-state import graph.
  */
 
 /** the challenge-defining keys a preset carries (the whitelist) */
@@ -114,7 +114,7 @@ export function applyPreset(
   for (const key of PRESET_KEYS) {
     const value = preset.preset[key];
     if (value === undefined) continue;
-    setters.setConfig(key as never, value as never);
+    setters.setConfig(key, value);
   }
 }
 
@@ -122,9 +122,8 @@ export function applyPreset(
 export function downloadPresetFile(preset: DifficultyPreset): void {
   download({
     filename: `paralleltype-preset-${preset.name.replace(/[^a-z0-9_-]+/gi, "-")}.json`,
-    data: new Blob([JSON.stringify(preset, null, 2) + "\n"], {
+    data: new Blob([`${JSON.stringify(preset, null, 2)}\n`], {
       type: "application/json",
     }),
   });
 }
-

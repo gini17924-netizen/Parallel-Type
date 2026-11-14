@@ -3,6 +3,14 @@ import { cleanup, fireEvent, render } from "@solidjs/testing-library";
 import { IDBFactory } from "fake-indexeddb";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
+//the page pulls in config/setters (it applies the imported difficulty
+//preset), which drags in test state — that fetches keyboard layouts at
+//load, and the jsx project has no static mock for them
+vi.mock("../../../../../src/ts/utils/json-data", async (importOriginal) => ({
+  ...(await importOriginal()),
+  getLayout: vi.fn(async () => new Promise(() => undefined)),
+}));
+
 import { OnlineLobbyPage } from "../../../../../src/ts/components/pages/games/landing/OnlineLobbyPage";
 import { _resetLanStateForTests } from "../../../../../src/ts/states/lan";
 
@@ -10,22 +18,25 @@ import { _resetLanStateForTests } from "../../../../../src/ts/states/lan";
  * fake records the invokes and captures the event listeners so the spec
  * can fire the Rust-side events (peer-joined etc.) */
 /** one-shot: the next lan_connect_client invoke rejects like the rust
- * side does (a plain string error carrying the precise step) */
+ * side does (an error carrying the precise step — lanJoin normalizes
+ * strings and Error objects to the same message) */
 function connectWithRejectOnce(): void {
-  const tauriWindow = (window as unknown as {
-    __TAURI__: {
-      core: {
-        invoke: (
-          cmd: string,
-          args?: Record<string, unknown>,
-        ) => Promise<unknown>;
+  const tauriWindow = (
+    window as unknown as {
+      __TAURI__: {
+        core: {
+          invoke: (
+            cmd: string,
+            args?: Record<string, unknown>,
+          ) => Promise<unknown>;
+        };
       };
-    };
-  }).__TAURI__;
+    }
+  ).__TAURI__;
   const original = tauriWindow.core.invoke.bind(tauriWindow.core);
   tauriWindow.core.invoke = async (cmd, args) => {
     if (cmd === "lan_connect_client") {
-      throw "lan: the code was rejected by the host";
+      throw new Error("lan: the code was rejected by the host");
     }
     return original(cmd, args);
   };
@@ -220,7 +231,7 @@ describe("online lobby (LAN, phase 2)", () => {
     //a never-resolving invoke: the in-flight state stays visible
     (window as unknown as { __TAURI__: unknown }).__TAURI__ = {
       core: {
-        invoke: () => new Promise(() => undefined), //never settles
+        invoke: async () => new Promise(() => undefined), //never settles
       },
       event: {
         listen: async () => () => undefined,
@@ -232,9 +243,9 @@ describe("online lobby (LAN, phase 2)", () => {
     connectBtn?.click();
     await vi.waitFor(() => {
       expect(
-        [...container.querySelectorAll("button")]
-          .find((b) => (b.textContent ?? "").includes("connecting"))
-          ?.disabled,
+        [...container.querySelectorAll("button")].find((b) =>
+          (b.textContent ?? "").includes("connecting"),
+        )?.disabled,
       ).toBe(true);
     });
   });
