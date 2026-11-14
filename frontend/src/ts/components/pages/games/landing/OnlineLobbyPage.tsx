@@ -471,6 +471,35 @@ export function OnlineLobbyPage(): JSXElement {
     setChatDraft("");
   };
 
+  //phase 83a: a duel on YOUR text — the pasted text's words become the
+  //match's word list (both players race the same sequence)
+  const [customDraft, setCustomDraft] = createSignal("");
+  const startCustomDuel = async (): Promise<void> => {
+    const words = customDraft()
+      .trim()
+      .split(/\s+/)
+      .filter((word) => word.length > 0);
+    if (words.length < 4) {
+      setMessage("a custom duel needs at least 4 words");
+      return;
+    }
+    const playable = getLanGame("bot-duel");
+    if (playable === undefined) return;
+    const start = playable.buildStart({ length: words.length, words });
+    armLanMatch({
+      role: "host",
+      peerName: getLanPeerName() ?? "P2",
+      start,
+    });
+    if (getLanMatch() === undefined) {
+      setMessage("could not start the custom duel — the text was rejected");
+      return;
+    }
+    sendLanMatchStart(start, playerName());
+    void navigate({ to: playable.route });
+    setCustomDraft("");
+  };
+
   const Chat = (): JSXElement => {
     return (
       <section
@@ -519,6 +548,29 @@ export function OnlineLobbyPage(): JSXElement {
             onClick={sendChat}
           />
         </div>
+        <Show when={getLanRole() === "host"}>
+          <div class="text-sub">custom duel (phase 83)</div>
+          <textarea
+            class="rounded bg-bg p-2 text-sm text-text"
+            rows="2"
+            placeholder="paste a text — both players race on its words"
+            value={customDraft()}
+            data-testid="custom-duel-input"
+            onInput={(event) => {
+              setCustomDraft(event.currentTarget.value);
+            }}
+          />
+          <Button
+            text="start custom duel"
+            fa={{ icon: "fa-pen-nib" }}
+            class="w-full"
+            disabled={customDraft().trim().split(/\s+/).filter((w) => w.length > 0).length < 4}
+            data-testid="custom-duel-start"
+            onClick={() => {
+              void startCustomDuel();
+            }}
+          />
+        </Show>
       </section>
     );
   };

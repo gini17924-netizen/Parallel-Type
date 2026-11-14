@@ -22,6 +22,7 @@ import { DrillsPage } from "../components/pages/drills/DrillsPage";
 import { GamesPage } from "../components/pages/games/GamesPage";
 import { DeckRunnerPage } from "../components/pages/games/deck-runner/DeckRunnerPage";
 import { BotDuelPage } from "../components/pages/games/bot-duel/BotDuelPage";
+import { RelayPage } from "../components/pages/games/relay/RelayPage";
 import { GhostGpPage } from "../components/pages/games/ghost-gp/GhostGpPage";
 import { SprintPage } from "../components/pages/games/sprint/SprintPage";
 import { WordlePage } from "../components/pages/games/wordle/WordlePage";
@@ -127,6 +128,7 @@ export type PageName =
   | "type-pong"
   | "crane"
   | "beat-keys"
+  | "relay"
   | "pair-keys"
   | "split-duel"
   | "maze-runner"
@@ -382,6 +384,13 @@ const botDuel = createRoute({
   path: "/games/bot-duel",
   staticData: { page: "bot-duel" },
   component: createRouterPage(BotDuelPage),
+});
+
+const relay = createRoute({
+  getParentRoute: () => userDataRoute,
+  path: "/games/relay",
+  staticData: { page: "relay" },
+  component: createRouterPage(RelayPage),
 });
 
 const ghostGp = createRoute({
@@ -698,6 +707,7 @@ export const routeTree = root.addChildren([
     games,
     deckRunner,
     botDuel,
+    relay,
     ghostGp,
     sprint,
     wordle,
