@@ -420,6 +420,7 @@ fn main() {
             texts_folder_path,
             texts_list,
             texts_read,
+            lan::lan_send_to_client,
             lan::lan_start_host,
             lan::lan_stop_host,
             lan::lan_send_message,

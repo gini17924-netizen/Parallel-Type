@@ -12,6 +12,7 @@ import {
   armLanMatch,
   clearLanMatch,
   getLanMatch,
+  getLanRoomClients,
   getRemoteFinished,
   getRemoteProgress,
   getRematchAsked,
@@ -220,5 +221,64 @@ describe("lan match state (online wave, phase 2 — registry-routed)", () => {
       delete (window as unknown as { __TAURI__?: unknown }).__TAURI__;
       _resetLanStateForTests();
     }
+  });
+});
+
+describe("phase 77 — the room map (clientId-aware)", () => {
+  beforeEach(() => {
+    _resetLanMatchForTests();
+    navigateMock.mockClear();
+  });
+
+  function armAsHost(): void {
+    armLanMatch({
+      role: "host",
+      peerName: "P2",
+      start: botDuelStart(["a", "b", "c"]),
+    });
+  }
+
+  it("a room member's progress lands in the clients map, not the primary slot", () => {
+    armAsHost();
+    handleLanPeerMessage(
+      { type: "progress", gameId: "bot-duel", state: { wordIndex: 3, correctChars: 10 } },
+      1,
+    );
+    expect(getRemoteProgress()).toBeUndefined();
+    expect(getLanRoomClients()[1]?.progress).toEqual({ wordIndex: 3, correctChars: 10 });
+  });
+
+  it("a room member's finished lands in the clients map", () => {
+    armAsHost();
+    handleLanPeerMessage({ type: "finished", finishMs: 12_000, acc: 97 }, 2);
+    expect(getRemoteFinished()).toBeUndefined();
+    expect(getLanRoomClients()[2]?.finished).toEqual({
+      finishMs: 12_000,
+      acc: 97,
+    });
+  });
+
+  it("an id-less message still feeds the primary flow (v1 compat)", () => {
+    armAsHost();
+    handleLanPeerMessage({ type: "progress", gameId: "bot-duel", state: { wordIndex: 1, correctChars: 5 } });
+    expect(getRemoteProgress()?.state).toEqual({ wordIndex: 1, correctChars: 5 });
+    expect(getLanRoomClients()).toEqual({});
+  });
+
+  it("a room member's progress for another game never lands", () => {
+    armAsHost();
+    handleLanPeerMessage({ type: "progress", gameId: "other", state: {} }, 1);
+    expect(getLanRoomClients()).toEqual({});
+  });
+
+  it("re-arming the match forgets the per-client states", () => {
+    armAsHost();
+    handleLanPeerMessage(
+      { type: "progress", gameId: "bot-duel", state: { wordIndex: 3, correctChars: 10 } },
+      1,
+    );
+    expect(getLanRoomClients()[1]?.progress).toBeDefined();
+    armAsHost();
+    expect(getLanRoomClients()).toEqual({});
   });
 });

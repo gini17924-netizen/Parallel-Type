@@ -44,6 +44,16 @@ const [getDiscovered, setDiscovered] = createSignal<LanDiscovered[]>([]);
 const [getLastMessage, setLastMessage] = createSignal<
   Record<string, unknown> | undefined
 >(undefined);
+//phase 77: the room — a clientId per registered client plus the sender id
+// riding the last message (undefined = the host's own sends)
+const [getClients, setClients] = createSignal<
+  Record<number, { clientId: number; name?: string }>
+>({});
+const [getLastMessageClientId, setLastMessageClientId] = createSignal<
+  number | undefined
+>(undefined);
+/** the FIRST client that joined — the 2-player flow's counterpart */
+let primaryClientId: number | undefined;
 
 function getInvoke(): TauriInvoke | undefined {
   const tauri = (
@@ -79,22 +89,52 @@ function wireLanEvents(): void {
   if (listen === undefined) return;
   listenersWired = true;
   void listen("lan://peer-joined", (e) => {
-    const payload = e.payload as { name?: string };
-    setPeerName(payload.name);
+    const payload = e.payload as { clientId?: number; name?: string };
+    //the FIRST join (or the host joining from the client side) is the
+    //primary peer — the 2-player flow's counterpart; later joins fill the
+    //roster without stealing the primary seat
+    if (primaryClientId === undefined) {
+      primaryClientId = payload.clientId;
+      setPeerName(payload.name);
+    }
+    if (payload.clientId !== undefined) {
+      const next = { ...getClients() };
+      next[payload.clientId] = {
+        clientId: payload.clientId,
+        name: payload.name,
+      };
+      setClients(next);
+    }
     setConnected(true);
   });
   void listen("lan://peer-message", (e) => {
-    const payload = e.payload as { message: Record<string, unknown> };
+    const payload = e.payload as {
+      message: Record<string, unknown>;
+      clientId?: number;
+    };
     setLastMessage(payload.message);
+    setLastMessageClientId(payload.clientId);
   });
-  void listen("lan://peer-left", () => {
-    setConnected(false);
-    setPeerName(undefined);
+  void listen("lan://peer-left", (e) => {
+    const payload = e.payload as { clientId?: number };
+    if (payload.clientId === undefined || payload.clientId === primaryClientId) {
+      //the primary peer (or a legacy v1 peer without an id) is gone
+      setConnected(false);
+      setPeerName(undefined);
+      primaryClientId = undefined;
+    }
+    if (payload.clientId !== undefined) {
+      const next = { ...getClients() };
+      delete next[payload.clientId];
+      setClients(next);
+    }
   });
   void listen("lan://client-error", () => {
     setConnected(false);
     setPeerName(undefined);
     setRole("none");
+    primaryClientId = undefined;
+    setClients({});
   });
 }
 
@@ -179,6 +219,8 @@ export function lanLeave(): void {
   setConnected(false);
   setPeerName(undefined);
   setHostInfo(undefined);
+  primaryClientId = undefined;
+  setClients({});
 }
 
 /** starts the UDP discovery listener (idempotent — the lobby owns the
@@ -240,6 +282,21 @@ export function getLanLastMessage(): Record<string, unknown> | undefined {
   return getLastMessage();
 }
 
+/** phase 77: the sender's clientId for the last peer message — undefined
+ * when the host itself sent it (or a v1 pipe without ids) */
+export function getLanLastMessageClientId(): number | undefined {
+  return getLastMessageClientId();
+}
+
+/** phase 77: the room roster — clientId → name, maintained by the
+ * peer-joined / peer-left events */
+export function getLanClients(): Record<
+  number,
+  { clientId: number; name?: string }
+> {
+  return getClients();
+}
+
 /** test hook: forgets the wired-listener latch so a spec can re-wire */
 export function _resetLanStateForTests(): void {
   listenersWired = false;
@@ -249,4 +306,7 @@ export function _resetLanStateForTests(): void {
   setHostInfo(undefined);
   setDiscovered([]);
   setLastMessage(undefined);
+  setLastMessageClientId(undefined);
+  setClients({});
+  primaryClientId = undefined;
 }

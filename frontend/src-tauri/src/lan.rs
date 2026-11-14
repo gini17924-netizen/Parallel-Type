@@ -165,8 +165,22 @@ pub struct HostHandle {
     code: String,
     port: u16,
     shutdown: oneshot::Sender<()>,
-    to_client: mpsc::UnboundedSender<String>,
+    /// phase 77: the room — the host broadcasts and targets through it
+    room: Room,
 }
+
+/// phase 77 — the room model: one entry per registered client. The host's
+/// commands broadcast through the map; a dead peer's failed send prunes it.
+/// The cap is enforced at handshake time (the ninth joiner gets a precise
+/// `join-rejected`).
+const ROOM_CAP: usize = 8;
+
+struct RoomPeer {
+    name: String,
+    tx: mpsc::UnboundedSender<String>,
+}
+
+type Room = std::sync::Arc<std::sync::Mutex<HashMap<u32, RoomPeer>>>;
 
 fn nanos() -> u128 {
     std::time::SystemTime::now()
@@ -263,14 +277,15 @@ pub async fn lan_start_host(
         .map_err(|e| format!("lan: local addr failed ({e})"))?
         .port();
     let (shutdown_tx, shutdown_rx) = oneshot::channel();
-    let (to_client, client_rx) = mpsc::unbounded_channel::<String>();
+    let room: Room = std::sync::Arc::new(std::sync::Mutex::new(HashMap::new()));
 
     let app2 = app.clone();
     let code2 = code.clone();
     let session2 = session_id.clone();
     let name2 = name.clone();
+    let room2 = room.clone();
     tauri::async_runtime::spawn(async move {
-        run_host(AppEventSink { app: app2 }, session2, code2, name2, listener, shutdown_rx, client_rx).await;
+        run_host(AppEventSink { app: app2 }, session2, code2, name2, listener, shutdown_rx, room2).await;
     });
 
     let mut guard = state.host.lock().map_err(|_| "lan state poisoned")?;
@@ -282,7 +297,7 @@ pub async fn lan_start_host(
         code: code.clone(),
         port,
         shutdown: shutdown_tx,
-        to_client,
+        room,
     };
     *guard = Some(handle);
 
@@ -305,7 +320,9 @@ pub fn lan_stop_host(state: State<'_, LanState>) -> Result<(), String> {
     Ok(())
 }
 
-/// sends a JSON message to the connected peer (host side)
+/// sends a JSON message to the room (host side): broadcast to every
+/// registered client — phase 77 kept the v1 command shape, so a v1 host
+/// frontend flows through unchanged (its single peer becomes the room)
 #[tauri::command]
 pub fn lan_send_message(state: State<'_, LanState>, message: Value) -> Result<(), String> {
     if let Value::Object(_) = &message {
@@ -318,9 +335,46 @@ pub fn lan_send_message(state: State<'_, LanState>, message: Value) -> Result<()
     }
     text.push('\n');
     let guard = state.host.lock().map_err(|_| "lan state poisoned")?;
-    match &guard.as_ref().ok_or("lan: not hosting")?.to_client {
-        tx => tx.send(text).map_err(|_| "lan: peer gone".into()),
+    let handle = guard.as_ref().ok_or("lan: not hosting")?;
+    let room = handle.room.lock().map_err(|_| "lan state poisoned")?;
+    if room.is_empty() {
+        return Err("lan: no clients connected".into());
     }
+    let mut delivered = 0;
+    for peer in room.values() {
+        //a failed send marks a dead peer; its read task prunes the entry
+        if peer.tx.send(text.clone()).is_ok() {
+            delivered += 1;
+        }
+    }
+    if delivered == 0 {
+        return Err("lan: peers gone".into());
+    }
+    Ok(())
+}
+
+/// sends a JSON message to ONE room client (host side, phase 77): the
+/// targeted form for games that need per-client payloads
+#[tauri::command]
+pub fn lan_send_to_client(
+    state: State<'_, LanState>,
+    client_id: u32,
+    message: Value,
+) -> Result<(), String> {
+    if let Value::Object(_) = &message {
+    } else {
+        return Err("lan: message must be a JSON object".into());
+    }
+    let mut text = message.to_string();
+    if text.len() > MAX_MESSAGE_BYTES {
+        return Err("lan: message too large".into());
+    }
+    text.push('\n');
+    let guard = state.host.lock().map_err(|_| "lan state poisoned")?;
+    let handle = guard.as_ref().ok_or("lan: not hosting")?;
+    let room = handle.room.lock().map_err(|_| "lan state poisoned")?;
+    let peer = room.get(&client_id).ok_or("lan: no such client")?;
+    peer.tx.send(text).map_err(|_| "lan: client gone".into())
 }
 
 /// a relayed peer message must be a JSON object carrying a string type —
@@ -680,14 +734,15 @@ async fn run_host<S: LanEventSink + Clone>(
     host_name: String,
     listener: TcpListener,
     mut shutdown_rx: oneshot::Receiver<()>,
-    mut to_client: mpsc::UnboundedReceiver<String>,
+    room: Room,
 ) {
     let port = listener
         .local_addr()
         .map(|addr| addr.port())
         .unwrap_or(LAN_PORT_DEFAULT);
-    //the discovery beacon runs while the match is open and stops the
-    //moment a client joins — AbortOnDrop covers every return path
+    //the discovery beacon runs while the room has space and stops the
+    //moment it fills — phase 77: more joiners must still find the host.
+    //AbortOnDrop covers every return path
     let beacon = AbortOnDrop(tauri::async_runtime::spawn(run_beacon(
         host_name.clone(),
         session_id.clone(),
@@ -695,10 +750,12 @@ async fn run_host<S: LanEventSink + Clone>(
         port,
         format!("255.255.255.255:{DISCOVERY_PORT}"),
     )));
-    // accept + handshake loop: a rejected or silent client releases its
-    // connection and the host keeps accepting — H1's 'keeps listening'
-    // made real (a new client CAN join after a rejected one)
-    let (mut reader, mut write, joined) = 'handshake: loop {
+    let mut next_client_id: u32 = 1;
+
+    // accept + handshake loop (phase 77): a rejected, silent or
+    // full-room client releases its connection and the host keeps
+    // accepting; every client that PASSES the handshake joins the room
+    loop {
         let stream = tokio::select! {
             _ = &mut shutdown_rx => return,
             accepted = listener.accept() => match accepted {
@@ -753,55 +810,104 @@ async fn run_host<S: LanEventSink + Clone>(
                 JoinDecision::Ignore => continue, //anything else before the join
             }
         };
-        match outcome {
-            Some(name) => break 'handshake (reader, write_half, name),
+        let joined = match outcome {
+            Some(name) => name,
             None => continue, //this connection released — the beacon re-announces
-        }
-    };
-    // the joined ack completes the handshake — the client shows the
-    // HOST's name only after receiving it
-    let ack = serde_json::json!({ "type": "joined", "name": host_name, "sessionId": session_id });
-    if write
-        .write_all(format!("{}\n", ack).as_bytes())
-        .await
-        .is_err()
-    {
-        return;
-    }
-    sink.emit("lan://peer-joined", serde_json::json!({ "name": joined, "host": host_name, "sessionId": session_id }));
-    beacon.stop(); //the match is found — no more broadcasting
+        };
 
-    // forward peer messages to the frontend; a protocol violation (no
-    // string type, oversize, a blown rate window) closes the connection
-    let read_task = tauri::async_runtime::spawn(async move {
-        let sink = sink.clone();
-        let mut limiter = RateLimiter::new();
-        loop {
-            match next_bounded_line(&mut reader).await {
-                Ok(Some(line)) => {
-                    if !limiter.admit(line.len(), now_ms()) || !is_valid_message(&line) {
-                        sink.emit("lan://peer-left", serde_json::json!({ "reason": "protocol violation" }));
-                        break;
-                    }
-                    if let Ok(message) = serde_json::from_str::<Value>(&line) {
-                        sink.emit("lan://peer-message", serde_json::json!({ "message": message }));
-                    }
-                }
-                _ => {
-                    sink.emit("lan://peer-left", serde_json::json!({ "reason": "disconnected" }));
+        // the room cap: the ninth joiner gets a precise rejection (a v1
+        // client surfaces any join-rejected generically — still compatible)
+        let room_len = room.lock().map(|r| r.len()).unwrap_or(ROOM_CAP);
+        if room_len >= ROOM_CAP {
+            let reject = serde_json::json!({
+                "type": "join-rejected",
+                "reason": "room full"
+            });
+            let _ = write_half
+                .write_all(format!("{}\n", reject).as_bytes())
+                .await;
+            continue;
+        }
+
+        let client_id = next_client_id;
+        next_client_id += 1;
+
+        // the joined ack completes the handshake and carries the clientId —
+        // a v1 client reads type/name and ignores the extra field
+        let ack = serde_json::json!({ "type": "joined", "name": host_name, "sessionId": session_id, "clientId": client_id });
+        if write_half
+            .write_all(format!("{}\n", ack).as_bytes())
+            .await
+            .is_err()
+        {
+            continue;
+        }
+
+        // register the client: its write task drains the channel into the
+        // socket half; the room's senders are what the host broadcasts
+        // through (lan_send_message broadcasts, lan_send_to_client targets)
+        let (tx, mut rx) = mpsc::unbounded_channel::<String>();
+        tauri::async_runtime::spawn(async move {
+            while let Some(text) = rx.recv().await {
+                if write_half.write_all(text.as_bytes()).await.is_err() {
                     break;
                 }
             }
+        });
+        if let Ok(mut r) = room.lock() {
+            r.insert(client_id, RoomPeer {
+                name: joined.clone(),
+                tx,
+            });
         }
-    });
+        sink.emit("lan://peer-joined", serde_json::json!({ "clientId": client_id, "name": joined, "host": host_name, "sessionId": session_id }));
+        if room.lock().map(|r| r.len()).unwrap_or(0) >= ROOM_CAP {
+            beacon.stop(); //the room is full — no more broadcasting
+        }
 
-    // forward the frontend's sends to the peer
-    while let Some(text) = to_client.recv().await {
-        if write.write_all(text.as_bytes()).await.is_err() {
-            break;
-        }
+        // the client's read task: validated messages are relayed to every
+        // OTHER room peer with the sender's clientId injected (a v1 client
+        // ignores the extra field) and mirrored to the host frontend; a
+        // violation or a drop removes the client from the room
+        let room2 = room.clone();
+        let sink2 = sink.clone();
+        tauri::async_runtime::spawn(async move {
+            let mut limiter = RateLimiter::new();
+            loop {
+                match next_bounded_line(&mut reader).await {
+                    Ok(Some(line)) => {
+                        if !limiter.admit(line.len(), now_ms())
+                            || !is_valid_message(&line)
+                        {
+                            sink2.emit("lan://peer-left", serde_json::json!({ "clientId": client_id, "reason": "protocol violation" }));
+                            if let Ok(mut r) = room2.lock() {
+                                let _ = r.remove(&client_id);
+                            }
+                            break;
+                        }
+                        if let Ok(mut message) = serde_json::from_str::<Value>(&line) {
+                            message["clientId"] = serde_json::json!(client_id);
+                            if let Ok(r) = room2.lock() {
+                                for (peer_id, peer) in r.iter() {
+                                    if *peer_id != client_id {
+                                        let _ = peer.tx.send(format!("{}\n", message));
+                                    }
+                                }
+                            }
+                            sink2.emit("lan://peer-message", serde_json::json!({ "clientId": client_id, "message": message }));
+                        }
+                    }
+                    _ => {
+                        sink2.emit("lan://peer-left", serde_json::json!({ "clientId": client_id, "reason": "disconnected" }));
+                        if let Ok(mut r) = room2.lock() {
+                            let _ = r.remove(&client_id);
+                        }
+                        break;
+                    }
+                }
+            }
+        });
     }
-    read_task.abort();
 }
 
 #[cfg(test)]
@@ -1068,49 +1174,13 @@ mod tests {
         }
     }
 
-    /// drives one scripted client through the REAL run_host over a real
-    /// TCP loopback: joins, reads the ack, exchanges messages. Returns
-    /// every line the client read.
-    async fn scripted_client(
-        addr: std::net::SocketAddr,
-        code: &str,
-        sends: Vec<serde_json::Value>,
-    ) -> Vec<String> {
-        let stream = tokio::net::TcpStream::connect(addr)
-            .await
-            .expect("the client connects");
-        let (read, mut write) = tokio::io::split(stream);
-        let join = serde_json::json!({
-            "type": "join", "name": "P2", "code": code
-        });
-        write
-            .write_all(format!("{}\n", join).as_bytes())
-            .await
-            .expect("write the join");
-        let mut read_lines: Vec<String> = Vec::new();
-        let mut reader = BufReader::new(read);
-        for send in sends {
-            let mut ack_line = String::new();
-            tokio::time::timeout(Duration::from_secs(3), reader.read_line(&mut ack_line))
-                .await
-                .expect("the ack within 3s")
-                .expect("the ack line reads");
-            read_lines.push(ack_line.trim_end().to_string());
-            write
-                .write_all(format!("{}\n", send).as_bytes())
-                .await
-                .expect("write the send");
-        }
-        read_lines
-    }
-
     #[tokio::test]
     async fn e2e_host_relays_a_full_match_over_real_tcp() {
         let listener = TcpListener::bind("127.0.0.1:0").await.expect("bind");
         let addr = listener.local_addr().expect("addr");
         let sink = TestSink::default();
         let (_shutdown_tx, shutdown_rx) = tokio::sync::oneshot::channel::<()>();
-        let (host_sends, client_rx) = mpsc::unbounded_channel::<String>();
+        let room: Room = Arc::new(std::sync::Mutex::new(HashMap::new()));
         tokio::spawn(run_host(
             sink.clone(),
             "lan-1/ABCD".into(),
@@ -1118,41 +1188,67 @@ mod tests {
             "HOST1".into(),
             listener,
             shutdown_rx,
-            client_rx,
+            room.clone(),
         ));
 
-        //the host frontend's start queues through the pipe — and the
-        //SENDER STAYS ALIVE (a dropped sender ends the write task, which
-        //aborts the read task and closes the socket mid-match — H1 again)
+        //the client joins; the ack names the host AND carries its clientId
+        let stream = tokio::net::TcpStream::connect(addr).await.expect("connect");
+        let (read, mut write) = tokio::io::split(stream);
+        let mut reader = BufReader::new(read);
+        let join = serde_json::json!({ "type": "join", "name": "P2", "code": "ABCD" });
+        write
+            .write_all(format!("{}\n", join).as_bytes())
+            .await
+            .expect("write the join");
+        let mut ack_line = String::new();
+        tokio::time::timeout(Duration::from_secs(3), reader.read_line(&mut ack_line))
+            .await
+            .expect("the ack within 3s")
+            .expect("the ack line reads");
+        assert!(ack_line.contains("HOST1"), "the ack names the host: {ack_line}");
+        assert!(
+            ack_line.contains("\"clientId\":1"),
+            "the ack carries the clientId: {ack_line}"
+        );
+
+        //the host frontend broadcasts the start through the room — the
+        //room IS the send path now (the v1 channel is gone)
         let start = serde_json::json!({ "type": "start", "seed": 42, "params": {} });
-        host_sends
-            .send(format!("{}\n", start))
-            .expect("the start queues");
+        {
+            let r = room.lock().unwrap();
+            for peer in r.values() {
+                peer.tx
+                    .send(format!("{}\n", start))
+                    .expect("the start queues");
+            }
+        }
+        let mut start_line = String::new();
+        tokio::time::timeout(Duration::from_secs(3), reader.read_line(&mut start_line))
+            .await
+            .expect("the start within 3s")
+            .expect("the start line reads");
+        assert!(start_line.contains("start"), "the start relays: {start_line}");
 
-        //the scripted client: join -> ack -> the host's relayed start ->
-        //its own progress (each send waits for the line before it)
-        let sends = vec![
-            serde_json::json!({ "type": "progress", "state": { "x": 0 } }),
-            serde_json::json!({ "type": "progress", "state": { "x": 3 } }),
-        ];
-        let read_lines = scripted_client(addr, "ABCD", sends).await;
+        //the client's own progress reaches the sink with its clientId
+        let progress = serde_json::json!({ "type": "progress", "state": { "x": 3 } });
+        write
+            .write_all(format!("{}\n", progress).as_bytes())
+            .await
+            .expect("write the progress");
 
-        //the ack carries the HOST's name (the join handshake contract)
-        assert!(read_lines[0].contains("HOST1"), "the ack names the host: {}", read_lines[0]);
-        //the host relayed the queued start through the pipe
-        assert!(read_lines[1].contains("start"), "the start relays: {}", read_lines[1]);
-
-        //the sink saw the join announcement and both of the client's
-        //progress relays — they need a yield or two to arrive (the test
-        //runtime is current-thread)
         assert_eq!(sink.count("lan://peer-joined"), 1);
         let mut waited = 0u32;
-        while sink.count("lan://peer-message") < 2 && waited < 50 {
+        while sink.count("lan://peer-message") < 1 && waited < 50 {
             tokio::time::sleep(Duration::from_millis(50)).await;
             waited += 1;
         }
         let relayed = sink.last("lan://peer-message").expect("the progress relayed");
         assert_eq!(relayed["message"]["type"].as_str(), Some("progress"));
+        assert_eq!(
+            relayed["clientId"].as_u64(),
+            Some(1),
+            "the sender's clientId rides along: {relayed}"
+        );
     }
 
     #[tokio::test]
@@ -1161,7 +1257,7 @@ mod tests {
         let addr = listener.local_addr().expect("addr");
         let sink = TestSink::default();
         let (_shutdown_tx, shutdown_rx) = tokio::sync::oneshot::channel::<()>();
-        let (_, client_rx) = mpsc::unbounded_channel::<String>();
+        let room: Room = Arc::new(std::sync::Mutex::new(HashMap::new()));
         tokio::spawn(run_host(
             sink.clone(),
             "lan-1/ABCD".into(),
@@ -1169,7 +1265,7 @@ mod tests {
             "HOST1".into(),
             listener,
             shutdown_rx,
-            client_rx,
+            room.clone(),
         ));
 
         //client 1: the WRONG code — an immediate join-rejected, no 5s hang
@@ -1212,9 +1308,7 @@ mod tests {
         let addr = listener.local_addr().expect("addr");
         let sink = TestSink::default();
         let (_shutdown_tx, shutdown_rx) = tokio::sync::oneshot::channel::<()>();
-        //the sender stays alive: a dropped one ends the write loop, which
-        //aborts the read task before the limiter ever gets to trip
-        let (_host_sends, client_rx) = mpsc::unbounded_channel::<String>();
+        let room: Room = Arc::new(std::sync::Mutex::new(HashMap::new()));
         tokio::spawn(run_host(
             sink.clone(),
             "lan-1/ABCD".into(),
@@ -1222,7 +1316,7 @@ mod tests {
             "HOST1".into(),
             listener,
             shutdown_rx,
-            client_rx,
+            room.clone(),
         ));
 
         //the client joins, then floods well past the message cap
@@ -1252,6 +1346,169 @@ mod tests {
         );
         //the flood's reads: the pipe closes — whatever surfaces, fine
         let _ = BufReader::new(read).read_line(&mut String::new()).await;
+    }
+
+    /// the phase-77 gate: THREE clients share one room — the host's start
+    /// reaches all of them and one client's progress relays to the others
+    /// with its clientId injected
+    #[tokio::test]
+    async fn e2e_three_clients_share_one_room() {
+        let listener = TcpListener::bind("127.0.0.1:0").await.expect("bind");
+        let addr = listener.local_addr().expect("addr");
+        let sink = TestSink::default();
+        let (_shutdown_tx, shutdown_rx) = tokio::sync::oneshot::channel::<()>();
+        let room: Room = Arc::new(std::sync::Mutex::new(HashMap::new()));
+        tokio::spawn(run_host(
+            sink.clone(),
+            "lan-1/ABCD".into(),
+            "ABCD".into(),
+            "HOST1".into(),
+            listener,
+            shutdown_rx,
+            room.clone(),
+        ));
+
+        //three clients join, each KEEPING its connection open; ids are
+        //assigned in join order (1, 2, 3)
+        let mut clients: Vec<(
+            BufReader<tokio::net::tcp::OwnedReadHalf>,
+            tokio::net::tcp::OwnedWriteHalf,
+        )> = Vec::new();
+        for i in 1..=3u64 {
+            let stream = tokio::net::TcpStream::connect(addr).await.expect("connect");
+            let (read, mut write) = tokio::io::split(stream);
+            let join = serde_json::json!({
+                "type": "join", "name": format!("P{i}"), "code": "ABCD"
+            });
+            write
+                .write_all(format!("{}\n", join).as_bytes())
+                .await
+                .expect("write the join");
+            let mut ack = String::new();
+            tokio::time::timeout(Duration::from_secs(3), read.read_line(&mut ack))
+                .await
+                .expect("the ack")
+                .expect("the ack reads");
+            assert!(
+                ack.contains("joined") && ack.contains(&format!("\"clientId\":{i}")),
+                "client {i} joined with its id: {ack}"
+            );
+            clients.push((BufReader::new(read), write));
+        }
+        assert_eq!(sink.count("lan://peer-joined"), 3);
+
+        //the host broadcasts the start — every client receives it
+        let start = serde_json::json!({ "type": "start", "seed": 42, "params": {} });
+        {
+            let r = room.lock().unwrap();
+            assert_eq!(r.len(), 3, "the room holds all three");
+            for peer in r.values() {
+                peer.tx
+                    .send(format!("{}\n", start))
+                    .expect("the start queues");
+            }
+        }
+        for (reader, _) in clients.iter_mut() {
+            let mut line = String::new();
+            tokio::time::timeout(Duration::from_secs(3), reader.read_line(&mut line))
+                .await
+                .expect("the start reaches everyone")
+                .expect("it reads");
+            assert!(line.contains("\"type\":\"start\""), "arrived: {line}");
+        }
+
+        //client 1 sends progress — the OTHER two receive it with clientId 1
+        let progress = serde_json::json!({ "type": "progress", "state": { "x": 7 } });
+        clients[0]
+            .1
+            .write_all(format!("{}\n", progress).as_bytes())
+            .await
+            .expect("write the progress");
+        for (reader, _) in clients.iter_mut().skip(1) {
+            let mut line = String::new();
+            tokio::time::timeout(Duration::from_secs(3), reader.read_line(&mut line))
+                .await
+                .expect("the relayed progress")
+                .expect("it reads");
+            assert!(
+                line.contains("\"clientId\":1"),
+                "the sender's id is injected: {line}"
+            );
+            assert!(line.contains("\"x\":7"), "the state is intact: {line}");
+        }
+
+        //the host frontend sees the sender's message too (with clientId)
+        let mut waited = 0u32;
+        while sink.count("lan://peer-message") < 1 && waited < 50 {
+            tokio::time::sleep(Duration::from_millis(50)).await;
+            waited += 1;
+        }
+        let relayed = sink.last("lan://peer-message").expect("the host saw it");
+        assert_eq!(relayed["clientId"].as_u64(), Some(1));
+    }
+
+    #[tokio::test]
+    async fn the_ninth_joiner_is_rejected_when_the_room_is_full() {
+        let listener = TcpListener::bind("127.0.0.1:0").await.expect("bind");
+        let addr = listener.local_addr().expect("addr");
+        let sink = TestSink::default();
+        let (_shutdown_tx, shutdown_rx) = tokio::sync::oneshot::channel::<()>();
+        let room: Room = Arc::new(std::sync::Mutex::new(HashMap::new()));
+        tokio::spawn(run_host(
+            sink.clone(),
+            "lan-1/ABCD".into(),
+            "ABCD".into(),
+            "HOST1".into(),
+            listener,
+            shutdown_rx,
+            room.clone(),
+        ));
+
+        //eight persistent clients fill the room
+        let mut keepalive: Vec<(
+            tokio::net::tcp::OwnedReadHalf,
+            tokio::net::tcp::OwnedWriteHalf,
+        )> = Vec::new();
+        for i in 1..=8u64 {
+            let stream = tokio::net::TcpStream::connect(addr).await.expect("connect");
+            let (read, mut write) = tokio::io::split(stream);
+            let join = serde_json::json!({
+                "type": "join", "name": format!("P{i}"), "code": "ABCD"
+            });
+            write
+                .write_all(format!("{}\n", join).as_bytes())
+                .await
+                .expect("write the join");
+            let mut ack = String::new();
+            tokio::time::timeout(Duration::from_secs(3), read.read_line(&mut ack))
+                .await
+                .expect("the ack")
+                .expect("the ack reads");
+            assert!(
+                ack.contains(&format!("\"clientId\":{i}")),
+                "client {i} joined: {ack}"
+            );
+            //parking the halves keeps every connection open
+            keepalive.push((read, write));
+        }
+
+        //the ninth joiner gets a precise rejection
+        let stream9 = tokio::net::TcpStream::connect(addr).await.expect("connect");
+        let (mut read9, mut write9) = tokio::io::split(stream9);
+        let join = serde_json::json!({ "type": "join", "name": "P9", "code": "ABCD" });
+        write9
+            .write_all(format!("{}\n", join).as_bytes())
+            .await
+            .expect("write the join");
+        let mut reject = String::new();
+        tokio::time::timeout(Duration::from_secs(3), read9.read_line(&mut reject))
+            .await
+            .expect("the reject")
+            .expect("the reject reads");
+        assert!(
+            reject.contains("join-rejected") && reject.contains("room full"),
+            "precise: {reject}"
+        );
     }
 
     #[tokio::test]

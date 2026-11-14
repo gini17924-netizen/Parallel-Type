@@ -9,7 +9,9 @@ import {
   type LanStartPayload,
 } from "../utils/games/lan-registry";
 import {
+  getLanClients,
   getLanLastMessage,
+  getLanLastMessageClientId,
   getLanPeerName,
   getLanRole,
   lanSendToPeer,
@@ -67,6 +69,36 @@ export type RawLanMessage = {
   arrivalPerf: number;
 };
 
+/** phase 77 — the room map: every client's latest match state, keyed by
+ * its clientId (the host is implicit and carries no id). The primary
+ * peer's flow (getRemoteProgress/getRemoteFinished) is untouched — the
+ * map is the multi-player layer on top. */
+export type LanRoomClient = {
+  clientId: number;
+  name?: string;
+  /** the client's latest decoded progress (shaped by the game contract) */
+  progress?: Record<string, unknown>;
+  finished?: { finishMs: number | null; acc: number };
+};
+
+const [roomClientsSignal, setRoomClientsSignal] = createSignal<
+  Record<number, LanRoomClient>
+>({});
+
+export function getLanRoomClients(): Record<number, LanRoomClient> {
+  return roomClientsSignal();
+}
+
+function updateRoomClient(clientId: number, patch: Partial<LanRoomClient>): void {
+  const room = { ...getLanRoomClients() };
+  room[clientId] = {
+    ...(room[clientId] ?? { clientId }),
+    name: getLanClients()[clientId]?.name,
+    ...patch,
+  };
+  setRoomClientsSignal(room);
+}
+
 const [matchSignal, setMatchSignal] = createSignal<LanMatch | undefined>(
   undefined,
 );
@@ -90,6 +122,9 @@ function resetDerived(): void {
   setFinishedSignal(undefined);
   setRematchSignal(false);
   setRawSignal(undefined);
+  //phase 77: a (re)armed match forgets the room's per-client states — the
+  //roster itself lives in lan.ts and survives
+  setRoomClientsSignal({});
 }
 
 /** arms (or re-arms) the match; consumers restart from the new seq. An
@@ -189,8 +224,15 @@ function isRecord(value: unknown): value is Record<string, unknown> {
 }
 
 /** the one place every match message is interpreted — routed through the
- * LanPlayable registry; the root effect feeds it, specs call it directly */
-export function handleLanPeerMessage(message: Record<string, unknown>): void {
+ * LanPlayable registry; the root effect feeds it, specs call it directly.
+ * phase 77: `clientId` identifies the sender inside a room (undefined =
+ * the host's own sends, or a v1 pipe without ids) — room-local progress
+ * and finished states land in the clients map instead of the single-peer
+ * signals */
+export function handleLanPeerMessage(
+  message: Record<string, unknown>,
+  clientId?: number,
+): void {
   if (message["type"] === "start") {
     const gameId = message["gameId"];
     //the registry lookup IS the validation of a wire-supplied id
@@ -233,17 +275,26 @@ export function handleLanPeerMessage(message: Record<string, unknown>): void {
     if (playable === undefined) return;
     const decoded = playable.decodeProgress(message["state"]);
     if (decoded === undefined) return; //untrusted shapes never land
+    if (clientId !== undefined) {
+      //a room member's progress lands in the clients map (phase 77)
+      updateRoomClient(clientId, { progress: decoded });
+      return;
+    }
     setProgressSignal({ state: decoded, arrivalPerf: performance.now() });
     return;
   }
   if (message["type"] === "finished") {
     const finishMs = message["finishMs"];
     const acc = message["acc"];
-    setFinishedSignal({
+    const finished = {
       finishMs: typeof finishMs === "number" ? finishMs : null,
       acc: typeof acc === "number" ? acc : 0,
-      arrivalPerf: performance.now(),
-    });
+    };
+    if (clientId !== undefined) {
+      updateRoomClient(clientId, { finished });
+      return;
+    }
+    setFinishedSignal({ ...finished, arrivalPerf: performance.now() });
     return;
   }
   if (message["type"] === "rematch") setRematchSignal(true);
@@ -253,11 +304,14 @@ export function handleLanPeerMessage(message: Record<string, unknown>): void {
 }
 
 //the module owns the message consumption: a start arms and navigates
-//no matter which page is currently on screen
+//no matter which page is currently on screen. phase 77: the sender's
+//clientId rides alongside the message (undefined = the host or a v1 pipe)
 createRoot(() => {
   createEffect(() => {
     const message = getLanLastMessage();
-    if (message !== undefined) handleLanPeerMessage(message);
+    if (message !== undefined) {
+      handleLanPeerMessage(message, getLanLastMessageClientId());
+    }
   });
 });
 
