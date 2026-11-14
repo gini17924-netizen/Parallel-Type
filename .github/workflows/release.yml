@@ -274,7 +274,7 @@ jobs:
             fs.writeFileSync(`${dir}/${pkg}.yaml`, hdr("version") + versionYaml);
             fs.writeFileSync(`${dir}/${pkg}.installer.yaml`, hdr("installer") + installerYaml);
             fs.writeFileSync(`${dir}/${pkg}.locale.en-US.yaml`, hdr("defaultLocale") + localeYaml);
-            //the sha256 sidecar — scoop's autoupdate hash source
+            //the sha256 sidecar — the scoop autoupdate hash source
             fs.writeFileSync(`${bundle}/${exe}.sha256`, `${sha.toLowerCase()}  ${exe}\n`);
             const scoop = {
               version,
