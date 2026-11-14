@@ -9,6 +9,7 @@
 ## Download
 
 - Signed Windows installer: **[Releases](https://github.com/gini17924-netizen/Parallel-Type/releases/latest)**
+- Portable zip: every release also publishes `ParallelType_<version>_x64-portable.zip` (with a SHA256 sidecar) — unzip anywhere and run `ParallelType.exe`, no install and no registry writes; the only requirement is the WebView2 runtime (preinstalled on Windows 10/11), and it is not wired to the in-app updater.
 - Package managers: every release also publishes a **winget manifest trio** (package id `ParallelType.ParallelType`, `winget validate`-clean) and a **scoop manifest** — install with `scoop install https://github.com/gini17924-netizen/Parallel-Type/releases/latest/download/paralleltype.json`, or point winget at a release's three `.yaml` files with `winget install --manifest`. Both carry the real SHA256 of the published installer.
 - The in-app updater is live (endpoint: `releases/latest/download/latest.json` from this repo) — future versions ship as a plain GitHub Release, no code change needed.
 - ⚠️ Windows Firewall prompts on the first online run — choose **Allow on private networks**.
@@ -53,6 +54,7 @@ npx tauri build        # NSIS + updater signature (TAURI_SIGNING_PRIVATE_KEY req
 ۲. در اولین اجرای آنلاین، فایروال ویندوز پرامپت می‌دهد → **Allow on private networks** را بزنید.
 ۳. آپدیت‌ها خودکار است: اپ در پس‌زمینه endpoint همین ریپو را چک می‌کند و نسخهٔ جدید را پیشنهاد می‌دهد.
 ۴. مدیریت بسته‌ها: هر ریلیز علاوه بر سه فایل اصلی، سه manifest وینگت (شناسهٔ `ParallelType.ParallelType`، با `winget validate` سبز) و یک manifest اسکوپ (`paralleltype.json` — با `scoop install <آدرس آن>` نصب می‌شود) هم منتشر می‌کند؛ همه با SHA256 واقعی همان artifact تولید می‌شوند.
+۵. نسخهٔ قابل‌حمل: هر ریلیز `ParallelType_<نسخه>_x64-portable.zip` را هم دارد (با sidecar SHA256) — بدون نصب و بدون رجیستری: unzip در هر پوشه و اجرای `ParallelType.exe`. تنها پیش‌نیاز runtime ویندوزیِ WebView2 است (روی ویندوز ۱۰/۱۱ از قبل هست) و به آپدیتر داخل اپ وصل نیست؛ نسخهٔ جدیدتر را دستی از Releases بگیرید.
 
 ## بازی دو نفره روی LAN — بدون سرور
 

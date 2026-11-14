@@ -3,18 +3,20 @@ name: release
 # phase 63 — the release pipeline: one dispatch = tag → build → sign → publish.
 # the version input drives everything: the app version is overridden via
 # --config (no source files are touched), the v-tag is created at the checked
-# out HEAD, and exactly three files land in the release (NSIS installer,
-# its updater signature, latest.json). A pre-release stays out of the
-# updater's /latest endpoint, so it is the safe test vehicle.
+# out HEAD, and five files land in the release (NSIS installer, its updater
+# signature, latest.json, and since phase 87 the portable zip + its sha256
+# sidecar — the zip boots without any installer or registry writes and is
+# smoke-tested on the runner before it may publish). A pre-release stays out
+# of the updater's /latest endpoint, so it is the safe test vehicle.
 on:
   workflow_dispatch:
     inputs:
       version:
-        description: 'release version (e.g. 0.28.2) — becomes the app version, the v-tag and the release'
+        description: "release version (e.g. 0.28.2) — becomes the app version, the v-tag and the release"
         required: true
         type: string
       prerelease:
-        description: 'mark as pre-release (the updater endpoint never serves pre-releases)'
+        description: "mark as pre-release (the updater endpoint never serves pre-releases)"
         required: false
         type: boolean
         default: false
@@ -64,11 +66,79 @@ jobs:
           TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
           #the keypair was generated with an empty password — the CLI needs
           #the env var present, not a prompt
-          TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ''
+          TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ""
         shell: bash
         run: |
           set -euo pipefail
           pnpm exec tauri build --config '{"version":"${{ inputs.version }}"}'
+
+      - name: assemble the portable zip (phase 87)
+        #the raw binary next to the NSIS bundle: the dist is embedded at
+        #compile time and the bundle declares no external resources, so the
+        #portable artifact is the exe itself (plus a hint README) — it boots
+        #with zero registry writes where the installer registers an uninstall
+        #entry. the README is written via node -e (heredocs mangle here).
+        shell: bash
+        run: |
+          set -euo pipefail
+          V='${{ inputs.version }}'
+          REL="frontend/src-tauri/target/release"
+          BIN="$(ls "$REL/ParallelType.exe" "$REL/paralleltype.exe" 2>/dev/null | head -1 || true)"
+          test -n "$BIN" || { echo "::error::the raw exe was not found under target/release"; exit 1; }
+          DIR="$REL/ParallelType_${V}_x64-portable"
+          PORTZIP="$DIR.zip"
+          rm -rf "$DIR" "$PORTZIP" "$PORTZIP.sha256"
+          mkdir -p "$DIR"
+          cp "$BIN" "$DIR/ParallelType.exe"
+          node -e '
+            const fs = require("fs");
+            const [dir, version] = process.argv.slice(1);
+            const readme = [
+              "ParallelType " + version + " — portable build",
+              "",
+              "unzip anywhere and run ParallelType.exe — nothing is installed",
+              "and no registry entries are written; the app keeps its data in",
+              "the user profile folder, same as any other run of the app.",
+              "",
+              "requirement: the Microsoft Edge WebView2 runtime (preinstalled",
+              "on Windows 10/11; the NSIS installer can bootstrap it, a zip",
+              "cannot).",
+              "",
+              "updates: this zip is not wired to the in-app updater — grab the",
+              "newer portable zip from the releases page.",
+              "",
+            ].join("\n");
+            fs.writeFileSync(dir + "/README.txt", readme);
+            console.log("README.txt written");
+          ' "$DIR" "$V"
+          DIRWIN="$(cygpath -w "$DIR")"
+          ZIPWIN="$(cygpath -w "$PORTZIP")"
+          powershell.exe -NoProfile -Command "Compress-Archive -Path '$DIRWIN' -DestinationPath '$ZIPWIN' -Force"
+          printf '%s  %s\n' "$(sha256sum "$PORTZIP" | cut -d' ' -f1)" "$(basename "$PORTZIP")" > "$PORTZIP.sha256"
+          ls -la "$PORTZIP" "$PORTZIP.sha256"
+
+      - name: smoke the portable zip (phase 87)
+        #the gate: the zip must actually BOOT — extract, run, require the
+        #process alive after 10s (the same alive-check class the installer
+        #smoke of phase 64 uses; the runner image ships WebView2, so a dead
+        #process here means a broken portable boot, not a missing runtime)
+        shell: powershell
+        run: |
+          $ErrorActionPreference = "Stop"
+          $zip = "frontend/src-tauri/target/release/ParallelType_${{ inputs.version }}_x64-portable.zip"
+          if (-not (Test-Path $zip)) { throw "portable zip missing: $zip" }
+          $out = Join-Path $env:RUNNER_TEMP "portable-smoke"
+          if (Test-Path $out) { Remove-Item $out -Recurse -Force }
+          Expand-Archive -Path $zip -DestinationPath $out
+          $exe = Get-ChildItem $out -Recurse -Filter "ParallelType.exe" | Select-Object -First 1
+          if ($null -eq $exe) { throw "ParallelType.exe is not inside the portable zip" }
+          Start-Process -FilePath $exe.FullName
+          Start-Sleep -Seconds 10
+          $p = Get-Process -Name "ParallelType" -ErrorAction SilentlyContinue
+          if ($null -eq $p) { throw "the portable exe died within 10s — the portable boot is broken" }
+          Write-Output "portable smoke: ParallelType.exe alive (PID $($p.Id)) after 10s"
+          Stop-Process -Name "ParallelType" -Force
+          Write-Output "portable smoke: process stopped, temp extraction left in place (runner is ephemeral)"
 
       - name: assemble latest.json
         shell: bash
@@ -103,7 +173,7 @@ jobs:
             console.log("latest.json written for", version);
           ' "$BUNDLE" "$V" "${{ github.repository }}"
 
-      - name: publish the release (tag + three files)
+      - name: publish the release (tag + five files)
         env:
           GH_TOKEN: ${{ github.token }}
         shell: bash
@@ -111,17 +181,22 @@ jobs:
           set -euo pipefail
           V='${{ inputs.version }}'
           BUNDLE="frontend/src-tauri/target/release/bundle/nsis"
+          REL="frontend/src-tauri/target/release"
           EXE="$BUNDLE/ParallelType_${V}_x64-setup.exe"
           SIG="$EXE.sig"
           LATEST="$BUNDLE/latest.json"
+          PORTZIP="$REL/ParallelType_${V}_x64-portable.zip"
+          PORTSHA="$PORTZIP.sha256"
           test -f "$EXE" && test -f "$SIG" && test -f "$LATEST"
+          #the portable zip already survived its boot smoke — publish it too
+          test -f "$PORTZIP" && test -f "$PORTSHA"
           FLAGS=""
           if [ '${{ inputs.prerelease }}' = 'true' ]; then FLAGS="--prerelease"; fi
           gh release create "v$V" \
             --title "v$V" \
-            --notes "ParallelType v$V — the desktop build published by the release workflow (phase 63)." \
+            --notes "ParallelType v$V — the desktop build published by the release workflow (phases 63 + 87: NSIS installer + updater artifacts + the portable zip, which boots with no install and no registry writes)." \
             $FLAGS \
-            "$EXE" "$SIG" "$LATEST"
+            "$EXE" "$SIG" "$LATEST" "$PORTZIP" "$PORTSHA"
 
       - name: generate + validate + publish the packaging manifests (phase 65)
         #winget manifest trio (schema 1.9.0) + a scoop manifest + a sha256
