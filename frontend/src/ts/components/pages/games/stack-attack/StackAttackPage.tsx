@@ -793,7 +793,7 @@ export function StackAttackPage(): JSXElement {
           data-testid="sa-spectator-hud"
         >
           <div class="text-sm text-sub">
-            spectating — the racers' live progress
+            spectating — the racers&apos; live progress
           </div>
           <For each={Object.values(getLanRoomClients())}>
             {(client) => (
