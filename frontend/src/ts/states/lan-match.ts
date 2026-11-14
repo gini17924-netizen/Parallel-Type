@@ -9,6 +9,7 @@ import {
   type LanStartPayload,
 } from "../utils/games/lan-registry";
 import { receiveLanChat } from "./lan-chat";
+import { receiveGauntletResult } from "../utils/lan/leaderboard";
 import {
   getLanClients,
   getLanLastMessage,
@@ -348,6 +349,13 @@ export function handleLanPeerMessage(
     //phase 80: lobby chat rides the same pipe (the relay injects the
     //sender's clientId) — the log lives in lan-chat
     receiveLanChat(message, clientId);
+    return;
+  }
+  if (message["type"] === "gauntlet-result") {
+    //phase 84: a guest's daily-gauntlet result — the local board keeps
+    //every machine's best per day (the shared date-derived seed makes the
+    //comparison fair) and the host persists it through the shell
+    receiveGauntletResult(message, clientId);
     return;
   }
   //anything else is a game-specific type: the raw passthrough hands it to

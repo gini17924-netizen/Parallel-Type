@@ -6,6 +6,15 @@ import { registerDailyBotDuel } from "../../../../utils/bot-duel/daily";
 import { cn } from "../../../../utils/cn";
 import { buildDaily, dayKeyOf } from "../../../../utils/daily-gauntlet/compose";
 import {
+  getLanPeerName,
+} from "../../../../states/lan";
+import {
+  gauntletBoardFor,
+  hydrateGauntletBoard,
+  recordGauntletResult,
+  sendGauntletResult,
+} from "../../../../utils/lan/leaderboard";
+import {
   gauntletTotal,
   type GauntletState,
 } from "../../../../utils/daily-gauntlet/engine";
@@ -89,6 +98,8 @@ export function DailyGauntletPage(): JSXElement {
   const [state, setState] = createSignal<GauntletState | undefined>(undefined);
   const [isNewBest, setIsNewBest] = createSignal(false);
   const today = dayKeyOf();
+  //phase 84: the comparison board hydrates before any read
+  hydrateGauntletBoard();
 
   const loadView = (): void => {
     const saved = loadGauntletState();
@@ -118,6 +129,24 @@ export function DailyGauntletPage(): JSXElement {
           stagesWon,
         });
         setIsNewBest(isNewBest);
+        //phase 84: the result joins the comparison board (locally always;
+        //over the room pipe when this device is connected to a lan room —
+        //the shared date-derived seed makes every machine's gauntlet the
+        //same challenge, which is what makes the table fair)
+        recordGauntletResult({
+          name: getLanPeerName() ?? "this device",
+          dayKey: saved.dayKey,
+          stages: stagesWon,
+          score: total,
+          timestamp: Date.now(),
+        });
+        sendGauntletResult({
+          name: getLanPeerName() ?? "this device",
+          dayKey: saved.dayKey,
+          stages: stagesWon,
+          score: total,
+          timestamp: Date.now(),
+        });
       }
       clearGauntletState(); //the slot frees; the calendar holds the result
       setState(undefined);
@@ -468,6 +497,26 @@ export function DailyGauntletPage(): JSXElement {
         >
           <Running />
         </Show>
+      </Show>
+      <Show when={view() === "complete" || view() === "voided"}>
+        <section class="grid gap-2 rounded bg-sub-alt p-4" data-testid="gauntlet-board">
+          <div class="text-sub">the daily comparison board</div>
+          <div class="text-xs text-sub">
+            same seed for everyone — the day key {today}
+          </div>
+          <div class="grid gap-1">
+            <For each={gauntletBoardFor(today)}>
+              {(row) => (
+                <div class="flex items-center justify-between gap-2 rounded bg-bg p-2 text-xs">
+                  <span class="font-bold text-main">{row.name}</span>
+                  <span class="text-sub tabular-nums">
+                    stages {row.stages}/3 — score {row.score}
+                  </span>
+                </div>
+              )}
+            </For>
+          </div>
+        </section>
       </Show>
     </div>
   );

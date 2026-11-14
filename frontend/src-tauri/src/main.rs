@@ -275,6 +275,58 @@ fn texts_read(app: tauri::AppHandle, name: String) -> Result<String, String> {
     std::fs::read_to_string(&path).map_err(|e| format!("read failed: {e}"))
 }
 
+/// Phase 84: the LAN leaderboard — the HOST persists the guests' results
+/// (the room relay delivers them; this store makes them OUTLIVE the
+/// session). A JSON file in the app DATA dir, capped at 500 rows (the
+/// oldest fall off).
+const LEADERBOARD_FILE: &str = "lan-leaderboard.json";
+const LEADERBOARD_CAP: usize = 500;
+
+fn leaderboard_path(app: &tauri::AppHandle) -> Result<std::path::PathBuf, String> {
+    app.path()
+        .app_data_dir()
+        .map(|dir| dir.join(LEADERBOARD_FILE))
+        .map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+fn lan_leaderboard_write(app: tauri::AppHandle, entry: Value) -> Result<Value, String> {
+    if !entry.is_object() {
+        return Err("lan: the leaderboard entry must be an object".into());
+    }
+    let path = leaderboard_path(&app)?;
+    if let Some(dir) = path.parent() {
+        std::fs::create_dir_all(dir).map_err(|e| e.to_string())?;
+    }
+    let mut entries: Vec<Value> = match std::fs::read_to_string(&path) {
+        Ok(text) => serde_json::from_str(&text).unwrap_or_default(),
+        Err(_) => Vec::new(),
+    };
+    entries.push(entry);
+    if entries.len() > LEADERBOARD_CAP {
+        let overflow = entries.len() - LEADERBOARD_CAP;
+        entries.drain(0..overflow);
+    }
+    let out = serde_json::to_string(&entries).map_err(|e| e.to_string())?;
+    //truncate-then-write mirrors the backup path (audit Y2)
+    let tmp = path.with_file_name(format!("{LEADERBOARD_FILE}.tmp"));
+    std::fs::write(&tmp, out).map_err(|e| e.to_string())?;
+    std::fs::rename(&tmp, &path).map_err(|e| e.to_string())?;
+    Ok(serde_json::json!({ "stored": true }))
+}
+
+#[tauri::command]
+fn lan_leaderboard_read(app: tauri::AppHandle) -> Result<Vec<Value>, String> {
+    let path = leaderboard_path(&app)?;
+    let text = match std::fs::read_to_string(&path) {
+        Ok(text) => text,
+        Err(_) => return Ok(Vec::new()),
+    };
+    let entries: Vec<Value> =
+        serde_json::from_str(&text).map_err(|e| format!("corrupt leaderboard: {e}"))?;
+    Ok(entries)
+}
+
 fn build_tray(app: &tauri::AppHandle) -> tauri::Result<()> {
     let toggle =
         MenuItem::with_id(app, "toggle", "Show/Hide ParallelType", true, None::<&str>)?;
@@ -421,6 +473,8 @@ fn main() {
             texts_list,
             texts_read,
             lan::lan_send_to_client,
+            lan_leaderboard_write,
+            lan_leaderboard_read,
             lan::lan_start_host,
             lan::lan_stop_host,
             lan::lan_send_message,

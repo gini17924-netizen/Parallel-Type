@@ -29,6 +29,13 @@ export class LocalStorageWithSchema<T> {
     this.migrate = options.migrate;
   }
 
+  /** drops the cached copy AND the persisted value — the reset path for
+   * the stores that need a clean slate (specs, opt-out flows) */
+  public clear(): void {
+    this.cache = undefined;
+    window.localStorage.removeItem(this.key);
+  }
+
   public get(): T {
     if (this.cache !== undefined) {
       //console.debug(`LS ${this.key} Got cached value:`, this.cache);
