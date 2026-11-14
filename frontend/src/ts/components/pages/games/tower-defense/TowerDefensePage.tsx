@@ -9,13 +9,12 @@ import {
 } from "solid-js";
 
 import { Config } from "../../../../config/store";
-import { playClick, playError } from "../../../../controllers/sound-controller";
+import { playClick } from "../../../../controllers/sound-controller";
 import { navigate } from "../../../../router/navigate";
 import {
   getLanPeerName,
   getLanRole,
   isLanConnected,
-  lanPreFillName,
 } from "../../../../states/lan";
 import {
   armLanMatch,
@@ -24,14 +23,12 @@ import {
   getLanRawMessage,
   getRemoteFinished,
   getRemoteProgress,
-  getRematchAsked,
   sendLanMatchFinished,
   sendLanMatchProgress,
   sendLanMatchRematch,
   sendLanMatchStart,
   type LanMatch,
 } from "../../../../states/lan-match";
-import { cn } from "../../../../utils/cn";
 import { latinCharFromEvent } from "../../../../utils/games/latin-input";
 import { cachedFetchJson } from "../../../../utils/json-data";
 import {
@@ -364,7 +361,7 @@ export function TowerDefensePage(): JSXElement {
           onClick={() => void startRun()}
         />
         <div class="text-xs text-sub">
-          enemies march down carrying words — type the closest one's word
+          enemies march down carrying words — type the closest one&apos;s word
           to destroy it before it reaches the tower. every 3rd wave
           carries a tank.
         </div>
@@ -432,12 +429,61 @@ export function TowerDefensePage(): JSXElement {
             <div
               class="absolute w-full border-t-2 border-dashed border-error"
               style={{ top: `${BALANCE.towerYVh}vh` }}
-            />
+            ></div>
           </div>
           <Show when={message() !== undefined}>
             <div class="text-center text-sm text-error">{message()}</div>
           </Show>
         </div>
+        <Show when={pagePhase() === "result"}>
+          <section
+            class="grid gap-4 rounded bg-sub-alt p-4"
+            data-testid="tower-result"
+          >
+            <Show
+              when={onlineResult() !== undefined}
+              fallback={
+                <div class="text-center text-lg font-bold text-main">
+                  the tower fell at wave {engineState()?.wave ?? 1} — score{" "}
+                  {engineState()?.score ?? 0}
+                </div>
+              }
+            >
+              <div class="text-center text-lg font-bold text-main">
+                {onlineResult()?.verdict === "won"
+                  ? "victory!"
+                  : onlineResult()?.verdict === "draw"
+                    ? "a draw"
+                    : "defeat"}{" "}
+                — {onlineResult()?.myScore} vs {onlineResult()?.theirScore}
+              </div>
+            </Show>
+            <Show when={lanMode()}>
+              <Show
+                when={getLanRole() === "host"}
+                fallback={
+                  <Button
+                    text="ask for a rematch"
+                    fa={{ icon: "fa-redo" }}
+                    class="w-full"
+                    disabled={rematchSent()}
+                    onClick={clientAskRematch}
+                  />
+                }
+              >
+                <Button
+                  text="host a rematch"
+                  fa={{ icon: "fa-redo" }}
+                  class="w-full"
+                  onClick={() => {
+                    const match = getLanMatch();
+                    if (match !== undefined) hostRematch(match);
+                  }}
+                />
+              </Show>
+            </Show>
+          </section>
+        </Show>
       </Show>
     </div>
   );
