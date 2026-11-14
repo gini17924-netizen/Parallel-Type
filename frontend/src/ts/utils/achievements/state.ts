@@ -63,7 +63,7 @@ const GAME_BEST_PROBES: (() => boolean)[] = [
 
 /** assembles the criteria snapshot from the existing stores (async: the
  * results live in indexedDB) */
-export async function buildAchievementSnapshot(): Promise<AchievementSnapshot> {
+async function buildAchievementSnapshot(): Promise<AchievementSnapshot> {
   const results = await loadLocalResults();
   let bestWpm = 0;
   let bestAcc = 0;

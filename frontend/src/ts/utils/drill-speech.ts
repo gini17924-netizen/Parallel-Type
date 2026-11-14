@@ -40,7 +40,7 @@ function speaksFunboxActive(): boolean {
 }
 
 /** pure gate for one speak attempt (unit-testable) */
-export function shouldSpeakActiveWord(input: {
+function shouldSpeakActiveWord(input: {
   enabled: boolean;
   testActive: boolean;
   speaksFunboxActive: boolean;

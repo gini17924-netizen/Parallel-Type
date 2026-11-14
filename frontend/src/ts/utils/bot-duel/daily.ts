@@ -25,10 +25,6 @@ export type BotDuelDailyRaw = {
   accuracy: number;
 };
 
-export function botDuelWon(raw: BotDuelDailyRaw): boolean {
-  return raw.result === "won";
-}
-
 /** pure 0..1000 per the documented table */
 export function normalizeBotDuelDaily(raw: BotDuelDailyRaw): number {
   const acc = Number.isFinite(raw.accuracy)

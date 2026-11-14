@@ -12,7 +12,7 @@ import { showSuccessNotification } from "../states/notifications";
 
 const GOAL_KEY = "mtDesktopDailyGoalMinutes";
 const NOTIFIED_KEY = "mtDesktopGoalNotifiedDay";
-export const DEFAULT_GOAL_MINUTES = 10;
+const DEFAULT_GOAL_MINUTES = 10;
 
 /** the local day (midnight-to-midnight) a timestamp belongs to, as y/m/d */
 function dayKey(ts: number): string {
@@ -44,7 +44,7 @@ export function todayTypingSeconds(
 }
 
 /** the streak counts a day once a result exists on it (existing rule) */
-export async function todayGoalProgress(): Promise<{
+async function todayGoalProgress(): Promise<{
   goalMinutes: number;
   seconds: number;
   reached: boolean;

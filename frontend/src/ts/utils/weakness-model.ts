@@ -42,13 +42,13 @@ export type WeaknessEntry = {
 
 export type WeaknessMap = Record<string, WeaknessEntry>;
 
-export const SMOOTHING_ALPHA = 3;
+const SMOOTHING_ALPHA = 3;
 /** a source only speaks for a letter with at least this many samples */
 export const MIN_SAMPLES_PER_SOURCE = 5;
-export const ACCURACY_WEIGHT = 0.6;
-export const SPEED_WEIGHT = 0.4;
+const ACCURACY_WEIGHT = 0.6;
+const SPEED_WEIGHT = 0.4;
 /** slowness = clamp(meanTimeToType / TARGET_KEY_TIME_MS, 0, 1) */
-export const TARGET_KEY_TIME_MS = 400;
+const TARGET_KEY_TIME_MS = 400;
 
 function smoothedAccuracy(correct: number, n: number): number {
   const a = SMOOTHING_ALPHA;

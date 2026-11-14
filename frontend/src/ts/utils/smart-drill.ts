@@ -5,7 +5,6 @@ import {
   filterRealWords,
   generatePseudoWords,
   getLearnState,
-  weakLettersDetailed,
 } from "./learn-stats";
 import { buildWeaknessMap, type WeaknessMap } from "./weakness-model";
 import { loadKeybrLetterStats } from "./keybr-letter-stats";
@@ -212,10 +211,3 @@ export function generateSmartDrillWords(options: {
 }
 
 /** convenience for the UI: weakness map + detailed weak letters in one call */
-export function smartDrillInputs(): {
-  weakness: WeaknessMap;
-  detailed: ReturnType<typeof weakLettersDetailed>;
-} {
-  const detailed = weakLettersDetailed(8);
-  return { weakness: buildCurrentWeakness(), detailed };
-}

@@ -18,7 +18,7 @@
 export type EnterDrillStyle = "prose" | "code" | "chat";
 
 /** custom mode rejects more tokens (words-generator cap) */
-export const MAX_CUSTOM_TEXT_TOKENS = 100;
+const MAX_CUSTOM_TEXT_TOKENS = 100;
 
 /** LCG matching learn-stats' bigram generator (deterministic, seedable) */
 function makeRand(seed: number): () => number {

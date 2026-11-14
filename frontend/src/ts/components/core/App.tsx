@@ -8,6 +8,7 @@ import { JSXElement } from "solid-js";
 import { queryClient } from "../../queries";
 import { router } from "../../router/app-router";
 import { getGlobalOffsetTop, isAppReady } from "../../states/core";
+import { logBootReport, stampBootMilestone } from "../../utils/boot-profiler";
 import { cn } from "../../utils/cn";
 import { convertRemToPixels } from "../../utils/numbers";
 import { applyStreamerModeAtBoot } from "../../utils/streamer-mode";
@@ -18,6 +19,10 @@ import { SkipLink } from "../common/SkipLink";
 //phase 99: re-apply the streamer-mode body class from the persisted state
 //once at module load, before the first render
 applyStreamerModeAtBoot();
+//phase 100: the boot profiler — module-load stamps at import time;
+//app-ready lands when this component first renders
+stampBootMilestone("module-load");
+logBootReport();
 import { DevTools } from "../dev/DevTools";
 import { Footer } from "../layout/footer/Footer";
 import { Header } from "../layout/header/Header";
@@ -29,6 +34,7 @@ import { Font } from "./Font";
 import { Theme } from "./Theme";
 
 export function App(): JSXElement {
+  stampBootMilestone("app-ready");
   return (
     <Providers>
       <Overlays />

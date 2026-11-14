@@ -55,21 +55,24 @@ export function buildZwnjDrillWords(
     attempts++;
     const kind = Math.floor(rng() * 3);
     if (kind === 0) {
-      const prefix = VERB_PREFIXES[Math.floor(rng() * VERB_PREFIXES.length)] as string;
+      const prefix = VERB_PREFIXES[
+        Math.floor(rng() * VERB_PREFIXES.length)
+      ] as string;
       const stem = VERB_STEMS[Math.floor(rng() * VERB_STEMS.length)] as string;
-      const ending =
-        PERSONAL_ENDINGS[Math.floor(rng() * PERSONAL_ENDINGS.length)] as string;
+      const ending = PERSONAL_ENDINGS[
+        Math.floor(rng() * PERSONAL_ENDINGS.length)
+      ] as string;
       words.add(`${prefix}${ZWNJ}${stem}${ending}`);
     } else if (kind === 1) {
       const noun = NOUNS[Math.floor(rng() * NOUNS.length)] as string;
-      const suffix =
-        NOUN_SUFFIXES[Math.floor(rng() * NOUN_SUFFIXES.length)] as string;
+      const suffix = NOUN_SUFFIXES[
+        Math.floor(rng() * NOUN_SUFFIXES.length)
+      ] as string;
       words.add(`${noun}${ZWNJ}${suffix}`);
     } else {
-      const adjective =
-        SUPERLATIVE_ADJECTIVES[
-          Math.floor(rng() * SUPERLATIVE_ADJECTIVES.length)
-        ] as string;
+      const adjective = SUPERLATIVE_ADJECTIVES[
+        Math.floor(rng() * SUPERLATIVE_ADJECTIVES.length)
+      ] as string;
       words.add(`${adjective}${ZWNJ}ترین`);
     }
   }
@@ -78,7 +81,7 @@ export function buildZwnjDrillWords(
 
 /** the persian punctuation the drill practices: five trailing marks plus
  * the «» wrap pair (which produces ONE token shape per word, not two) */
-export const TRAILING_MARKS = ["،", "؛", "؟", "!", ":"] as const;
+const TRAILING_MARKS = ["،", "؛", "؟", "!", ":"] as const;
 export const PERSIAN_PUNCTUATION = [...TRAILING_MARKS, "«", "»"] as const;
 
 /**
@@ -95,9 +98,7 @@ export function buildPersianPunctuationDrillWords(
   //the effective pool falls back to the built-in nouns — the unique-token
   //budget below must use ITS size, not the (possibly empty) wordPool
   const pool =
-    wordPool.length > 0
-      ? wordPool.filter((word) => word.trim() !== "")
-      : NOUNS;
+    wordPool.length > 0 ? wordPool.filter((word) => word.trim() !== "") : NOUNS;
   const effective = pool.length > 0 ? pool : NOUNS;
   const pick = (): string =>
     (effective[Math.floor(rng() * effective.length)] as string).trim();
