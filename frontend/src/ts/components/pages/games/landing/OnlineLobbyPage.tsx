@@ -1,5 +1,6 @@
 import { For, JSXElement, Show, createSignal, onCleanup } from "solid-js";
 
+import { setConfig } from "../../../../config/setters";
 import { Config } from "../../../../config/store";
 import { navigate } from "../../../../router/navigate";
 import {
@@ -26,22 +27,6 @@ import {
   sendLanChat,
 } from "../../../../states/lan-chat";
 import {
-  applyPreset,
-  buildPresetFromConfig,
-  downloadPresetFile,
-  validatePresetFile,
-} from "../../../../utils/preset/difficulty-preset";
-import {
-  championsFor,
-  recordLanChampion,
-} from "../../../../utils/lan/champions";
-import { getConfig } from "../../../../config/store";
-import { setConfig } from "../../../../config/setters";
-import {
-  showSuccessNotification,
-  showErrorNotification,
-} from "../../../../states/notifications";
-import {
   armLanMatch,
   getLanMatch,
   sendLanMatchStart,
@@ -55,6 +40,10 @@ import {
   setHostTournament,
   type TournamentState,
 } from "../../../../states/lan-tournament";
+import {
+  showSuccessNotification,
+  showErrorNotification,
+} from "../../../../states/notifications";
 import { cn } from "../../../../utils/cn";
 import {
   getLanGame,
@@ -62,6 +51,13 @@ import {
   type LanGameId,
 } from "../../../../utils/games/lan-registry";
 import { cachedFetchJson } from "../../../../utils/json-data";
+import { championsFor } from "../../../../utils/lan/champions";
+import {
+  applyPreset,
+  buildPresetFromConfig,
+  downloadPresetFile,
+  validatePresetFile,
+} from "../../../../utils/preset/difficulty-preset";
 import { Button } from "../../../common/Button";
 import { H2 } from "../../../common/Headers";
 
@@ -259,10 +255,7 @@ export function OnlineLobbyPage(): JSXElement {
   );
 
   const exportPreset = (): void => {
-    const preset = buildPresetFromConfig(
-      `${playerName()} challenge`,
-      Config as unknown as Record<string, unknown>,
-    );
+    const preset = buildPresetFromConfig(`${playerName()} challenge`, Config);
     downloadPresetFile(preset);
     showSuccessNotification("preset exported — send the file to a friend");
   };
@@ -270,7 +263,7 @@ export function OnlineLobbyPage(): JSXElement {
   const importPreset = (file: File): void => {
     void (async () => {
       try {
-        const parsed = JSON.parse(await file.text());
+        const parsed = JSON.parse(await file.text()) as unknown;
         const preset = validatePresetFile(parsed);
         if (preset === undefined) {
           showErrorNotification("not a valid difficulty preset file");
@@ -293,6 +286,7 @@ export function OnlineLobbyPage(): JSXElement {
     championsFor(selectedGame());
 
   const Menu = (): JSXElement => {
+    // oxlint-disable-next-line eslint/no-unassigned-vars -- Solid ref binding assigns this in JSX
     let presetInputRef: HTMLInputElement | undefined;
     return (
       <section class="grid gap-4 rounded bg-sub-alt p-4">
@@ -666,12 +660,17 @@ export function OnlineLobbyPage(): JSXElement {
             onInput={(event) => {
               setCustomDraft(event.currentTarget.value);
             }}
-         ></textarea>
+          ></textarea>
           <Button
             text="start custom duel"
             fa={{ icon: "fa-pen-nib" }}
             class="w-full"
-            disabled={customDraft().trim().split(/\s+/).filter((w) => w.length > 0).length < 4}
+            disabled={
+              customDraft()
+                .trim()
+                .split(/\s+/)
+                .filter((w) => w.length > 0).length < 4
+            }
             data-testid="custom-duel-start"
             onClick={() => {
               void startCustomDuel();
@@ -714,9 +713,7 @@ export function OnlineLobbyPage(): JSXElement {
     const t = getTournament() as TournamentState;
     const nameOf = (id: number | null): string => {
       if (id === null) return "—";
-      return (
-        t.players.find((p) => p.clientId === id)?.name ?? `client ${id}`
-      );
+      return t.players.find((p) => p.clientId === id)?.name ?? `client ${id}`;
     };
     return (
       <div class="grid gap-2" data-testid="tournament-bracket">
@@ -743,7 +740,7 @@ export function OnlineLobbyPage(): JSXElement {
                     <div
                       class={`rounded p-2 text-xs ${
                         mine
-                          ? "bg-main text-bg font-bold"
+                          ? "bg-main font-bold text-bg"
                           : isCurrent
                             ? "bg-bg text-main"
                             : "bg-bg text-sub"
@@ -753,9 +750,7 @@ export function OnlineLobbyPage(): JSXElement {
                       {match.winner !== undefined
                         ? ` — winner: ${nameOf(match.winner)}`
                         : ""}
-                      {match.done && match.winner === undefined
-                        ? " — bye"
-                        : ""}
+                      {match.done && match.winner === undefined ? " — bye" : ""}
                     </div>
                   );
                 }}
@@ -786,7 +781,10 @@ export function OnlineLobbyPage(): JSXElement {
       return match.players[0] === mine || match.players[1] === mine;
     };
     return (
-      <section class="grid gap-4 rounded bg-sub-alt p-4" data-testid="tournament-section">
+      <section
+        class="grid gap-4 rounded bg-sub-alt p-4"
+        data-testid="tournament-section"
+      >
         <div class="text-sub">tournament</div>
         <Show
           when={inTournament}
@@ -797,11 +795,11 @@ export function OnlineLobbyPage(): JSXElement {
                 bracket while the pairs race
               </div>
               <Show when={getLanRole() === "host"}>
-              <Button
-                text={`start tournament (${clientCount()} players)`}
-                fa={{ icon: "fa-trophy" }}
-                class="w-full"
-                disabled={clientCount() < 2}
+                <Button
+                  text={`start tournament (${clientCount()} players)`}
+                  fa={{ icon: "fa-trophy" }}
+                  class="w-full"
+                  disabled={clientCount() < 2}
                   onClick={() => {
                     void startTournament();
                   }}
@@ -811,7 +809,10 @@ export function OnlineLobbyPage(): JSXElement {
           }
         >
           <Show when={myUp()}>
-            <div class="text-sm font-bold text-main" data-testid="tournament-up">
+            <div
+              class="text-sm font-bold text-main"
+              data-testid="tournament-up"
+            >
               your match is starting — you will be taken to the game
             </div>
           </Show>
