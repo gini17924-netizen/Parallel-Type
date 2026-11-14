@@ -65,9 +65,7 @@ export function RelayPage(): JSXElement {
       void playError();
       return;
     }
-    if (startedAt === undefined) {
-      startedAt = performance.now();
-    }
+    startedAt ??= performance.now();
     void playClick();
     setMyTyped("");
     //the raw passthrough: the partner's cursor rides the same pipe
@@ -105,7 +103,7 @@ export function RelayPage(): JSXElement {
     }
     if (
       getRemoteFinished() !== undefined &&
-      theirFinishSeen === false &&
+      !theirFinishSeen &&
       myFinishAt !== undefined
     ) {
       theirFinishSeen = true;
@@ -152,23 +150,19 @@ export function RelayPage(): JSXElement {
         <section class="grid gap-4 rounded bg-sub-alt p-4">
           <div class="flex flex-wrap gap-1" dir="auto">
             <For each={words}>
-              {(word, index) => {
-                const mine = index() % 2 === side;
-                const current = index() === globalIndex();
-                return (
-                  <span
-                    class={`rounded px-1 ${
-                      current
-                        ? "bg-main text-bg font-bold"
-                        : mine
-                          ? "bg-sub text-text"
-                          : "bg-sub text-sub"
-                    }`}
-                  >
-                    {word}
-                  </span>
-                );
-              }}
+              {(word, index) => (
+                <span
+                  class={`rounded px-1 ${
+                    index() === globalIndex()
+                      ? "bg-main text-bg font-bold"
+                      : index() % 2 === side
+                        ? "bg-sub text-text"
+                        : "bg-sub text-sub"
+                  }`}
+                >
+                  {word}
+                </span>
+              )}
             </For>
           </div>
           <Show when={!finished()}>

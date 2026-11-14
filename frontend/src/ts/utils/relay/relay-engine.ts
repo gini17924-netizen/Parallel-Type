@@ -48,7 +48,7 @@ export function createRelayEngine(
 
   const state = (): RelayState => {
     const globalIndex = myIndex + theirIndex;
-    const turn: RelaySide = (globalIndex % 2 === 0 ? 0 : 1) as RelaySide;
+    const turn: RelaySide = globalIndex % 2 === 0 ? 0 : 1;
     const myDone = myIndex >= myWords.length;
     const allDone = globalIndex >= words.length;
     return { myIndex, theirIndex, globalIndex, turn, myDone, allDone };
@@ -69,12 +69,7 @@ export function createRelayEngine(
       //the wire is untrusted: the partner's cursor can never exceed their
       //word count (the odd-index slots) nor rewind
       const theirTotal = words.filter((_, index) => index % 2 !== side).length;
-      if (
-        Number.isFinite(index) &&
-        index >= 0 &&
-        index <= theirTotal &&
-        index > theirIndex
-      ) {
+      if (Number.isFinite(index) && index >= theirIndex && index <= theirTotal) {
         theirIndex = Math.floor(index);
       }
     },

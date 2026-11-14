@@ -559,7 +559,7 @@ export function OnlineLobbyPage(): JSXElement {
             onInput={(event) => {
               setCustomDraft(event.currentTarget.value);
             }}
-          />
+         ></textarea>
           <Button
             text="start custom duel"
             fa={{ icon: "fa-pen-nib" }}
