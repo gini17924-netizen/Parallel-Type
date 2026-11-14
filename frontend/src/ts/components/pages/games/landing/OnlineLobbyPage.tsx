@@ -32,6 +32,7 @@ import {
   currentMatch as currentTournamentMatch,
   getTournament,
   setHostTournament,
+  type TournamentState,
 } from "../../../../states/lan-tournament";
 import { cn } from "../../../../utils/cn";
 import {
@@ -474,10 +475,18 @@ export function OnlineLobbyPage(): JSXElement {
   };
 
   const TournamentBracket = (): JSXElement => {
-    const t = getTournament();
-    if (t === undefined) {
-      return <div class="text-xs text-sub">no live tournament</div>;
-    }
+    return (
+      <Show
+        when={getTournament() !== undefined}
+        fallback={<div class="text-xs text-sub">no live tournament</div>}
+      >
+        <BracketRows />
+      </Show>
+    );
+  };
+
+  const BracketRows = (): JSXElement => {
+    const t = getTournament() as TournamentState;
     const nameOf = (id: number | null): string => {
       if (id === null) return "—";
       return (
@@ -559,7 +568,7 @@ export function OnlineLobbyPage(): JSXElement {
           fallback={
             <>
               <div class="text-xs text-sub">
-                start one from the room's roster — every client watches the
+                start one from the room&apos;s roster — every client watches the
                 bracket while the pairs race
               </div>
               <Show when={getLanRole() === "host"}>

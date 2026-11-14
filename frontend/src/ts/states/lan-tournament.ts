@@ -205,7 +205,7 @@ function settle(state: TournamentState): TournamentState {
         match.done = true;
         const first = match.players[0];
         const second = match.players[1];
-        match.winner = first !== null ? first : (second as number);
+        match.winner = first ?? (second as number);
         changed = true;
       }
     }
