@@ -3,6 +3,7 @@ import {
   AnimationParams,
   JSAnimation,
 } from "animejs";
+import { promiseAnimate as animationPromiseAnimate } from "./animation";
 import { addBanner } from "../states/banners";
 
 /**
@@ -833,15 +834,10 @@ export class ElementWithUtils<T extends HTMLElement = HTMLElement> {
    * @param animationParams The Anime.js animation parameters
    */
   async promiseAnimate(animationParams: AnimationParams): Promise<void> {
-    return new Promise((resolve) => {
-      animejsAnimate(this.native, {
-        ...animationParams,
-        onComplete: (self, e) => {
-          animationParams.onComplete?.(self, e);
-          resolve();
-        },
-      });
-    });
+    //phase 95: delegates to the shared animation gate (reduced-motion
+    //aware) — the leaf lives in utils/animation (no import cycle: misc
+    //imports THIS module)
+    return animationPromiseAnimate(this.native, animationParams);
   }
 
   /**

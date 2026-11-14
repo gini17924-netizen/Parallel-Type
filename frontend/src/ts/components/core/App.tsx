@@ -12,6 +12,7 @@ import { cn } from "../../utils/cn";
 import { convertRemToPixels } from "../../utils/numbers";
 import { Advertisement } from "../common/Advertisement";
 import { Anime } from "../common/anime";
+import { SkipLink } from "../common/SkipLink";
 import { DevTools } from "../dev/DevTools";
 import { Footer } from "../layout/footer/Footer";
 import { Header } from "../layout/header/Header";
@@ -42,8 +43,11 @@ export function App(): JSXElement {
           "padding-top": `${getGlobalOffsetTop() + convertRemToPixels(2)}px`,
         }}
       >
+        {/*phase 95: the skip link is the FIRST focusable element — it only
+        shows on keyboard focus and jumps past the header to the page body*/}
+        <SkipLink />
         <Header />
-        <main class="full-width content-grid h-full">
+        <main id="main-content" class="full-width content-grid h-full">
           <Advertisement
             id="ad-vertical-left"
             visible={["on", "sellout"]}

@@ -865,6 +865,18 @@ export const themes: Record<ThemeName, Theme> = {
     colorfulError: "#cc241d",
     colorfulErrorExtra: "#9d0006",
   },
+  high_contrast: {
+    bg: "#000000",
+    caret: "#ffe100",
+    main: "#ffe100",
+    sub: "#c8c8c8",
+    subAlt: "#1c1c1c",
+    text: "#ffffff",
+    error: "#ff5c5c",
+    errorExtra: "#b33a3a",
+    colorfulError: "#ff5c5c",
+    colorfulErrorExtra: "#b33a3a",
+  },
   hammerhead: {
     bg: "#030613",
     caret: "#4fcdb9",

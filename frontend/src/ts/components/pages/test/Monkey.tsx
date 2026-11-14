@@ -33,18 +33,22 @@ export function Monkey() {
       <>
         <img
           src={`/images/monkey/m1${suffix ?? ""}.png`}
+          alt=""
           class={`absolute inset-0 ${cur === "left" ? "visible" : "hidden"}`}
         />
         <img
           src={`/images/monkey/m2${suffix ?? ""}.png`}
+          alt=""
           class={`absolute inset-0 ${cur === "right" ? "visible" : "hidden"}`}
         />
         <img
           src={`/images/monkey/m3${suffix ?? ""}.png`}
+          alt=""
           class={`absolute inset-0 ${cur === "none" ? "visible" : "hidden"}`}
         />
         <img
           src={`/images/monkey/m4${suffix ?? ""}.png`}
+          alt=""
           class={`absolute inset-0 ${cur === "both" ? "visible" : "hidden"}`}
         />
       </>

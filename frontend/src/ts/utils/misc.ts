@@ -4,7 +4,11 @@ import { Mode, Mode2, PersonalBests } from "@monkeytype/schemas/shared";
 import { Result } from "@monkeytype/schemas/results";
 import { RankAndCount } from "@monkeytype/schemas/users";
 import { roundTo2 } from "@monkeytype/util/numbers";
-import { animate, AnimationParams } from "animejs";
+import { AnimationParams } from "animejs";
+import {
+  prefersReducedMotion as animationPrefersReducedMotion,
+  promiseAnimate as animationPromiseAnimate,
+} from "./animation";
 import { ElementWithUtils } from "./dom";
 import { isDevEnvironment } from "./env";
 
@@ -316,15 +320,8 @@ export async function promiseAnimate(
   el: HTMLElement | string,
   options: AnimationParams,
 ): Promise<void> {
-  return new Promise((resolve) => {
-    animate(el, {
-      ...options,
-      onComplete: (self, e) => {
-        options.onComplete?.(self, e);
-        resolve();
-      },
-    });
-  });
+  //phase 95: delegates to the shared animation gate (reduced-motion aware)
+  return animationPromiseAnimate(el, options);
 }
 
 export async function sleep(ms: number): Promise<void> {
@@ -442,7 +439,7 @@ export function isObject(obj: unknown): obj is Record<string, unknown> {
 }
 
 export function prefersReducedMotion(): boolean {
-  return matchMedia?.("(prefers-reduced-motion)")?.matches;
+  return animationPrefersReducedMotion();
 }
 
 /**

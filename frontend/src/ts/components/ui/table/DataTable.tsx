@@ -249,7 +249,6 @@ export function DataTable<TData extends Object, TValue = any>(
                         >
                           <button
                             type="button"
-                            role="button"
                             onClick={(e) => {
                               header.column.getToggleSortingHandler()?.(e);
                             }}

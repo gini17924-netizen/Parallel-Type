@@ -68,6 +68,7 @@ export function DiscordAvatar(props: {
         </Show>
         <img
           src={`https://cdn.discordapp.com/avatars/${props.discordId}/${props.discordAvatar}.png?size=${props.size ?? 32}`}
+          alt=""
           class="col-start-1 row-start-1 rounded-full"
           onLoad={() => {
             setAvatar(cacheKey(), true);
