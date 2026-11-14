@@ -14,8 +14,19 @@ import {
   getLanLastMessageClientId,
   getLanPeerName,
   getLanRole,
+  lanSendToClient,
   lanSendToPeer,
 } from "./lan";
+import {
+  advance as advanceTournament,
+  currentMatch as currentTournamentMatch,
+  decideWinner as decideWinnerTournament,
+  getTournament,
+  handleTournamentMessage,
+  resolveReport as resolveTournamentReport,
+  setHostTournament,
+  type TournamentState,
+} from "./lan-tournament";
 
 /**
  * LAN match layer (online wave, phase 2 — the generic match state): rides
@@ -298,10 +309,58 @@ export function handleLanPeerMessage(
     return;
   }
   if (message["type"] === "rematch") setRematchSignal(true);
+  if (message["type"] === "tournament") {
+    //phase 78: the host's bracket broadcast — the lobby renders it
+    handleTournamentMessage(message["tournament"]);
+    return;
+  }
   //anything else is a game-specific type: the raw passthrough hands it to
   //the mounted page (the V pattern's snapshots + inputs)
   setRawSignal({ message, arrivalPerf: performance.now() });
 }
+
+/** phase 78 — the host referee: starts one tournament match by TARGETED
+ * sends (only its two players get the start; the rest of the room waits
+ * in the lobby watching the bracket) */
+export function startTournamentMatch(state: TournamentState): void {
+  const match = currentTournamentMatch(state);
+  if (match === undefined) return;
+  const from = getLanPeerName() ?? "P1";
+  for (const id of match.players) {
+    if (id !== null) {
+      lanSendToClient(id, {
+        ...state.start,
+        type: "start",
+        from,
+        tournamentMatch: { round: match.round, index: match.index },
+      });
+    }
+  }
+}
+
+//phase 78 — the host referee loop: when both current-match players have
+//resolved (finished, or left the room = a null finish), the winner
+//advances, the bracket re-broadcasts and the next match starts. The
+//two-player flow is untouched: this only runs while a tournament is live.
+createRoot(() => {
+  createEffect(() => {
+    const state = getTournament();
+    if (state === undefined || state.champion !== undefined) return;
+    if (getLanRole() !== "host") return;
+    const match = currentTournamentMatch(state);
+    if (match === undefined) return;
+    const room = getLanRoomClients();
+    const reportA = resolveTournamentReport(room, match.players[0]);
+    const reportB = resolveTournamentReport(room, match.players[1]);
+    if (!reportA.resolved || !reportB.resolved) return;
+    const winnerIndex = decideWinnerTournament(reportA.report, reportB.report);
+    const winner = match.players[winnerIndex];
+    if (winner === null) return;
+    const next = advanceTournament(state, winner);
+    setHostTournament(next);
+    startTournamentMatch(next);
+  });
+});
 
 //the module owns the message consumption: a start arms and navigates
 //no matter which page is currently on screen. phase 77: the sender's

@@ -372,9 +372,17 @@ pub fn lan_send_to_client(
     text.push('\n');
     let guard = state.host.lock().map_err(|_| "lan state poisoned")?;
     let handle = guard.as_ref().ok_or("lan: not hosting")?;
-    let room = handle.room.lock().map_err(|_| "lan state poisoned")?;
-    let peer = room.get(&client_id).ok_or("lan: no such client")?;
-    peer.tx.send(text).map_err(|_| "lan: client gone".into())
+    send_to_peer(&handle.room, client_id, &text)
+}
+
+/// the targeted send's core (phase 78): exactly one room client receives
+/// the line — the tournament's match starts ride this
+fn send_to_peer(room: &Room, client_id: u32, text: &str) -> Result<(), String> {
+    let peers = room.lock().map_err(|_| "lan state poisoned")?;
+    let peer = peers.get(&client_id).ok_or("lan: no such client")?;
+    peer.tx
+        .send(text.to_string())
+        .map_err(|_| "lan: client gone".into())
 }
 
 /// a relayed peer message must be a JSON object carrying a string type —
@@ -387,8 +395,10 @@ fn is_valid_message(line: &str) -> bool {
 }
 
 /// the client waits for the host's `{type:"joined", name}` ack and
-/// returns the host's name — a rejected code or a silent host fails here
-async fn await_join_ack<R>(reader: &mut R) -> Result<String, String>
+/// returns the host's name plus this client's room id (phase 77 acks
+/// carry it; a v1 host acks without one) — a rejected code or a silent
+/// host fails here
+async fn await_join_ack<R>(reader: &mut R) -> Result<(String, Option<u32>), String>
 where
     R: tokio::io::AsyncBufRead + Unpin,
 {
@@ -406,7 +416,9 @@ where
     let parsed: Option<Value> = serde_json::from_str(&line).ok();
     match parsed {
         Some(value) if value["type"] == "joined" => {
-            Ok(value["name"].as_str().unwrap_or("the host").to_string())
+            let name = value["name"].as_str().unwrap_or("the host").to_string();
+            let client_id = value["clientId"].as_u64().and_then(|id| u32::try_from(id).ok());
+            Ok((name, client_id))
         }
         Some(value) if value["type"] == "join-rejected" => {
             Err("lan: the code was rejected by the host".into())
@@ -456,7 +468,7 @@ pub async fn lan_connect_client(
         .map_err(|e| format!("lan: join failed ({e})"))?;
 
     let mut reader = BufReader::new(read);
-    let host_name = await_join_ack(&mut reader).await?;
+    let (host_name, my_client_id) = await_join_ack(&mut reader).await?;
 
     let (tx, mut rx) = mpsc::unbounded_channel::<String>();
 
@@ -497,7 +509,11 @@ pub async fn lan_connect_client(
     }
     *guard = Some(ClientHandle { tx, read_task });
     emit(&app, "lan://peer-joined", serde_json::json!({ "name": host_name }));
-    Ok(serde_json::json!({ "connected": true, "addr": addr }))
+    Ok(serde_json::json!({
+        "connected": true,
+        "addr": addr,
+        "clientId": my_client_id,
+    }))
 }
 
 /// sends a JSON message to the host (client side)
@@ -1446,6 +1462,82 @@ mod tests {
         }
         let relayed = sink.last("lan://peer-message").expect("the host saw it");
         assert_eq!(relayed["clientId"].as_u64(), Some(1));
+    }
+
+    /// the tournament's scheduling primitive (phase 78): a TARGETED send
+    /// reaches exactly one room client — the others see nothing
+    #[tokio::test]
+    async fn a_targeted_send_reaches_only_its_client() {
+        let listener = TcpListener::bind("127.0.0.1:0").await.expect("bind");
+        let addr = listener.local_addr().expect("addr");
+        let sink = TestSink::default();
+        let (_shutdown_tx, shutdown_rx) = tokio::sync::oneshot::channel::<()>();
+        let room: Room = Arc::new(std::sync::Mutex::new(HashMap::new()));
+        tokio::spawn(run_host(
+            sink.clone(),
+            "lan-1/ABCD".into(),
+            "ABCD".into(),
+            "HOST1".into(),
+            listener,
+            shutdown_rx,
+            room.clone(),
+        ));
+
+        //three clients join
+        let mut clients: Vec<(
+            BufReader<tokio::net::tcp::OwnedReadHalf>,
+            tokio::net::tcp::OwnedWriteHalf,
+        )> = Vec::new();
+        for i in 1..=3u64 {
+            let stream = tokio::net::TcpStream::connect(addr).await.expect("connect");
+            let (read, mut write) = stream.into_split();
+            let join = serde_json::json!({
+                "type": "join", "name": format!("P{i}"), "code": "ABCD"
+            });
+            write
+                .write_all(format!("{}
+", join).as_bytes())
+                .await
+                .expect("write the join");
+            let mut reader = BufReader::new(read);
+            let mut ack = String::new();
+            tokio::time::timeout(Duration::from_secs(3), reader.read_line(&mut ack))
+                .await
+                .expect("the ack")
+                .expect("the ack reads");
+            clients.push((reader, write));
+        }
+
+        //the host targets client 2 with its private match start
+        let start = serde_json::json!({ "type": "start", "seed": 1, "params": {} });
+        send_to_peer(&room, 2, &format!("{}
+", start)).expect("the targeted send");
+
+        //client 2 receives it
+        let mut line2 = String::new();
+        tokio::time::timeout(Duration::from_secs(2), clients[1].0.read_line(&mut line2))
+            .await
+            .expect("the targeted start arrives")
+            .expect("it reads");
+        assert!(line2.contains("\"type\":\"start\""), "arrived: {line2}");
+
+        //clients 1 and 3 see NOTHING — a short drain proves the silence
+        for (index, (reader, _)) in clients.iter_mut().enumerate() {
+            let mut probe = String::new();
+            if index == 1 {
+                continue;
+            }
+            let result = tokio::time::timeout(
+                Duration::from_millis(300),
+                reader.read_line(&mut probe),
+            )
+            .await;
+            assert!(
+                result.is_err() || probe.is_empty(),
+                "client {} must not receive a targeted send: {probe}",
+                index + 1
+            );
+        }
     }
 
     #[tokio::test]

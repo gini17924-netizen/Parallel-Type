@@ -52,6 +52,11 @@ const [getClients, setClients] = createSignal<
 const [getLastMessageClientId, setLastMessageClientId] = createSignal<
   number | undefined
 >(undefined);
+/** phase 78: this client's own room id (the join ack carries it; the
+ * host has none — it is the referee) */
+const [getMyClientId, setMyClientId] = createSignal<number | undefined>(
+  undefined,
+);
 /** the FIRST client that joined — the 2-player flow's counterpart */
 let primaryClientId: number | undefined;
 
@@ -183,7 +188,12 @@ export async function lanJoin(
   wireLanEvents();
   lanRememberName(name);
   try {
-    await invoke("lan_connect_client", { addr, code, name });
+    const result = await invoke<{
+      connected: boolean;
+      addr: string;
+      clientId?: number;
+    }>("lan_connect_client", { addr, code, name });
+    setMyClientId(result.clientId);
     setRole("client");
     return undefined;
   } catch (error) {
@@ -209,6 +219,18 @@ export function lanSendToPeer(message: Record<string, unknown>): void {
   }
 }
 
+/** host, phase 78: sends a JSON message to ONE room client — the
+ * tournament's targeted match starts ride this */
+export function lanSendToClient(
+  clientId: number,
+  message: Record<string, unknown>,
+): void {
+  const invoke = getInvoke();
+  if (invoke === undefined) return;
+  if (getRole() !== "host") return;
+  void invoke("lan_send_to_client", { clientId, message });
+}
+
 /** leaves/cancels: stops hosting or drops the client connection */
 export function lanLeave(): void {
   const invoke = getInvoke();
@@ -224,6 +246,7 @@ export function lanLeave(): void {
   setHostInfo(undefined);
   primaryClientId = undefined;
   setClients({});
+  setMyClientId(undefined);
 }
 
 /** starts the UDP discovery listener (idempotent — the lobby owns the
@@ -300,6 +323,11 @@ export function getLanClients(): Record<
   return getClients();
 }
 
+/** phase 78: this device's own room id (undefined for the host) */
+export function getLanMyClientId(): number | undefined {
+  return getMyClientId();
+}
+
 /** test hook: forgets the wired-listener latch so a spec can re-wire */
 export function _resetLanStateForTests(): void {
   listenersWired = false;
@@ -311,5 +339,6 @@ export function _resetLanStateForTests(): void {
   setLastMessage(undefined);
   setLastMessageClientId(undefined);
   setClients({});
+  setMyClientId(undefined);
   primaryClientId = undefined;
 }

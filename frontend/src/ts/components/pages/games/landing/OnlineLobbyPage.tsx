@@ -3,7 +3,9 @@ import { For, JSXElement, Show, createSignal, onCleanup } from "solid-js";
 import { Config } from "../../../../config/store";
 import { navigate } from "../../../../router/navigate";
 import {
+  getLanClients,
   getLanDiscovered,
+  getLanMyClientId,
   getLanRole,
   isLanConnected,
   lanAvailable,
@@ -21,8 +23,17 @@ import {
 import {
   armLanMatch,
   getLanMatch,
+  getLanRoomClients,
   sendLanMatchStart,
+  startTournamentMatch,
 } from "../../../../states/lan-match";
+import {
+  createBracket,
+  clearTournament,
+  currentMatch as currentTournamentMatch,
+  getTournament,
+  setHostTournament,
+} from "../../../../states/lan-tournament";
 import { cn } from "../../../../utils/cn";
 import {
   getLanGame,
@@ -294,7 +305,8 @@ export function OnlineLobbyPage(): JSXElement {
             class="text-center text-lg font-bold text-main"
             data-testid="ol-connected"
           >
-            connected vs {getLanPeerName() ?? "P2"}
+            connected vs {getLanPeerName() ?? "P2"} ({clientCount()} in the
+            room)
           </div>
           <Show
             when={getLanRole() === "host"}
@@ -438,6 +450,126 @@ export function OnlineLobbyPage(): JSXElement {
             setView("menu");
           }}
         />
+      </section>
+    );
+  };
+
+  const clientCount = () => Object.keys(getLanClients()).length;
+
+  const startTournament = async (): Promise<void> => {
+    const roster = Object.values(getLanClients()).map((client) => ({
+      clientId: client.clientId,
+      name: client.name,
+    }));
+    if (roster.length < 2) return;
+    const playable = getLanGame(selectedGame());
+    if (playable === undefined) return;
+    let settings: Record<string, unknown> = {};
+    if (playable.gameId === "bot-duel") {
+      settings = { length: matchLength(), words: await fetchWordPool() };
+    }
+    const state = createBracket(roster, playable.buildStart(settings));
+    setHostTournament(state);
+    startTournamentMatch(state);
+  };
+
+  const TournamentBracket = (): JSXElement => {
+    const t = getTournament();
+    if (t === undefined) return <div />;
+    const nameOf = (id: number | null): string => {
+      if (id === null) return "—";
+      return (
+        t.players.find((p) => p.clientId === id)?.name ?? `client ${id}`
+      );
+    };
+    return (
+      <div class="grid gap-2" data-testid="tournament-bracket">
+        <For each={t.rounds}>
+          {(round, roundIndex) => (
+            <div class="grid gap-1">
+              <div class="text-xs text-sub">
+                round {roundIndex() + 1}
+                {t.champion === undefined && roundIndex() === t.currentRound
+                  ? " — in progress"
+                  : ""}
+              </div>
+              <For each={round}>
+                {(match) => {
+                  const mine =
+                    getLanMyClientId() !== undefined &&
+                    (match.players[0] === getLanMyClientId() ||
+                      match.players[1] === getLanMyClientId());
+                  const isCurrent =
+                    t.champion === undefined &&
+                    roundIndex() === t.currentRound &&
+                    !match.done;
+                  return (
+                    <div
+                      class={`rounded p-2 text-xs ${
+                        mine
+                          ? "bg-main text-bg font-bold"
+                          : isCurrent
+                            ? "bg-bg text-main"
+                            : "bg-bg text-sub"
+                      }`}
+                    >
+                      {nameOf(match.players[0])} vs {nameOf(match.players[1])}
+                      {match.winner !== undefined
+                        ? ` — winner: ${nameOf(match.winner)}`
+                        : ""}
+                      {match.done && match.winner === undefined
+                        ? " — bye"
+                        : ""}
+                    </div>
+                  );
+                }}
+              </For>
+            </div>
+          )}
+        </For>
+        <Show when={t.champion !== undefined}>
+          <div
+            class="rounded bg-main p-2 text-center font-bold text-bg"
+            data-testid="tournament-champion"
+          >
+            champion: {nameOf(t.champion ?? null)}
+          </div>
+        </Show>
+      </div>
+    );
+  };
+
+  const TournamentSection = (): JSXElement => {
+    const t = getTournament();
+    const inTournament = t !== undefined;
+    const myUp = (): boolean => {
+      if (t === undefined || t.champion !== undefined) return false;
+      const match = currentTournamentMatch(t);
+      const mine = getLanMyClientId();
+      if (match === undefined || mine === undefined) return false;
+      return match.players[0] === mine || match.players[1] === mine;
+    };
+    return (
+      <section class="grid gap-4 rounded bg-sub-alt p-4" data-testid="tournament-section">
+        <div class="text-sub">tournament</div>
+        <Show when={inTournament} fallback={<div />}>
+          <Show when={myUp()}>
+            <div class="text-sm font-bold text-main" data-testid="tournament-up">
+              your match is starting — you will be taken to the game
+            </div>
+          </Show>
+          <TournamentBracket />
+          <Show when={getLanRole() === "host"}>
+            <Button
+              text="end tournament"
+              fa={{ icon: "fa-stop" }}
+              class="w-full"
+              onClick={() => {
+                clearTournament();
+              }}
+            />
+          </Show>
+        </Show>
       </section>
     );
   };
