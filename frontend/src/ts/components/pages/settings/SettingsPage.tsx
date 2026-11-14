@@ -41,6 +41,7 @@ import { MinBurst } from "./custom-setting/MinBurst";
 import { MinSpeed } from "./custom-setting/MinSpeed";
 import { PaceCaret } from "./custom-setting/PaceCaret";
 import { Presets } from "./custom-setting/Presets";
+import { SoundPack } from "./custom-setting/SoundPack";
 import { SoundVolume } from "./custom-setting/SoundVolume";
 import { Tags } from "./custom-setting/Tags";
 import { Theme } from "./custom-setting/Theme";
@@ -112,6 +113,7 @@ export function SettingsPage(): JSXElement {
         <Advertisement id="ad-settings-1" visible="sellout" />
         <Section title="sound">
           <SoundVolume />
+          <SoundPack />
           <SearchableAutoSetting
             key="playSoundOnClick"
             wide
