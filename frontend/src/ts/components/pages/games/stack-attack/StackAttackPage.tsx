@@ -40,6 +40,13 @@ import {
 } from "../../../../utils/replay/recorder";
 import { createReplayPlayer } from "../../../../utils/replay/player";
 import { download } from "../../../../utils/misc";
+import {
+  ghostFinish,
+  ghostSample,
+  ghostStart,
+  getGhostRun,
+} from "../../../../utils/ghost/ghost-store";
+import { GhostMeter } from "../ghost/GhostMeter";
 import { latinCharFromEvent } from "../../../../utils/games/latin-input";
 import { cachedFetchJson } from "../../../../utils/json-data";
 import { BALANCE } from "../../../../utils/stack-attack/balance";
@@ -130,6 +137,8 @@ export function StackAttackPage(): JSXElement {
     undefined,
   );
   const [replaying, setReplaying] = createSignal(false);
+  const [engineTicks, setEngineTicks] = createSignal(0);
+  let tickCount = 0;
   let replayPlayer: ReturnType<typeof createReplayPlayer> | undefined;
 
   let engine: StackAttackEngine | undefined;
@@ -198,8 +207,11 @@ export function StackAttackPage(): JSXElement {
         maxWordLen: BALANCE.maxWordLen,
       }),
     });
+    ghostStart("stack-attack");
     setReplayRecorder(createReplayRecorder(runSeed, pickable));
     setReplayFile(undefined);
+    tickCount = 0;
+    setEngineTicks(0);
     setEngineState(engine.state());
     setPagePhase("playing");
     startTickLoop();
@@ -221,8 +233,12 @@ export function StackAttackPage(): JSXElement {
         return;
       }
       replayRecorder()?.tickDone();
+      tickCount++;
+      setEngineTicks(tickCount);
       const state = engine.tick(TICK_MS);
       setEngineState(state);
+      //phase 82: the ghost samples the score every tick
+      ghostSample("stack-attack", state.score);
       //online: relay the rows/score when they moved
       if (
         lanMode() &&
@@ -315,6 +331,8 @@ export function StackAttackPage(): JSXElement {
         level: state.result.level,
         blocksLocked: state.result.blocksLocked,
       });
+      //phase 82: the run closes — a new ghost when it beat the old one
+      ghostFinish("stack-attack", state.score);
     }
     //phase 81: the recording closes — the file lands behind the save
     //button on the result screen
@@ -868,6 +886,11 @@ export function StackAttackPage(): JSXElement {
             </Show>
           }
         >
+          <GhostMeter
+            ghost={getGhostRun("stack-attack")}
+            tick={engineTicks()}
+            score={engineState()?.score ?? 0}
+          />
           <div class="grid grid-cols-4 gap-2" aria-label="stack attack hud">
             <HudCell label="score" value={String(engineState()?.score ?? 0)} />
             <HudCell label="level" value={String(engineState()?.level ?? 1)} />

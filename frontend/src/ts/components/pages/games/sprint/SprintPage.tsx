@@ -28,6 +28,13 @@ import {
   type LanMatch,
 } from "../../../../states/lan-match";
 import { cn } from "../../../../utils/cn";
+import {
+  ghostFinish,
+  ghostSample,
+  ghostStart,
+  getGhostRun,
+} from "../../../../utils/ghost/ghost-store";
+import { GhostMeter } from "../ghost/GhostMeter";
 import { createSeededRng } from "../../../../utils/daily-gauntlet/seeded-rng";
 import { cachedFetchJson } from "../../../../utils/json-data";
 import {
@@ -120,6 +127,8 @@ export function SprintPage(): JSXElement {
   );
   const [currentWord, setCurrentWord] = createSignal("");
   const [nextWord, setNextWord] = createSignal("");
+  //phase 82: the ghost's tick clock (the overlay reads it)
+  const [ghostTick, setGhostTick] = createSignal(0);
   const [message, setMessage] = createSignal<string | undefined>(undefined);
   const [best, setBest] = createSignal<number | undefined>(
     getSprintStats().bestByLang[Config.language]?.wpm,
@@ -294,6 +303,14 @@ export function SprintPage(): JSXElement {
         //flash and its beep
         setPagePhase("running");
         void playClick();
+      }
+      //phase 82: the ghost samples the words-completed count every tick —
+      //and restarts the live run at the GO flip so a previous attempt's
+      //samples can never leak in
+      if (state.phase === "running") {
+        if (ghostTick() === 0) ghostStart("sprint");
+        ghostSample("sprint", state.wordsComplete);
+        setGhostTick((t) => t + 1);
       }
       if (state.phase === "running" && state.startedAt !== undefined) {
         //beep through the final three seconds of the window
@@ -542,6 +559,11 @@ export function SprintPage(): JSXElement {
               next: {nextWord()}
             </div>
           </div>
+          <GhostMeter
+            ghost={getGhostRun("sprint")}
+            tick={ghostTick()}
+            score={state()?.wordsComplete ?? 0}
+          />
           <div class="grid grid-cols-3 gap-2">
             <HudCell label="chars" value={String(state()?.chars ?? 0)} />
             <HudCell

@@ -47,6 +47,13 @@ import {
   recordBalloonRun,
 } from "../../../../utils/balloon-pop/store";
 import { cn } from "../../../../utils/cn";
+import {
+  ghostFinish,
+  ghostSample,
+  ghostStart,
+  getGhostRun,
+} from "../../../../utils/ghost/ghost-store";
+import { GhostMeter } from "../ghost/GhostMeter";
 import { createSeededRng } from "../../../../utils/daily-gauntlet/seeded-rng";
 import { cachedFetchJson } from "../../../../utils/json-data";
 import { unlockedLetters } from "../../../../utils/learn-stats";
@@ -117,6 +124,8 @@ export function BalloonPopPage(): JSXElement {
     BalloonOnlineResult | undefined
   >(undefined);
   const [rematchSent, setRematchSent] = createSignal(false);
+  //phase 82: the ghost's tick clock (the overlay reads it)
+  const [ghostTick, setGhostTick] = createSignal(0);
 
   let engine: BalloonEngine | undefined;
   let tickTimer: ReturnType<typeof setInterval> | undefined;
@@ -228,10 +237,15 @@ export function BalloonPopPage(): JSXElement {
     //timers — two overlapping startRuns must never leave two intervals
     //ticking one engine (2x balloon speed, doubled TTS)
     stopTimers();
+    //phase 82: the ghost rides the tick loop — samples feed the live run
+    //and the meter reads the stored best
+    ghostStart("balloon-pop");
     tickTimer = setInterval(() => {
       if (engine === undefined) return;
       const state = engine.tick(TICK_MS);
       setEngineState(state);
+      ghostSample("balloon-pop", state.score);
+      setGhostTick((t) => t + 1);
       if (hearIt()) {
         for (const balloon of state.bubbles) {
           if (spokenIds.has(balloon.id)) continue;
@@ -312,6 +326,8 @@ export function BalloonPopPage(): JSXElement {
       setPagePhase("result");
       return;
     }
+    //phase 82: the run closes — a new ghost when the score beat the old one
+    ghostFinish("balloon-pop", state.score);
     recordBalloonRun({
       stage: state.stage,
       score: state.score,
@@ -769,6 +785,11 @@ export function BalloonPopPage(): JSXElement {
             </Show>
           }
         >
+          <GhostMeter
+            ghost={getGhostRun("balloon-pop")}
+            tick={ghostTick()}
+            score={engineState()?.score ?? 0}
+          />
           <section class="grid grid-cols-5 gap-2" aria-label="balloon hud">
             <HudCell label="stage" value={String(engineState()?.stage ?? 1)} />
             <HudCell label="level" value={String(engineState()?.level ?? 1)} />
