@@ -176,11 +176,7 @@
 
 ## بلوک H — مهندسی پایانی (فاز ۱۰۰)
 
-**فاز ۱۰۰ — پروفایل و بازنگری ساختار**
-- هدف: پروفایل startup/حافظه (بودجه‌بندی: بوت < ۲s)؛ بازنگری چیدمان فولدرها (موتورها/صفحات یکنواخت)؛ حذف کد مرده.
-- گیت: گزارش پروفایل + بازسازی‌های امن با گیت کامل.
-- پایان: بودجه‌ها ثبت و رعایت.
-
+**فاز ۱۰۰** ✅ (77c5415 + 3b0435f + verify run 43634838889 سبز) — **پروفایل و بازنگری ساختار — نقشه راه کامل.** (انجام‌شده: (الف) پروفایلر بوت — utils/boot-profiler.ts: milestoneها (module-load در import، app-ready در رندر App) با دلتای نسبی در mtDesktopBootReport + console (bootReportLine با verdict within/over بر بودجهٔ ۲۰۰۰ms سند §H)؛ اعداد واقعی هر ماشین با نسخهٔ بعد از console/devtools خوانده می‌شوند — گیت خالص و unit-tested (دلتاها، verdict، خط گزارش، reset). (ب) حذف کد مرده — audit محافظه‌کار grep-based (مصرف‌کننده src+tests، فقط فایل‌های فورک؛ فایل‌های upstream برای parity merge دست‌نخورده): حذف کامل botDuelWon و smartDrillInputs (+ import weakLettersDetailed)؛ unexport (استفاده داخلی، فقط کلمهٔ export حذف): buildAchievementSnapshot، shouldSpeakActiveWord، TRAILING_MARKS، چهار ثابت weakness-model، DEFAULT_GOAL_MINUTES و todayGoalProgress (داخلی). **درس ران CI**: MAX_CUSTOM_TEXT_TOKENS مصرف spec داشت و sweep آن را جا انداخته بود → برگشت؛ dictationSpellingAccuracy هم مصرف‌کنندهٔ واقعی داشت و حذفش با tsc لوکال لو رفت و بازگشت — درس: هر unexport پیش از push باید grep __tests__ جدا بگیرد. (ج) بازنگری چیدمان — گزارش به‌جای ریسک rename: نام‌گذاری استورهای per-game ناهمگن است (stack-attack/store.ts در برابر word-blast-scores.ts در برابر crane/store.ts) — renameها merge-risky و به موج بعد واگذار شدند؛ بازسازی امن این فاز همین sweep + profiler بود. spec: ۴ پروفایلر؛ tsc/oxlint صفر + verify سبز. push هر دو ریموت.)
 ---
 
 ## نقشهٔ وابستگی (خلاصه)
