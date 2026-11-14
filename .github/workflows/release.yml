@@ -121,7 +121,10 @@ jobs:
         #the gate: the zip must actually BOOT — extract, run, require the
         #process alive after 10s (the same alive-check class the installer
         #smoke of phase 64 uses; the runner image ships WebView2, so a dead
-        #process here means a broken portable boot, not a missing runtime)
+        #process here means a broken portable boot, not a missing runtime).
+        #powershell 5.1 reads the script file as ANSI when it lacks a BOM,
+        #so every literal below stays pure ASCII (an em dash becomes mojibake
+        #and shreds the parser — the first dispatch found it)
         shell: powershell
         run: |
           $ErrorActionPreference = "Stop"
@@ -135,10 +138,10 @@ jobs:
           Start-Process -FilePath $exe.FullName
           Start-Sleep -Seconds 10
           $p = Get-Process -Name "ParallelType" -ErrorAction SilentlyContinue
-          if ($null -eq $p) { throw "the portable exe died within 10s — the portable boot is broken" }
+          if ($null -eq $p) { throw "the portable exe died within 10s - the portable boot is broken" }
           Write-Output "portable smoke: ParallelType.exe alive (PID $($p.Id)) after 10s"
           Stop-Process -Name "ParallelType" -Force
-          Write-Output "portable smoke: process stopped, temp extraction left in place (runner is ephemeral)"
+          Write-Output "portable smoke: process stopped"
 
       - name: assemble latest.json
         shell: bash
