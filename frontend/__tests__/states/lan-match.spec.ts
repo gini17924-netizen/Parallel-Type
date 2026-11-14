@@ -1,4 +1,4 @@
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 const { navigateMock } = vi.hoisted(() => ({
   navigateMock: vi.fn(async () => undefined),
@@ -22,7 +22,11 @@ import {
   sendLanMatchRematch,
   sendLanMatchStart,
 } from "../../src/ts/states/lan-match";
-import { _resetLanStateForTests, lanStartHost } from "../../src/ts/states/lan";
+import {
+  _resetLanStateForTests,
+  lanJoin,
+  lanStartHost,
+} from "../../src/ts/states/lan";
 import { type LanStartPayload } from "../../src/ts/utils/games/lan-registry";
 
 function botDuelStart(words: string[], length = words.length): LanStartPayload {
@@ -280,5 +284,77 @@ describe("phase 77 — the room map (clientId-aware)", () => {
     expect(getLanRoomClients()[1]?.progress).toBeDefined();
     armAsHost();
     expect(getLanRoomClients()).toEqual({});
+  });
+});
+
+describe("phase 79 — the spectator seat", () => {
+  beforeEach(() => {
+    _resetLanMatchForTests();
+    navigateMock.mockClear();
+  });
+
+  /** joins as a client with a v2 room ack so the device owns clientId 9 */
+  async function joinAsClient9(): Promise<void> {
+    (window as unknown as { __TAURI__: unknown }).__TAURI__ = {
+      core: {
+        invoke: async (cmd: string) => {
+          if (cmd === "lan_connect_client") {
+            return { connected: true, addr: "1.2.3.4:1", clientId: 9 };
+          }
+          return {};
+        },
+      },
+      event: {
+        listen: async () => () => undefined,
+      },
+    };
+    const error = await lanJoin("1.2.3.4:1", "CODE", "P9");
+    expect(error).toBeUndefined();
+  }
+
+  afterEach(() => {
+    delete (window as unknown as { __TAURI__?: unknown }).__TAURI__;
+    _resetLanStateForTests();
+  });
+
+  it("a start listing OTHER playerIds arms the receiver as a spectator", async () => {
+    await joinAsClient9();
+    handleLanPeerMessage({
+      type: "start",
+      gameId: "bot-duel",
+      params: { length: 2 },
+      words: ["a", "b"],
+      from: "HOST",
+      players: [1, 2],
+    });
+    expect(getLanMatch()?.role).toBe("spectator");
+    //the match still armed and navigated — the spectator watches
+    expect(getLanMatch()?.gameId).toBe("bot-duel");
+    expect(navigateMock).toHaveBeenCalled();
+  });
+
+  it("a start listing MY id arms me as a player", async () => {
+    await joinAsClient9();
+    handleLanPeerMessage({
+      type: "start",
+      gameId: "bot-duel",
+      params: { length: 2 },
+      words: ["a", "b"],
+      from: "HOST",
+      players: [1, 9],
+    });
+    expect(getLanMatch()?.role).toBe("client");
+  });
+
+  it("a v1 start without a players list arms as a player (compat)", async () => {
+    await joinAsClient9();
+    handleLanPeerMessage({
+      type: "start",
+      gameId: "bot-duel",
+      params: { length: 2 },
+      words: ["a", "b"],
+      from: "HOST",
+    });
+    expect(getLanMatch()?.role).toBe("client");
   });
 });

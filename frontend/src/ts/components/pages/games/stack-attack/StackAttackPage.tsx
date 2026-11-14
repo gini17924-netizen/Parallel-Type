@@ -11,11 +11,16 @@ import {
 import { Config } from "../../../../config/store";
 import { playClick, playError } from "../../../../controllers/sound-controller";
 import { navigate } from "../../../../router/navigate";
-import { isLanConnected, lanPreFillName } from "../../../../states/lan";
+import {
+  getLanClients,
+  isLanConnected,
+  lanPreFillName,
+} from "../../../../states/lan";
 import {
   armLanMatch,
   clearLanMatch,
   getLanMatch,
+  getLanRoomClients,
   getRemoteFinished,
   getRemoteProgress,
   getRematchAsked,
@@ -61,7 +66,7 @@ const FALLBACK_WORDS = [
   "music",
 ];
 
-type PagePhase = "menu" | "playing" | "awaiting" | "result";
+type PagePhase = "menu" | "playing" | "awaiting" | "result" | "spectating";
 
 /** the online verdict once both horns have landed */
 type StackOnlineResult = {
@@ -90,7 +95,11 @@ function HudCell(props: { label: string; value: string }): JSXElement {
  */
 export function StackAttackPage(): JSXElement {
   const [pagePhase, setPagePhase] = createSignal<PagePhase>(
-    getLanMatch()?.gameId === "stack-attack" ? "playing" : "menu",
+    getLanMatch()?.gameId === "stack-attack"
+      ? getLanMatch()?.role === "spectator"
+        ? "spectating"
+        : "playing"
+      : "menu",
   );
   const [engineState, setEngineState] = createSignal<
     StackAttackState | undefined
@@ -125,6 +134,7 @@ export function StackAttackPage(): JSXElement {
   //the peer — they are never left waiting for the horn
   onCleanup(() => {
     if (getLanMatch()?.gameId !== "stack-attack") return;
+    if (getLanMatch()?.role === "spectator") return;
     if (pagePhase() !== "playing" && pagePhase() !== "awaiting") return;
     if (!myFinishSent) {
       myFinishSent = true;
@@ -776,6 +786,32 @@ export function StackAttackPage(): JSXElement {
           </div>
           <Arena />
         </Show>
+      </Show>
+      <Show when={pagePhase() === "spectating"}>
+        <section
+          class="grid gap-2 rounded bg-sub-alt p-4"
+          data-testid="sa-spectator-hud"
+        >
+          <div class="text-sm text-sub">
+            spectating — the racers' live progress
+          </div>
+          <For each={Object.values(getLanRoomClients())}>
+            {(client) => (
+              <div class="rounded bg-bg p-2">
+                <div class="text-xs font-bold text-main">
+                  {getLanClients()[client.clientId]?.name ??
+                    `client ${client.clientId}`}
+                </div>
+                <div class="text-xs text-sub">
+                  rows{" "}
+                  {String((client.progress as { rows?: number })?.rows ?? 0)}
+                  {" · "}score{" "}
+                  {String((client.progress as { score?: number })?.score ?? 0)}
+                </div>
+              </div>
+            )}
+          </For>
+        </section>
       </Show>
     </div>
   );

@@ -221,17 +221,20 @@ export function TypePongPage(): JSXElement {
           setLanView(lanClient.view());
           if (lanClient.view().phase === "done") endLanMatch();
         }, 16);
-        //the input relay: the typed chars ride the raw passthrough
-        relayTimer = setInterval(() => {
-          if (lanClient === undefined) return;
-          const batch = lanClient.takeInputBatch();
-          if (batch.length === 0) return;
-          sendLanMatchMessage({
-            type: "pong-input",
-            gameId: "type-pong",
-            ...encodeInput(batch),
-          });
-        }, SNAPSHOT_INTERVAL_MS);
+        //the input relay: the typed chars ride the raw passthrough — a
+        //spectator renders the same view but never ships inputs (phase 79)
+        if (match.role !== "spectator") {
+          relayTimer = setInterval(() => {
+            if (lanClient === undefined) return;
+            const batch = lanClient.takeInputBatch();
+            if (batch.length === 0) return;
+            sendLanMatchMessage({
+              type: "pong-input",
+              gameId: "type-pong",
+              ...encodeInput(batch),
+            });
+          }, SNAPSHOT_INTERVAL_MS);
+        }
       }
     })();
   });
@@ -378,6 +381,11 @@ export function TypePongPage(): JSXElement {
     if (event.key.length !== 1 && event.key !== "Enter") return;
     if (event.key.length === 1) event.preventDefault();
     if (lanMode()) {
+      if (getLanMatch()?.role === "spectator") {
+        //phase 79: watching is read-only — typing moves no paddle
+        event.preventDefault();
+        return;
+      }
       //the paddle moves only when you type — locally echoed, judged by
       //the host (the V pattern: the client relays, never simulates)
       const ch = latinCharFromEvent(event.key, event.code);

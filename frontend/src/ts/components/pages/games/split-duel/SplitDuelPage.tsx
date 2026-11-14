@@ -80,7 +80,13 @@ const RIGHT_LETTERS = "yuiophjklnm";
 const KEY_ROWS = ["qwertyuiop", "asdfghjkl", "zxcvbnm"];
 
 type DuelMode = "turn" | "simultaneous";
-type PagePhase = "setup" | "countdown" | "playing" | "awaiting" | "result";
+type PagePhase =
+  | "setup"
+  | "countdown"
+  | "playing"
+  | "awaiting"
+  | "result"
+  | "spectating";
 
 /** the online verdict once both halves have reported */
 type SplitOnlineResult = {
@@ -362,6 +368,13 @@ export function SplitDuelPage(): JSXElement {
         typeof armed.start.params["lang"] === "string"
           ? armed.start.params["lang"]
           : "english";
+      //phase 79: a spectator renders nothing and drives nothing — the
+      //split streams are per-player and cannot be spectated without a
+      //field protocol (the roster view covers them in the lobby)
+      if (armed.role === "spectator") {
+        setPagePhase("spectating");
+        return;
+      }
       const words = coerceLanWords(armed.start.params["words"]);
       const pool = await fetchLanPool(lang);
       const [left, right] = splitLanStreams(pool, armed.start.seed ?? 1, words);
@@ -934,8 +947,12 @@ export function SplitDuelPage(): JSXElement {
           data-testid="sd-online-vs"
         >
           <i class="fas fa-users"></i> online vs{" "}
-          {getLanMatch()?.peerName ?? "…"} — you are the{" "}
-          {sideForRole(getLanMatch()?.role ?? "client")} half
+          {getLanMatch()?.peerName ?? "…"} —{" "}
+          {getLanMatch()?.role === "spectator"
+            ? "spectating"
+            : `you are the ${sideForRole(
+                getLanMatch()?.role === "host" ? "host" : "client",
+              )} half`}
         </div>
       </Show>
       <Show when={pagePhase() !== "setup"} fallback={<Menu />}>

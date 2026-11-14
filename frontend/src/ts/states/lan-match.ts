@@ -12,6 +12,7 @@ import {
   getLanClients,
   getLanLastMessage,
   getLanLastMessageClientId,
+  getLanMyClientId,
   getLanPeerName,
   getLanRole,
   lanSendToClient,
@@ -46,7 +47,7 @@ import {
  */
 
 export type LanMatch = {
-  role: "host" | "client";
+  role: "host" | "client" | "spectator";
   peerName: string;
   gameId: LanGameId;
   seq: number;
@@ -141,7 +142,7 @@ function resetDerived(): void {
 /** arms (or re-arms) the match; consumers restart from the new seq. An
  * invalid start is refused (both sides gate through the registry). */
 export function armLanMatch(match: {
-  role: "host" | "client";
+  role: "host" | "client" | "spectator";
   peerName: string;
   start: LanStartPayload;
 }): void {
@@ -197,15 +198,26 @@ export function sendLanMatchMessage(message: Record<string, unknown>): void {
   lanSendToPeer(message);
 }
 
-/** host: ships the start (also the rematch re-send) to the peer — an
- * invalid start is refused before it can reach the wire */
-export function sendLanMatchStart(start: LanStartPayload, from: string): void {
+/** host: ships the start (also the rematch re-send) to the room — an
+ * invalid start is refused before it can reach the wire. phase 79: the
+ * players list tells every receiver their seat — a clientId on the list
+ * plays, everyone else in the room is a spectator */
+export function sendLanMatchStart(
+  start: LanStartPayload,
+  from: string,
+  players?: number[],
+): void {
   const playable = getLanGame(start.gameId);
   if (playable === undefined || !playable.validateStart(start)) {
     console.error("lan: refusing to ship an invalid match start", start.gameId);
     return;
   }
-  lanSendToPeer({ ...start, type: "start", from });
+  lanSendToPeer({
+    ...start,
+    type: "start",
+    from,
+    ...(players !== undefined ? { players } : {}),
+  });
 }
 
 /** both sides: the game's encoded progress state — the envelope (type +
@@ -267,8 +279,25 @@ export function handleLanPeerMessage(
         rawWords !== undefined && rawWords.length > 0 ? rawWords : undefined,
     };
     if (!playable.validateStart(start)) return; //malformed starts never arm
+    //phase 79: the receiver classifies its own seat — the listed playerIds
+    //play, the other room members watch (spectator); a start without a
+    //players list is the v1 two-player shape (the client plays)
+    const playerIds = Array.isArray(message["players"])
+      ? (message["players"] as unknown[]).filter(
+          (id): id is number => typeof id === "number",
+        )
+      : undefined;
+    const myId = getLanMyClientId();
+    let role: "host" | "client" | "spectator";
+    if (getLanRole() === "host") {
+      role = "host";
+    } else if (playerIds !== undefined && myId !== undefined) {
+      role = playerIds.includes(myId) ? "client" : "spectator";
+    } else {
+      role = "client";
+    }
     armLanMatch({
-      role: getLanRole() === "host" ? "host" : "client",
+      role,
       peerName:
         typeof message["from"] === "string"
           ? message["from"]
