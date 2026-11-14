@@ -1384,8 +1384,9 @@ mod tests {
                 .write_all(format!("{}\n", join).as_bytes())
                 .await
                 .expect("write the join");
+            let mut reader = BufReader::new(read);
             let mut ack = String::new();
-            tokio::time::timeout(Duration::from_secs(3), read.read_line(&mut ack))
+            tokio::time::timeout(Duration::from_secs(3), reader.read_line(&mut ack))
                 .await
                 .expect("the ack")
                 .expect("the ack reads");
@@ -1393,7 +1394,7 @@ mod tests {
                 ack.contains("joined") && ack.contains(&format!("\"clientId\":{i}")),
                 "client {i} joined with its id: {ack}"
             );
-            clients.push((BufReader::new(read), write));
+            clients.push((reader, write));
         }
         assert_eq!(sink.count("lan://peer-joined"), 3);
 
@@ -1466,7 +1467,7 @@ mod tests {
 
         //eight persistent clients fill the room
         let mut keepalive: Vec<(
-            tokio::net::tcp::OwnedReadHalf,
+            BufReader<tokio::net::tcp::OwnedReadHalf>,
             tokio::net::tcp::OwnedWriteHalf,
         )> = Vec::new();
         for i in 1..=8u64 {
@@ -1479,8 +1480,9 @@ mod tests {
                 .write_all(format!("{}\n", join).as_bytes())
                 .await
                 .expect("write the join");
+            let mut reader = BufReader::new(read);
             let mut ack = String::new();
-            tokio::time::timeout(Duration::from_secs(3), read.read_line(&mut ack))
+            tokio::time::timeout(Duration::from_secs(3), reader.read_line(&mut ack))
                 .await
                 .expect("the ack")
                 .expect("the ack reads");
@@ -1489,7 +1491,7 @@ mod tests {
                 "client {i} joined: {ack}"
             );
             //parking the halves keeps every connection open
-            keepalive.push((read, write));
+            keepalive.push((reader, write));
         }
 
         //the ninth joiner gets a precise rejection
@@ -1501,7 +1503,10 @@ mod tests {
             .await
             .expect("write the join");
         let mut reject = String::new();
-        tokio::time::timeout(Duration::from_secs(3), read9.read_line(&mut reject))
+        tokio::time::timeout(
+            Duration::from_secs(3),
+            BufReader::new(read9).read_line(&mut reject),
+        )
             .await
             .expect("the reject")
             .expect("the reject reads");
