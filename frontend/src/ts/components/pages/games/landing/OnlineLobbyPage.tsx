@@ -26,6 +26,22 @@ import {
   sendLanChat,
 } from "../../../../states/lan-chat";
 import {
+  applyPreset,
+  buildPresetFromConfig,
+  downloadPresetFile,
+  validatePresetFile,
+} from "../../../../utils/preset/difficulty-preset";
+import {
+  championsFor,
+  recordLanChampion,
+} from "../../../../utils/lan/champions";
+import { getConfig } from "../../../../config/store";
+import { setConfig } from "../../../../config/setters";
+import {
+  showSuccessNotification,
+  showErrorNotification,
+} from "../../../../states/notifications";
+import {
   armLanMatch,
   getLanMatch,
   sendLanMatchStart,
@@ -237,7 +253,47 @@ export function OnlineLobbyPage(): JSXElement {
     );
   };
 
+  //phase 86: the difficulty preset (export/import) + the champions table
+  const [presetLoaded, setPresetLoaded] = createSignal<string | undefined>(
+    undefined,
+  );
+
+  const exportPreset = (): void => {
+    const preset = buildPresetFromConfig(
+      `${playerName()} challenge`,
+      Config as unknown as Record<string, unknown>,
+    );
+    downloadPresetFile(preset);
+    showSuccessNotification("preset exported — send the file to a friend");
+  };
+
+  const importPreset = (file: File): void => {
+    void (async () => {
+      try {
+        const parsed = JSON.parse(await file.text());
+        const preset = validatePresetFile(parsed);
+        if (preset === undefined) {
+          showErrorNotification("not a valid difficulty preset file");
+          return;
+        }
+        applyPreset(preset, {
+          setConfig: (key, value) => {
+            void setConfig(key as never, value as never);
+          },
+        });
+        setPresetLoaded(preset.name);
+        showSuccessNotification(`preset applied: ${preset.name}`);
+      } catch {
+        showErrorNotification("failed to load the preset file");
+      }
+    })();
+  };
+
+  const champions = (): { name: string; score: number; acc: number }[] =>
+    championsFor(selectedGame());
+
   const Menu = (): JSXElement => {
+    let presetInputRef: HTMLInputElement | undefined;
     return (
       <section class="grid gap-4 rounded bg-sub-alt p-4">
         <Show
@@ -262,6 +318,57 @@ export function OnlineLobbyPage(): JSXElement {
           </div>
           <Show when={message() !== undefined}>
             <div class="text-error">{message()}</div>
+          </Show>
+          <div class="text-sub">difficulty preset (phase 86)</div>
+          <div class="grid grid-cols-2 gap-2">
+            <Button
+              text="export preset"
+              fa={{ icon: "fa-file-export" }}
+              class="w-full"
+              onClick={exportPreset}
+            />
+            <Button
+              text="import preset"
+              fa={{ icon: "fa-file-import" }}
+              class="w-full"
+              onClick={() => {
+                presetInputRef?.click();
+              }}
+            />
+          </div>
+          <input
+            ref={presetInputRef}
+            type="file"
+            accept="application/json,.json"
+            class="hidden"
+            onChange={(event) => {
+              const file = event.currentTarget.files?.[0];
+              event.currentTarget.value = "";
+              if (file === undefined) return;
+              importPreset(file);
+            }}
+          />
+          <Show when={presetLoaded() !== undefined}>
+            <div class="text-xs text-main">
+              preset applied: {presetLoaded()}
+            </div>
+          </Show>
+          <Show when={champions().length > 0}>
+            <div class="text-sub">lan champions — {selectedGame()}</div>
+            <div class="grid gap-1">
+              <For each={champions()}>
+                {(row, rank) => (
+                  <div class="flex items-center justify-between gap-2 rounded bg-bg p-2 text-xs">
+                    <span class="font-bold text-main">
+                      {rank() + 1}. {row.name}
+                    </span>
+                    <span class="text-sub tabular-nums">
+                      score {row.score} · acc {row.acc}%
+                    </span>
+                  </div>
+                )}
+              </For>
+            </div>
           </Show>
           <div class="grid grid-cols-2 gap-2">
             <Button

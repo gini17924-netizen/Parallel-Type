@@ -9,6 +9,7 @@ import {
   type LanStartPayload,
 } from "../utils/games/lan-registry";
 import { receiveLanChat } from "./lan-chat";
+import { recordLanChampion } from "../utils/lan/champions";
 import { receiveGauntletResult } from "../utils/lan/leaderboard";
 import {
   getLanClients,
@@ -334,6 +335,18 @@ export function handleLanPeerMessage(
     };
     if (clientId !== undefined) {
       updateRoomClient(clientId, { finished });
+      //phase 86: the host records the champion — the score comes from the
+      //client's last progress state (the games ship it per tick)
+      if (getLanRole() === "host") {
+        const name = getLanClients()[clientId]?.name ?? `client ${clientId}`;
+        const progressScore = getLanRoomClients()[clientId]?.progress;
+        const score =
+          progressScore !== undefined &&
+          typeof (progressScore as { score?: unknown }).score === "number"
+            ? ((progressScore as { score: number }).score)
+            : 0;
+        recordLanChampion(match.gameId, name, score, finished.acc);
+      }
       return;
     }
     setFinishedSignal({ ...finished, arrivalPerf: performance.now() });
