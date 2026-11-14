@@ -124,8 +124,11 @@ function wireLanEvents(): void {
       primaryClientId = undefined;
     }
     if (payload.clientId !== undefined) {
-      const next = { ...getClients() };
-      delete next[payload.clientId];
+      const next = Object.fromEntries(
+        Object.entries(getClients()).filter(
+          ([id]) => Number(id) !== payload.clientId,
+        ),
+      );
       setClients(next);
     }
   });

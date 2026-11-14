@@ -45,7 +45,8 @@ export async function userTextsList(force = false): Promise<
   if (invoke === undefined) return undefined;
   if (listCache !== undefined && !force) return listCache;
   try {
-    const list = (await invoke("texts_list")) as UserTextFile[];
+    const list = await invoke<UserTextFile[]>("texts_list");
+    //the invoke generic already pins the shape — no extra assertion
     listCache = list;
     return list;
   } catch (error) {
@@ -62,7 +63,7 @@ export async function userTextsRead(name: string): Promise<string | undefined> {
   const invoke = getInvoke();
   if (invoke === undefined) return undefined;
   try {
-    return (await invoke("texts_read", { name })) as string;
+    return await invoke<string>("texts_read", { name });
   } catch (error) {
     console.error("user texts: read failed", error);
     return undefined;
@@ -73,7 +74,7 @@ export async function userTextsFolderPath(): Promise<string | undefined> {
   const invoke = getInvoke();
   if (invoke === undefined) return undefined;
   try {
-    return (await invoke("texts_folder_path")) as string;
+    return await invoke<string>("texts_folder_path");
   } catch (error) {
     console.error("user texts: folder path failed", error);
     return undefined;

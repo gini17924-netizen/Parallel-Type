@@ -1376,7 +1376,7 @@ mod tests {
         )> = Vec::new();
         for i in 1..=3u64 {
             let stream = tokio::net::TcpStream::connect(addr).await.expect("connect");
-            let (read, mut write) = tokio::io::split(stream);
+            let (read, mut write) = stream.into_split();
             let join = serde_json::json!({
                 "type": "join", "name": format!("P{i}"), "code": "ABCD"
             });
@@ -1471,7 +1471,7 @@ mod tests {
         )> = Vec::new();
         for i in 1..=8u64 {
             let stream = tokio::net::TcpStream::connect(addr).await.expect("connect");
-            let (read, mut write) = tokio::io::split(stream);
+            let (read, mut write) = stream.into_split();
             let join = serde_json::json!({
                 "type": "join", "name": format!("P{i}"), "code": "ABCD"
             });
@@ -1494,7 +1494,7 @@ mod tests {
 
         //the ninth joiner gets a precise rejection
         let stream9 = tokio::net::TcpStream::connect(addr).await.expect("connect");
-        let (mut read9, mut write9) = tokio::io::split(stream9);
+        let (mut read9, mut write9) = stream9.into_split();
         let join = serde_json::json!({ "type": "join", "name": "P9", "code": "ABCD" });
         write9
             .write_all(format!("{}\n", join).as_bytes())
