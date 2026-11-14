@@ -359,3 +359,18 @@ table {
     background-color: var(--sub-alt-color);
   }
 }
+
+//phase 99: streamer mode — one body class hides the app chrome (header,
+//footer) and scales the typing words up, so an OBS window capture of the
+//test page shows ONLY the typing
+body.streamer-mode {
+  header,
+  footer {
+    display: none !important;
+  }
+  #words,
+  #words .word {
+    font-size: 2.6rem !important;
+    line-height: 1.6;
+  }
+}

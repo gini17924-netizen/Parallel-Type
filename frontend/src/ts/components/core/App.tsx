@@ -10,9 +10,14 @@ import { router } from "../../router/app-router";
 import { getGlobalOffsetTop, isAppReady } from "../../states/core";
 import { cn } from "../../utils/cn";
 import { convertRemToPixels } from "../../utils/numbers";
+import { applyStreamerModeAtBoot } from "../../utils/streamer-mode";
 import { Advertisement } from "../common/Advertisement";
 import { Anime } from "../common/anime";
 import { SkipLink } from "../common/SkipLink";
+
+//phase 99: re-apply the streamer-mode body class from the persisted state
+//once at module load, before the first render
+applyStreamerModeAtBoot();
 import { DevTools } from "../dev/DevTools";
 import { Footer } from "../layout/footer/Footer";
 import { Header } from "../layout/header/Header";
@@ -36,7 +41,9 @@ export function App(): JSXElement {
       </div>
       <Anime
         id="app"
-        class={cn("content-grid focus", { hidden: !isAppReady() })}
+        class={cn("content-grid focus", {
+          hidden: !isAppReady(),
+        })}
         initial={{ opacity: 0 }}
         animate={{ opacity: isAppReady() ? 1 : 0, duration: 250 }}
         style={{

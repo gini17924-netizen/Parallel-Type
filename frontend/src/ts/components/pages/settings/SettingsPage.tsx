@@ -49,6 +49,7 @@ import { QuickNav } from "./QuickNav";
 import { SearchableAutoSetting } from "./SearchableAutoSetting";
 import { SearchableSetting } from "./SearchableSetting";
 import { SettingsSearch } from "./SettingsSearch";
+import { StreamerModeCard } from "./StreamerModeCard";
 import { UpdatesCard } from "./UpdatesCard";
 
 export function SettingsPage(): JSXElement {
@@ -111,6 +112,7 @@ export function SettingsPage(): JSXElement {
           <SearchableAutoSetting key="codeUnindentOnBackspace" />
         </Section>
         <Advertisement id="ad-settings-1" visible="sellout" />
+        <StreamerModeCard />
         <Section title="sound">
           <SoundVolume />
           <SoundPack />

@@ -3,8 +3,18 @@ import { For, JSXElement, Show, createSignal, onMount } from "solid-js";
 import { playClick } from "../../../../controllers/sound-controller";
 import { navigate } from "../../../../router/navigate";
 import { getLanPeerName } from "../../../../states/lan";
+import {
+  showErrorNotification,
+  showNoticeNotification,
+  showSuccessNotification,
+} from "../../../../states/notifications";
 import { registerDailyBotDuel } from "../../../../utils/bot-duel/daily";
 import { cn } from "../../../../utils/cn";
+import {
+  challengeCodeForDay,
+  challengeDayKey,
+  normalizeChallengeCode,
+} from "../../../../utils/daily-gauntlet/challenge";
 import { buildDaily, dayKeyOf } from "../../../../utils/daily-gauntlet/compose";
 import {
   gauntletTotal,
@@ -199,6 +209,44 @@ export function DailyGauntletPage(): JSXElement {
     void playClick();
   };
 
+  //phase 99: the shareable challenge code
+  const copyChallengeCode = (): void => {
+    void navigator.clipboard
+      .writeText(challengeCodeForDay(today))
+      .then(() => showSuccessNotification("challenge code copied to clipboard"))
+      .catch(() =>
+        showNoticeNotification("could not copy — please copy it manually"),
+      );
+  };
+
+  const [challengeDraft, setChallengeDraft] = createSignal("");
+
+  const loadChallenge = (): void => {
+    const code = normalizeChallengeCode(challengeDraft());
+    if (code === undefined) {
+      showErrorNotification("a challenge code is 4-16 letters and digits");
+      return;
+    }
+    const stages = buildDaily(code, listDailyPlayables());
+    if (stages.length === 0) return; //nothing registered — refuse
+    //the slot's dayKey carries the challenge: prefix — a reload frees the
+    //slot and the completion path skips the calendar/board for challenges
+    const fresh: GauntletState = {
+      dayKey: challengeDayKey(code),
+      stages,
+      stageIndex: 0,
+      results: [],
+      phase: "ready",
+      locked: false,
+      startedAt: undefined,
+      voidReason: undefined,
+    };
+    saveGauntletState(fresh);
+    setState(fresh);
+    setView("running");
+    void playClick();
+  };
+
   /** arms the pending stage and sends the player to the game's page */
   const runStage = (gameId: string): void => {
     ensureDailyRegistered();
@@ -276,6 +324,51 @@ export function DailyGauntletPage(): JSXElement {
           stages for everyone, locked after the first one. finish all three to
           stamp the calendar and grow the streak. closing the app between stages
           resumes from the next stage.
+        </div>
+        <div class="grid gap-2 rounded bg-bg p-4" data-testid="challenge-block">
+          <div class="text-sub">challenge a friend (phase 99)</div>
+          <div class="flex items-center justify-between gap-2">
+            <div>
+              <div
+                class="font-bold tracking-widest text-main"
+                data-testid="challenge-code"
+              >
+                {challengeCodeForDay(today)}
+              </div>
+              <div class="text-xs text-sub">
+                today&apos;s code — same for everyone
+              </div>
+            </div>
+            <Button
+              text="copy"
+              fa={{ icon: "fa-copy" }}
+              onClick={copyChallengeCode}
+            />
+          </div>
+          <div class="text-xs text-sub">
+            load a friend&apos;s code to race THEIR exact gauntlet (runs outside
+            your streak and board)
+          </div>
+          <div class="flex items-center gap-2">
+            <input
+              class="flex-1 rounded bg-bg p-2 text-sm text-main"
+              placeholder="challenge code (4-16 letters/digits)"
+              data-testid="challenge-input"
+              value={challengeDraft()}
+              onInput={(event) => {
+                setChallengeDraft(event.currentTarget.value);
+              }}
+              onKeyDown={(event) => {
+                if (event.key === "Enter") loadChallenge();
+              }}
+            />
+            <Button
+              text="load"
+              fa={{ icon: "fa-download" }}
+              disabled={challengeDraft().trim() === ""}
+              onClick={loadChallenge}
+            />
+          </div>
         </div>
         <StreakCalendar />
       </section>
