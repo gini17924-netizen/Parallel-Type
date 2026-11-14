@@ -12,7 +12,7 @@ import { showSuccessNotification } from "../states/notifications";
 
 const GOAL_KEY = "mtDesktopDailyGoalMinutes";
 const NOTIFIED_KEY = "mtDesktopGoalNotifiedDay";
-const DEFAULT_GOAL_MINUTES = 10;
+export const DEFAULT_GOAL_MINUTES = 10;
 
 /** the local day (midnight-to-midnight) a timestamp belongs to, as y/m/d */
 function dayKey(ts: number): string {
