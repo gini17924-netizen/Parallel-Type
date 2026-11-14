@@ -1,14 +1,7 @@
-import { CustomTheme, CustomThemeNameSchema } from "@monkeytype/schemas/users";
-import { For, JSXElement, Show, Suspense, untrack } from "solid-js";
+import { createSignal, For, JSXElement, Show } from "solid-js";
 import { debounce } from "throttle-debounce";
 import { z } from "zod";
 
-import {
-  addCustomTheme,
-  deleteCustomTheme,
-  editCustomTheme,
-  useCustomThemesLiveQuery,
-} from "../../../../collections/custom-themes";
 import { configMetadata } from "../../../../config/metadata";
 import { setConfig } from "../../../../config/setters";
 import { getConfig } from "../../../../config/store";
@@ -22,7 +15,6 @@ import {
   convertThemeToCustomColors,
 } from "../../../../controllers/theme-controller";
 import { createEffectOn } from "../../../../hooks/effects";
-import { isAuthenticated } from "../../../../states/core";
 import {
   showErrorNotification,
   showNoticeNotification,
@@ -33,10 +25,17 @@ import { getTheme, setTheme, updateThemeColor } from "../../../../states/theme";
 import { buildCustomThemeLink } from "../../../../url-actions/actions/custom-theme";
 import { cn } from "../../../../utils/cn";
 import { hexToHSL } from "../../../../utils/colors";
+import { replaceUnderscoresWithSpaces } from "../../../../utils/strings";
 import {
-  normalizeName,
-  replaceUnderscoresWithSpaces,
-} from "../../../../utils/strings";
+  buildCustomThemeFile,
+  deleteLocalCustomTheme,
+  downloadCustomThemeFile,
+  listLocalCustomThemes,
+  normalizeThemeName,
+  saveLocalCustomTheme,
+  validateCustomThemeFile,
+  type LocalCustomTheme,
+} from "../../../../utils/themes/custom-themes";
 import { AnimeSwitch } from "../../../common/anime";
 import { AnimeMatch } from "../../../common/anime/AnimeMatch";
 import { Button } from "../../../common/Button";
@@ -52,7 +51,71 @@ export const sortedThemes: ThemeWithName[] = [...ThemesList].sort((a, b) => {
 });
 
 export function Theme(): JSXElement {
-  const customThemes = useCustomThemesLiveQuery();
+  //phase 92: the LOCAL named custom themes (the account collection is
+  //auth-gated and the desktop fork boots signed-out, so the upstream
+  //"save as new" was dead code here). a signal so save/delete re-render.
+  const [localThemes, setLocalThemes] = createSignal(listLocalCustomThemes());
+  const refreshLocalThemes = (): void => {
+    setLocalThemes(listLocalCustomThemes());
+  };
+  // oxlint-disable-next-line eslint/no-unassigned-vars -- Solid ref binding assigns this in JSX
+  let importInputRef: HTMLInputElement | undefined;
+
+  const saveNamed = (): void => {
+    showSimpleModal({
+      title: "Save custom theme",
+      schema: z.object({ name: z.string().min(1).max(80) }),
+      inputs: {
+        name: {
+          type: "text",
+          initVal: "my theme",
+        },
+      },
+      buttonText: "save",
+      execFn: async ({ name }) => {
+        if (name === undefined || normalizeThemeName(name) === "") {
+          return { status: "error", message: "Name is required" };
+        }
+        const ok = saveLocalCustomTheme(name, getTheme());
+        if (!ok) {
+          return {
+            status: "error",
+            message: "Empty name or the custom theme limit reached",
+          };
+        }
+        refreshLocalThemes();
+        return { status: "success", message: "Custom theme saved" };
+      },
+    });
+  };
+
+  const importTheme = (file: File): void => {
+    void (async () => {
+      try {
+        const parsed = JSON.parse(await file.text()) as unknown;
+        const themeFile = validateCustomThemeFile(parsed);
+        if (themeFile === undefined) {
+          showErrorNotification("not a valid theme file");
+          return;
+        }
+        const ok = saveLocalCustomTheme(themeFile.name, themeFile.colors);
+        if (!ok) {
+          showErrorNotification("empty name or the custom theme limit reached");
+          return;
+        }
+        refreshLocalThemes();
+        showSuccessNotification(`theme imported: ${themeFile.name}`);
+      } catch {
+        showErrorNotification("failed to load the theme file");
+      }
+    })();
+  };
+
+  const exportCurrent = (): void => {
+    const current = getTheme();
+    const name = current.name === "custom" ? "custom theme" : current.name;
+    downloadCustomThemeFile(buildCustomThemeFile(name, current));
+  };
 
   const Presets = () => (
     <div class="grid gap-4">
@@ -84,15 +147,16 @@ export function Theme(): JSXElement {
 
   const Customs = () => (
     <div class="grid gap-4">
-      <Show when={isAuthenticated()}>
-        <div class="grid grid-cols-[repeat(auto-fill,minmax(17rem,1fr))] gap-2">
-          <Suspense>
-            <For each={customThemes()}>
-              {(theme) => <CustomThemeButton theme={theme} />}
-            </For>
-          </Suspense>
-        </div>
-      </Show>
+      <div class="grid grid-cols-[repeat(auto-fill,minmax(17rem,1fr))] gap-2">
+        <For each={localThemes()}>
+          {(theme) => (
+            <LocalCustomThemeButton
+              theme={theme}
+              onChanged={refreshLocalThemes}
+            />
+          )}
+        </For>
+      </div>
       <div class="grid grid-cols-1 gap-4 md:grid-cols-2">
         <Picker color="bg" />
         <Picker color="main" />
@@ -195,45 +259,46 @@ export function Theme(): JSXElement {
             });
           }}
         />
-        <Show when={isAuthenticated()}>
-          <Button
-            text="save as new"
-            onClick={() => {
-              if (customThemes().length >= 20) {
-                showNoticeNotification("Custom themes limit reached");
-                return;
-              }
-
-              void addCustomTheme({
-                name: "custom",
-                colors: convertThemeToCustomColors(getTheme()),
-              })
-                .then(() => {
-                  showSuccessNotification("Custom theme saved");
-                })
-                .catch((e: unknown) => {
-                  showErrorNotification(
-                    e instanceof Error
-                      ? e.message
-                      : "Failed to save custom theme",
-                  );
-                });
-            }}
-          />
-        </Show>
-        <Show when={!isAuthenticated()}>
-          <Button
-            text="save"
-            onClick={() => {
-              setConfig(
-                "customThemeColors",
-                convertThemeToCustomColors(getTheme()),
-              );
-              showSuccessNotification("Custom theme colors saved");
-            }}
-          />
-        </Show>
+        <Button
+          text="save as named"
+          fa={{ icon: "fa-save" }}
+          onClick={saveNamed}
+        />
+        <Button
+          text="import theme"
+          fa={{ icon: "fa-file-import" }}
+          onClick={() => {
+            importInputRef?.click();
+          }}
+        />
+        <Button
+          text="export current"
+          fa={{ icon: "fa-file-export" }}
+          onClick={exportCurrent}
+        />
+        <Button
+          text="save"
+          onClick={() => {
+            setConfig(
+              "customThemeColors",
+              convertThemeToCustomColors(getTheme()),
+            );
+            showSuccessNotification("Custom theme colors saved");
+          }}
+        />
       </div>
+      <input
+        ref={importInputRef}
+        type="file"
+        accept="application/json,.json"
+        class="hidden"
+        onChange={(event) => {
+          const file = event.currentTarget.files?.[0];
+          event.currentTarget.value = "";
+          if (file === undefined) return;
+          importTheme(file);
+        }}
+      />
     </div>
   );
 
@@ -308,8 +373,11 @@ export function Theme(): JSXElement {
   );
 }
 
-function CustomThemeButton(props: { theme: CustomTheme }): JSXElement {
-  const themeColors = () => convertCustomColorsToTheme(props.theme.colors);
+function LocalCustomThemeButton(props: {
+  theme: LocalCustomTheme;
+  onChanged: () => void;
+}): JSXElement {
+  const themeColors = () => props.theme.colors;
 
   return (
     <button
@@ -327,14 +395,17 @@ function CustomThemeButton(props: { theme: CustomTheme }): JSXElement {
         "transition-[opacity,color,background,box-shadow] duration-125",
       )}
       onClick={() => {
-        setConfig("customThemeColors", props.theme.colors);
+        setConfig(
+          "customThemeColors",
+          convertThemeToCustomColors(themeColors()),
+        );
       }}
-      data-theme-id={props.theme._id}
+      data-theme-id={props.theme.name}
     >
       <Button
         variant="text"
         fa={{
-          icon: "fa-pen",
+          icon: "fa-file-export",
           fixedWidth: true,
         }}
         class={cn(
@@ -344,58 +415,12 @@ function CustomThemeButton(props: { theme: CustomTheme }): JSXElement {
         )}
         onClick={(e) => {
           e.stopPropagation();
-          showSimpleModal({
-            title: "Update custom theme",
-            schema: z.object({
-              name: CustomThemeNameSchema,
-              updateColors: z.boolean(),
-            }),
-            inputs: {
-              name: {
-                type: "text",
-                initVal: replaceUnderscoresWithSpaces(props.theme.name),
-                preprocess: normalizeName,
-              },
-              updateColors: {
-                type: "checkbox",
-                label: "Update custom theme to current colors",
-              },
-            },
-            buttonText: "update",
-            execFn: async ({ name, updateColors }) => {
-              if (name === undefined) {
-                return {
-                  status: "error",
-                  message: "Name is required",
-                };
-              }
-              editCustomTheme({
-                themeId: props.theme._id,
-                name,
-                colors: updateColors
-                  ? convertThemeToCustomColors(untrack(() => getTheme()))
-                  : untrack(() => props.theme.colors),
-              })
-                .then(() => {
-                  showSuccessNotification("Updated");
-                })
-                .catch(() => {
-                  showErrorNotification(
-                    e instanceof Error
-                      ? e.message
-                      : "Failed to update custom theme",
-                  );
-                });
-
-              return {
-                status: "success",
-                showNotification: false,
-              };
-            },
-          });
+          downloadCustomThemeFile(
+            buildCustomThemeFile(props.theme.name, themeColors()),
+          );
         }}
       />
-      <div>{replaceUnderscoresWithSpaces(props.theme.name)}</div>
+      <div>{props.theme.name}</div>
       <Button
         variant="text"
         fa={{
@@ -411,12 +436,11 @@ function CustomThemeButton(props: { theme: CustomTheme }): JSXElement {
           e.stopPropagation();
           showSimpleModal({
             title: "Delete custom theme",
-            text: `Are you sure you want to delete the custom theme "${replaceUnderscoresWithSpaces(props.theme.name)}"? This action cannot be undone.`,
+            text: `Are you sure you want to delete the custom theme "${props.theme.name}"? This action cannot be undone.`,
             buttonText: "delete",
             execFn: async () => {
-              void deleteCustomTheme({
-                themeId: props.theme._id,
-              });
+              deleteLocalCustomTheme(props.theme.name);
+              props.onChanged();
               return {
                 status: "success",
                 message: "Custom theme deleted",
