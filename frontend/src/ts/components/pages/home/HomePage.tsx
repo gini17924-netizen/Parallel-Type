@@ -5,6 +5,13 @@ import {
   type AppSection,
   sectionDestination,
 } from "../../../constants/app-structure";
+import { showSuccessNotification } from "../../../states/notifications";
+import {
+  cabinetBadges,
+  refreshAchievements,
+  unlockedCount,
+} from "../../../utils/achievements/state";
+import { cn } from "../../../utils/cn";
 import {
   homeCards,
   moveSectionDown,
@@ -30,9 +37,19 @@ import {
 export function HomePage(): JSXElement {
   onMount(() => {
     startOnboardingIfNeeded();
+    //phase 97: sync the badge cabinet from the stores; fresh badges announce
+    void refreshAchievements().then((fresh) => {
+      for (const id of fresh) {
+        const badge = cabinetBadges().find((b) => b.id === id);
+        if (badge !== undefined) {
+          showSuccessNotification(`achievement unlocked: ${badge.title}`);
+        }
+      }
+    });
   });
 
   const [editing, setEditing] = createSignal(false);
+  const cabinet = (): ReturnType<typeof cabinetBadges> => cabinetBadges();
 
   const step = (): ReturnType<typeof currentOnboardingStep> => {
     return shouldShowOnboarding() ? currentOnboardingStep() : undefined;
@@ -188,6 +205,59 @@ export function HomePage(): JSXElement {
       >
         {editing() ? "close personalization" : "personalize home"}
       </button>
+      <Show
+        when={cabinet().length > 0}
+        fallback={
+          <div class="text-xs text-sub" data-testid="achievements-loading">
+            loading achievements…
+          </div>
+        }
+      >
+        <section class="w-full" data-testid="achievement-cabinet">
+          <div class="mb-2 flex items-center justify-between">
+            <div class="text-sub">
+              achievement cabinet — {unlockedCount()}/{cabinet().length} earned
+            </div>
+          </div>
+          <div class="grid grid-cols-1 gap-2 sm:grid-cols-2 lg:grid-cols-4">
+            <For each={cabinet()}>
+              {(badge) => (
+                <div
+                  class={cn(
+                    "flex items-center gap-3 rounded p-3",
+                    badge.unlockedAt === undefined
+                      ? "bg-sub-alt opacity-60"
+                      : "bg-bg",
+                  )}
+                  data-testid={`badge-${badge.id}`}
+                  title={badge.description}
+                >
+                  <i
+                    class={`fas ${badge.icon} text-xl ${
+                      badge.unlockedAt === undefined ? "text-sub" : "text-main"
+                    }`}
+                  ></i>
+                  <div class="grid gap-0.5 text-left">
+                    <div
+                      class={`text-sm font-bold ${
+                        badge.unlockedAt === undefined
+                          ? "text-sub"
+                          : "text-main"
+                      }`}
+                    >
+                      {badge.title}
+                      <span class="ml-1 text-[0.65rem] text-sub uppercase">
+                        {badge.tier}
+                      </span>
+                    </div>
+                    <div class="text-xs text-sub">{badge.description}</div>
+                  </div>
+                </div>
+              )}
+            </For>
+          </div>
+        </section>
+      </Show>
     </div>
   );
 }
