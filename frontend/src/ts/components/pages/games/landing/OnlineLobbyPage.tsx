@@ -21,6 +21,12 @@ import {
   type LanDiscovered,
 } from "../../../../states/lan";
 import {
+  clearLanChat,
+  getLanChatLog,
+  CHAT_MAX_CHARS,
+  sendLanChat,
+} from "../../../../states/lan-chat";
+import {
   armLanMatch,
   getLanMatch,
   sendLanMatchStart,
@@ -309,6 +315,7 @@ export function OnlineLobbyPage(): JSXElement {
             room)
           </div>
           <TournamentSection />
+          <Chat />
           <Show
             when={getLanRole() === "host"}
             fallback={
@@ -456,6 +463,66 @@ export function OnlineLobbyPage(): JSXElement {
   };
 
   const clientCount = () => Object.keys(getLanClients()).length;
+
+  //phase 80: the lobby chat — short capped messages on the pipe
+  const [chatDraft, setChatDraft] = createSignal("");
+  const sendChat = (): void => {
+    if (chatDraft().trim() === "") return;
+    sendLanChat(chatDraft());
+    setChatDraft("");
+  };
+
+  const Chat = (): JSXElement => {
+    return (
+      <section
+        class="grid gap-2 rounded bg-sub-alt p-4"
+        data-testid="chat-section"
+      >
+        <div class="text-sub">chat</div>
+        <div class="grid gap-1" data-testid="chat-log">
+          <Show
+            when={getLanChatLog().length > 0}
+            fallback={
+              <div class="text-xs text-sub">
+                no messages yet — say something while you wait
+              </div>
+            }
+          >
+            <For each={getLanChatLog().slice(-12).reverse()}>
+              {(message) => (
+                <div class="rounded bg-bg p-2 text-xs">
+                  <span class="font-bold text-main">{message.from}: </span>
+                  <span class="text-sub">{message.text}</span>
+                </div>
+              )}
+            </For>
+          </Show>
+        </div>
+        <div class="flex items-center gap-2">
+          <input
+            class="flex-1 rounded bg-bg p-2 text-sm text-text"
+            placeholder="say something… (280 max)"
+            maxlength={CHAT_MAX_CHARS}
+            value={chatDraft()}
+            data-testid="chat-input"
+            onInput={(event) => {
+              setChatDraft(event.currentTarget.value);
+            }}
+            onKeyDown={(event) => {
+              if (event.key === "Enter") sendChat();
+            }}
+          />
+          <Button
+            text="send"
+            fa={{ icon: "fa-paper-plane" }}
+            class="w-auto"
+            disabled={chatDraft().trim() === ""}
+            onClick={sendChat}
+          />
+        </div>
+      </section>
+    );
+  };
 
   const startTournament = async (): Promise<void> => {
     const roster = Object.values(getLanClients()).map((client) => ({
@@ -630,6 +697,9 @@ export function OnlineLobbyPage(): JSXElement {
           <div class="text-sub">live tournament</div>
           <TournamentBracket />
         </section>
+      </Show>
+      <Show when={isLanConnected()}>
+        <Chat />
       </Show>
     </div>
   );

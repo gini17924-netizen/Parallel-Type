@@ -8,6 +8,7 @@ import {
   type LanGameId,
   type LanStartPayload,
 } from "../utils/games/lan-registry";
+import { receiveLanChat } from "./lan-chat";
 import {
   getLanClients,
   getLanLastMessage,
@@ -341,6 +342,12 @@ export function handleLanPeerMessage(
   if (message["type"] === "tournament") {
     //phase 78: the host's bracket broadcast — the lobby renders it
     handleTournamentMessage(message["tournament"]);
+    return;
+  }
+  if (message["type"] === "chat") {
+    //phase 80: lobby chat rides the same pipe (the relay injects the
+    //sender's clientId) — the log lives in lan-chat
+    receiveLanChat(message, clientId);
     return;
   }
   //anything else is a game-specific type: the raw passthrough hands it to

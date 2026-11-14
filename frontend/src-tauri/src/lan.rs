@@ -1466,6 +1466,76 @@ mod tests {
         assert_eq!(relayed["clientId"].as_u64(), Some(1));
     }
 
+    /// the chat contract (phase 80): a 280-char chat rides the pipe to
+    /// every OTHER client with the sender's clientId injected — the Rust
+    /// side stays passthrough; the caps live at both ends (64KB line cap
+    /// here, the 280-char clamp in the frontend chat module)
+    #[tokio::test]
+    async fn a_max_length_chat_relays_to_the_other_clients() {
+        let listener = TcpListener::bind("127.0.0.1:0").await.expect("bind");
+        let addr = listener.local_addr().expect("addr");
+        let sink = TestSink::default();
+        let (_shutdown_tx, shutdown_rx) = tokio::sync::oneshot::channel::<()>();
+        let room: Room = Arc::new(std::sync::Mutex::new(HashMap::new()));
+        tokio::spawn(run_host(
+            sink.clone(),
+            "lan-1/ABCD".into(),
+            "ABCD".into(),
+            "HOST1".into(),
+            listener,
+            shutdown_rx,
+            room.clone(),
+        ));
+
+        //two clients join
+        let mut clients: Vec<(
+            BufReader<tokio::net::tcp::OwnedReadHalf>,
+            tokio::net::tcp::OwnedWriteHalf,
+        )> = Vec::new();
+        for i in 1..=2u64 {
+            let stream = tokio::net::TcpStream::connect(addr).await.expect("connect");
+            let (read, mut write) = stream.into_split();
+            let join = serde_json::json!({
+                "type": "join", "name": format!("P{i}"), "code": "ABCD"
+            });
+            write
+                .write_all(format!("{}
+", join).as_bytes())
+                .await
+                .expect("write the join");
+            let mut reader = BufReader::new(read);
+            let mut ack = String::new();
+            tokio::time::timeout(Duration::from_secs(3), reader.read_line(&mut ack))
+                .await
+                .expect("the ack")
+                .expect("the ack reads");
+            clients.push((reader, write));
+        }
+
+        //client 1 ships a MAX-LENGTH chat (280 chars of persian-flavored text)
+        let chat_text = "سلام ".repeat(56); //exactly 280 chars
+        assert_eq!(chat_text.chars().count(), 280);
+        let chat = serde_json::json!({
+            "type": "chat", "from": "P1", "text": chat_text, "ts": 1
+        });
+        clients[0]
+            .1
+            .write_all(format!("{}
+", chat).as_bytes())
+            .await
+            .expect("write the chat");
+
+        //client 2 receives the chat with the sender's clientId
+        let mut line = String::new();
+        tokio::time::timeout(Duration::from_secs(3), clients[1].0.read_line(&mut line))
+            .await
+            .expect("the chat relays")
+            .expect("it reads");
+        assert!(line.contains("\"type\":\"chat\""), "arrived: {line}");
+        assert!(line.contains("\"clientId\":1"), "the sender's id: {line}");
+        assert!(line.contains("سلام"), "the text is intact: {line}");
+    }
+
     /// the tournament's scheduling primitive (phase 78): a TARGETED send
     /// reaches exactly one room client — the others see nothing
     #[tokio::test]
