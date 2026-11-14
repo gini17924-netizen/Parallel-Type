@@ -10,6 +10,7 @@ import {
 
 import { Config } from "../../../../config/store";
 import { playClick, playError } from "../../../../controllers/sound-controller";
+import { showErrorNotification } from "../../../../states/notifications";
 import { navigate } from "../../../../router/navigate";
 import {
   getLanClients,
@@ -31,6 +32,14 @@ import {
   type LanMatch,
 } from "../../../../states/lan-match";
 import { cn } from "../../../../utils/cn";
+import {
+  createReplayRecorder,
+  seededSpawnWord,
+  type ReplayFile,
+  type ReplayRecorder,
+} from "../../../../utils/replay/recorder";
+import { createReplayPlayer } from "../../../../utils/replay/player";
+import { download } from "../../../../utils/misc";
 import { latinCharFromEvent } from "../../../../utils/games/latin-input";
 import { cachedFetchJson } from "../../../../utils/json-data";
 import { BALANCE } from "../../../../utils/stack-attack/balance";
@@ -113,6 +122,16 @@ export function StackAttackPage(): JSXElement {
     StackOnlineResult | undefined
   >(undefined);
   const [rematchSent, setRematchSent] = createSignal(false);
+  //phase 81: the input-timeline recording and the replay session
+  const [replayRecorder, setReplayRecorder] = createSignal<
+    ReplayRecorder | undefined
+  >(undefined);
+  const [replayFile, setReplayFile] = createSignal<string | undefined>(
+    undefined,
+  );
+  const [replaying, setReplaying] = createSignal(false);
+  let replayPlayer: ReturnType<typeof createReplayPlayer> | undefined;
+  let replayTick = 0;
 
   let engine: StackAttackEngine | undefined;
   let tickTimer: ReturnType<typeof setInterval> | undefined;
@@ -170,29 +189,39 @@ export function StackAttackPage(): JSXElement {
           .map((word) => word.toLowerCase()),
       ),
     ];
+    //phase 81: the run is seeded and recorded — the same seed + the same
+    //keystrokes replay EXACTLY (the block sequence is the deterministic
+    //half, the recorded timeline the other)
+    const runSeed = Date.now() % 2_147_483_647;
     engine = createStackAttackEngine({
-      spawnWord: (level) => {
-        //block length rides the level: 3 letters +1 per level, cap 6
-        const maxLen = Math.min(
-          BALANCE.maxWordLen,
-          BALANCE.minWordLen + level - 1,
-        );
-        const window_ = pickable.filter(
-          (word) => word.length >= BALANCE.minWordLen && word.length <= maxLen,
-        );
-        const source = window_.length > 0 ? window_ : pickable;
-        return source[Math.floor(Math.random() * source.length)] ?? "cat";
-      },
+      spawnWord: seededSpawnWord(runSeed, pickable, {
+        minWordLen: BALANCE.minWordLen,
+        maxWordLen: BALANCE.maxWordLen,
+      }),
     });
+    setReplayRecorder(createReplayRecorder(runSeed, pickable));
+    setReplayFile(undefined);
     setEngineState(engine.state());
     setPagePhase("playing");
     startTickLoop();
   };
 
-  /** the one tick loop both the offline run and the online race share */
+  /** the one tick loop both the offline run and the online race share —
+   * and, when a replay is loaded, the ghost's render loop */
   const startTickLoop = (): void => {
     tickTimer = setInterval(() => {
       if (engine === undefined) return;
+      if (replaying()) {
+        //phase 81: the recorded timeline drives the engine — no input
+        const next = replayPlayer?.step(engine);
+        if (next !== undefined) setEngineState(next);
+        if (replayPlayer?.done() === true) {
+          stopTimers();
+          setPagePhase("result");
+        }
+        return;
+      }
+      replayRecorder()?.tickDone();
       const state = engine.tick(TICK_MS);
       setEngineState(state);
       //online: relay the rows/score when they moved
@@ -288,6 +317,20 @@ export function StackAttackPage(): JSXElement {
         blocksLocked: state.result.blocksLocked,
       });
     }
+    //phase 81: the recording closes — the file lands behind the save
+    //button on the result screen
+    const recorder = replayRecorder();
+    if (recorder !== undefined && state !== undefined) {
+      setReplayFile(
+        JSON.stringify(
+          recorder.finish({
+            rows: state.rowsCleared,
+            score: state.score,
+          }),
+        ),
+      );
+    }
+    setReplayRecorder(undefined);
     setPagePhase("result");
   };
 
@@ -415,20 +458,25 @@ export function StackAttackPage(): JSXElement {
     //the arrows steer: swallowed so the page never scrolls or leaves
     if (event.key === "ArrowLeft") {
       event.preventDefault();
+      replayRecorder()?.record({ kind: "left" });
       const after = engine?.moveCol(-1);
       if (after !== undefined) setEngineState(after);
       return;
     }
     if (event.key === "ArrowRight") {
       event.preventDefault();
+      replayRecorder()?.record({ kind: "right" });
       const after = engine?.moveCol(1);
       if (after !== undefined) setEngineState(after);
       return;
     }
     if (event.key.length !== 1) return;
     event.preventDefault();
+    if (replaying()) return; //the ghost runs the recorded inputs only
     const before = engine?.state();
-    const after = engine?.feedKey(latinCharFromEvent(event.key, event.code));
+    const keyChar = latinCharFromEvent(event.key, event.code);
+    replayRecorder()?.record({ kind: "key", k: keyChar });
+    const after = engine?.feedKey(keyChar);
     if (after === undefined) return;
     if (before !== undefined) {
       if (after.blocksLocked > before.blocksLocked) {
@@ -458,7 +506,45 @@ export function StackAttackPage(): JSXElement {
     return cells;
   };
 
+  //phase 81: the replay viewer — a recorded file drives a fresh seeded
+  //engine through the recorded timeline; the page renders the field and
+  //the input stays dead
+  const watchReplay = (file: File): void => {
+    void (async () => {
+      try {
+        const parsed = JSON.parse(await file.text()) as ReplayFile;
+        if (
+          parsed?.version !== 1 ||
+          parsed?.gameId !== "stack-attack" ||
+          !Array.isArray(parsed?.words)
+        ) {
+          showErrorNotification("not a stack-attack replay file");
+          return;
+        }
+        clearLanMatch();
+        setReplaying(true);
+        setReplayRecorder(undefined);
+        setReplayFile(undefined);
+        engine = createStackAttackEngine({
+          spawnWord: seededSpawnWord(
+            parsed.seed,
+            parsed.words,
+            BALANCE,
+          ),
+        });
+        replayPlayer = createReplayPlayer(parsed, TICK_MS);
+        setEngineState(engine.state());
+        setPagePhase("playing");
+        startTickLoop();
+      } catch {
+        showErrorNotification("failed to load the replay file");
+      }
+    })();
+  };
+
   const Menu = (): JSXElement => {
+    // oxlint-disable-next-line eslint/no-unassigned-vars -- Solid ref binding assigns this in JSX
+    let replayInput: HTMLInputElement | undefined;
     return (
       <section class="grid gap-4 rounded bg-sub-alt p-4">
         <Show when={message() !== undefined}>
@@ -475,6 +561,26 @@ export function StackAttackPage(): JSXElement {
           fa={{ icon: "fa-play" }}
           class="w-full"
           onClick={() => void startRun()}
+        />
+        <Button
+          text="watch a replay"
+          fa={{ icon: "fa-film" }}
+          class="w-full"
+          onClick={() => {
+            replayInput?.click();
+          }}
+        />
+        <input
+          ref={replayInput}
+          type="file"
+          accept="application/json,.json"
+          class="hidden"
+          onChange={(event) => {
+            const file = event.currentTarget.files?.[0];
+            event.currentTarget.value = "";
+            if (file === undefined) return;
+            watchReplay(file);
+          }}
         />
         <div class="text-xs text-sub">
           type the falling word to lock the block into the grid — steer with the
@@ -811,6 +917,24 @@ export function StackAttackPage(): JSXElement {
               </div>
             )}
           </For>
+        </section>
+      </Show>
+      <Show when={replayFile() !== undefined && !replaying()}>
+        <section class="grid gap-2 rounded bg-sub-alt p-4">
+          <div class="text-sub">replay recorded (phase 81)</div>
+          <Button
+            text="save replay file"
+            fa={{ icon: "fa-download" }}
+            class="w-full"
+            onClick={() => {
+              const raw = replayFile();
+              if (raw === undefined) return;
+              download({
+                filename: `stack-attack-replay.json`,
+                data: new Blob([raw], { type: "application/json" }),
+              });
+            }}
+          />
         </section>
       </Show>
     </div>
