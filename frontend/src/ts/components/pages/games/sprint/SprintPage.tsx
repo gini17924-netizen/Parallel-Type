@@ -222,6 +222,11 @@ export function SprintPage(): JSXElement {
       }
       return;
     }
+    //phase 82: the run closes — a new ghost when the word count beat the
+    //old one (the offline attempt only; the online race has a real peer)
+    if (!lanMode()) {
+      ghostFinish("sprint", result.wordsComplete);
+    }
     //the best BEFORE this attempt drives the comparison arrow
     setPreviousBest(getSprintStats().bestByLang[Config.language]?.wpm);
     const stats = recordSprintResult({

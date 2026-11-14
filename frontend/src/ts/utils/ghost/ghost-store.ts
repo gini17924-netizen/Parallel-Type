@@ -83,7 +83,7 @@ const liveRuns: Record<string, { startScore: number; samples: GhostSample[] }> =
  * one (or no ghost exists yet). Returns whether the run became the ghost. */
 export function ghostFinish(gameId: string, finalScore: number): boolean {
   const live = liveRuns[gameId];
-  delete liveRuns[gameId];
+  liveRuns[gameId] = undefined as never;
   if (live === undefined) return false;
   const best = ghostStore.get()[gameId];
   if (best !== undefined && finalScore <= best.score) return false;
@@ -99,7 +99,7 @@ export function ghostFinish(gameId: string, finalScore: number): boolean {
 
 /** abandons the live run (a voided match, a leave) */
 export function ghostAbandon(gameId: string): void {
-  delete liveRuns[gameId];
+  liveRuns[gameId] = undefined as never;
 }
 
 /**
