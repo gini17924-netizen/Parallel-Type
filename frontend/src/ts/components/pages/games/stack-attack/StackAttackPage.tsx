@@ -131,7 +131,6 @@ export function StackAttackPage(): JSXElement {
   );
   const [replaying, setReplaying] = createSignal(false);
   let replayPlayer: ReturnType<typeof createReplayPlayer> | undefined;
-  let replayTick = 0;
 
   let engine: StackAttackEngine | undefined;
   let tickTimer: ReturnType<typeof setInterval> | undefined;

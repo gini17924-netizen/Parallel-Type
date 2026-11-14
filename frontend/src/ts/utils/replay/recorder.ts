@@ -1,5 +1,3 @@
-import { LCG } from "@keybr/rand";
-
 /**
  * The match replay (phase 81): the input timeline of a stack-attack run —
  * the run seed plus every keystroke and steering stamped with the ENGINE
