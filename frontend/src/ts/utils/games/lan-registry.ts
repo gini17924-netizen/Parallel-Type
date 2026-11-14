@@ -35,7 +35,8 @@ export type LanGameId =
   | "crane"
   | "beat-keys"
   | "type-pong"
-  | "relay";
+  | "relay"
+  | "tower-defense";
 
 /** what a game's buildStart produces — the caller (the lobby) ships it
  * inside the `start` message; the armed match adds role/peerName/seq */
@@ -55,6 +56,7 @@ export type LanPlayable = {
   /** where BOTH players navigate when the match starts */
   route:
     | "/games/relay"
+    | "/games/tower-defense"
     | "/games/bot-duel"
     | "/games/sprint"
     | "/games/ghost-gp"

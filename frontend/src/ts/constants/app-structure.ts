@@ -148,6 +148,13 @@ export const APP_SECTIONS: readonly AppSection[] = [
         route: "/games/lane-defense",
       },
       {
+        id: "tower-defense",
+        title: "tower defense",
+        description: "words march down five columns — hold the tower line",
+        icon: "fa-chess-rook",
+        route: "/games/tower-defense",
+      },
+      {
         id: "fruit-slash",
         title: "fruit slash",
         description: "arcs of words — slash them, never the bombs",

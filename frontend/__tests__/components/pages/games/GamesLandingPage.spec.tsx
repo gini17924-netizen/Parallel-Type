@@ -71,7 +71,7 @@ describe("games landing (games reorg, phase 2)", () => {
     //every categorized game card renders exactly once (23 = 24 - daily)
     expect(
       app.container.querySelectorAll('[data-testid="gl-game-card"]'),
-    ).toHaveLength(23);
+    ).toHaveLength(24);
     //the approved taxonomy titles
     for (const title of [
       "Speed & Race",

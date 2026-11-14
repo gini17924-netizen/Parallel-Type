@@ -52,7 +52,7 @@ describe("app structure (home hub sections)", () => {
     expect(sectionHasPicker(practice)).toBe(true);
   });
 
-  it("games has all twenty-four entries behind a picker (G24 + G2..G6 + G8..G15 + G20 + G22)", () => {
+  it("games has all twenty-five entries behind a picker (G24 + G2..G6 + G8..G15 + G20 + G22 + 85)", () => {
     const games = must("games");
     expect(games.route).toBeUndefined();
     expect(games.subSections?.map((sub) => sub.id)).toEqual([
@@ -65,6 +65,7 @@ describe("app structure (home hub sections)", () => {
       "deck-runner",
       "letter-strike",
       "lane-defense",
+      "tower-defense",
       "fruit-slash",
       "stack-attack",
       "type-snake",

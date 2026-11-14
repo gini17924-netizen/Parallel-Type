@@ -54,6 +54,7 @@ export const GAME_CATEGORIES: GameCategory[] = [
     gameIds: [
       "letter-strike",
       "lane-defense",
+      "tower-defense",
       "fruit-slash",
       "firefight",
       "climber",
