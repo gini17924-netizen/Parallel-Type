@@ -1,7 +1,7 @@
 import { createSignal } from "solid-js";
 import { LCG } from "@keybr/rand";
 
-import { lanSendToClient, lanSendToPeer } from "./lan";
+import { lanSendToPeer } from "./lan";
 
 /**
  * The elimination tournament (phase 78): a pure bracket engine over the
@@ -203,10 +203,9 @@ function settle(state: TournamentState): TournamentState {
           (match.players[0] === null && match.players[1] !== null))
       ) {
         match.done = true;
-        match.winner =
-          match.players[0] !== null
-            ? (match.players[0] as number)
-            : (match.players[1] as number);
+        const first = match.players[0];
+        const second = match.players[1];
+        match.winner = first !== null ? first : (second as number);
         changed = true;
       }
     }

@@ -1035,8 +1035,10 @@ mod tests {
             host_side.write_all(b"\n").await.expect("write newline");
         });
         let mut reader = BufReader::new(client_side);
-        let host = await_join_ack(&mut reader).await.expect("acked");
+        let (host, client_id) = await_join_ack(&mut reader).await.expect("acked");
         assert_eq!(host, "HOST1");
+        //a v1-shaped ack (no clientId) yields None
+        assert_eq!(client_id, None);
         fake_host.await.expect("fake host task");
     }
 

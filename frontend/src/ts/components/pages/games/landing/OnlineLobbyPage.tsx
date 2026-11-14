@@ -23,7 +23,6 @@ import {
 import {
   armLanMatch,
   getLanMatch,
-  getLanRoomClients,
   sendLanMatchStart,
   startTournamentMatch,
 } from "../../../../states/lan-match";
@@ -308,6 +307,7 @@ export function OnlineLobbyPage(): JSXElement {
             connected vs {getLanPeerName() ?? "P2"} ({clientCount()} in the
             room)
           </div>
+          <TournamentSection />
           <Show
             when={getLanRole() === "host"}
             fallback={
@@ -475,7 +475,9 @@ export function OnlineLobbyPage(): JSXElement {
 
   const TournamentBracket = (): JSXElement => {
     const t = getTournament();
-    if (t === undefined) return <div />;
+    if (t === undefined) {
+      return <div class="text-xs text-sub">no live tournament</div>;
+    }
     const nameOf = (id: number | null): string => {
       if (id === null) return "—";
       return (
@@ -552,7 +554,28 @@ export function OnlineLobbyPage(): JSXElement {
     return (
       <section class="grid gap-4 rounded bg-sub-alt p-4" data-testid="tournament-section">
         <div class="text-sub">tournament</div>
-        <Show when={inTournament} fallback={<div />}>
+        <Show
+          when={inTournament}
+          fallback={
+            <>
+              <div class="text-xs text-sub">
+                start one from the room's roster — every client watches the
+                bracket while the pairs race
+              </div>
+              <Show when={getLanRole() === "host"}>
+              <Button
+                text={`start tournament (${clientCount()} players)`}
+                fa={{ icon: "fa-trophy" }}
+                class="w-full"
+                disabled={clientCount() < 2}
+                  onClick={() => {
+                    void startTournament();
+                  }}
+                />
+              </Show>
+            </>
+          }
+        >
           <Show when={myUp()}>
             <div class="text-sm font-bold text-main" data-testid="tournament-up">
               your match is starting — you will be taken to the game
@@ -592,6 +615,12 @@ export function OnlineLobbyPage(): JSXElement {
         }
       >
         <Menu />
+      </Show>
+      <Show when={getTournament() !== undefined}>
+        <section class="grid gap-4 rounded bg-sub-alt p-4">
+          <div class="text-sub">live tournament</div>
+          <TournamentBracket />
+        </section>
       </Show>
     </div>
   );
