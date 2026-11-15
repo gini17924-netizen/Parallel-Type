@@ -60,6 +60,7 @@ import {
 } from "../../../../utils/preset/difficulty-preset";
 import { Button } from "../../../common/Button";
 import { H2 } from "../../../common/Headers";
+import { TeamRelayPanel } from "./TeamRelayPanel";
 
 type LobbyView = "menu" | "hosting" | "joining";
 
@@ -659,6 +660,7 @@ export function OnlineLobbyPage(): JSXElement {
             onClick={sendChat}
           />
         </div>
+        <TeamRelayPanel />
         <Show when={getLanRole() === "host"}>
           <div class="text-sub">custom duel (phase 83)</div>
           <textarea
