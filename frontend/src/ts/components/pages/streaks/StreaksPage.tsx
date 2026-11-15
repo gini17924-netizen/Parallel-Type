@@ -1,6 +1,7 @@
 import { createSignal, For, JSXElement, onMount, Show } from "solid-js";
 
 import { cn } from "../../../utils/cn";
+import { gameTrendSeries } from "../../../utils/game-trends";
 import { buildStreakView, type StreakView } from "../../../utils/streaks/state";
 import {
   buildWeeklyReport,
@@ -15,6 +16,7 @@ import {
 export function StreaksPage(): JSXElement {
   const [view, setView] = createSignal<StreakView | undefined>(undefined);
   const [weekly, setWeekly] = createSignal<WeeklyReport | undefined>(undefined);
+  const [trends, setTrends] = createSignal(gameTrendSeries());
   const [failed, setFailed] = createSignal(false);
 
   onMount(() => {
@@ -26,6 +28,7 @@ export function StreaksPage(): JSXElement {
         console.error("streak view failed", error);
         setFailed(true);
       });
+    setTrends(gameTrendSeries());
     //phase 108: the weekly report rides the same boot
     void buildWeeklyReport()
       .then((report) => {
@@ -141,6 +144,45 @@ export function StreaksPage(): JSXElement {
               </Show>
             </section>
           </Show>
+          <section class="grid gap-3" data-testid="game-trends">
+            <div class="text-sub">game trends — the recent runs per game</div>
+            <For each={trends().filter((trend) => trend.points.length > 0)}>
+              {(trend) => (
+                <div class="grid gap-1 rounded bg-sub-alt p-3">
+                  <div class="flex items-center justify-between">
+                    <div class="text-sm font-bold text-main">{trend.label}</div>
+                    <div class="text-xs text-sub tabular-nums">
+                      best {trend.best} · latest {trend.latest} ·{" "}
+                      <span
+                        class={cn(trend.step > 0 ? "text-main" : "text-sub")}
+                      >
+                        {trend.step > 0 ? "▲ +" : trend.step < 0 ? "▼ " : "· "}
+                        {trend.step !== 0 ? trend.step : "flat"}
+                      </span>
+                    </div>
+                  </div>
+                  <div class="flex h-8 items-end gap-1">
+                    <For each={trend.points}>
+                      {(point) => (
+                        <div
+                          class="flex-1 rounded-t bg-main/70"
+                          style={{
+                            height: `${Math.max(
+                              10,
+                              Math.round(
+                                (point.value / Math.max(1, trend.best)) * 100,
+                              ),
+                            )}%`,
+                          }}
+                          title={`${new Date(point.at).toISOString().slice(0, 10)}: ${point.value}`}
+                        ></div>
+                      )}
+                    </For>
+                  </div>
+                </div>
+              )}
+            </For>
+          </section>
           <section class="grid gap-3" data-testid="streaks-per-game">
             <div class="text-sub">per game</div>
             <For each={view()?.perGame ?? []}>
