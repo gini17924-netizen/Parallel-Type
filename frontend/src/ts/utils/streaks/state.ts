@@ -1,6 +1,6 @@
 import { loadLocalResults } from "../local-persistence";
 import { getGauntletStats } from "../daily-gauntlet/store";
-import { getWordBlastHistory } from "../word-blast-scores";
+import { getWordBlastHistory } from "../word-blast/store";
 import {
   computeDailyStreak,
   computeWeeklyStreak,

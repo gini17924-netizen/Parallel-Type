@@ -3,11 +3,11 @@ import { describe, it, expect, beforeEach, vi } from "vitest";
 //the module memoizes its storage wrapper (cache inside
 //LocalStorageWithSchema), so every test gets a fresh module instance —
 //same convention as custom-text.spec.ts
-let Scores!: typeof import("../../src/ts/utils/word-blast-scores");
+let Scores!: typeof import("../../../src/ts/utils/word-blast/store");
 
 async function freshModule(): Promise<void> {
   vi.resetModules();
-  Scores = await import("../../src/ts/utils/word-blast-scores");
+  Scores = await import("../../../src/ts/utils/word-blast/store");
 }
 
 describe("word-blast-scores (KI-21)", () => {

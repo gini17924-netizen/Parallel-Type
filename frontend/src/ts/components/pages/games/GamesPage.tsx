@@ -46,10 +46,6 @@ import {
   type WordPools,
 } from "../../../utils/word-blast";
 import {
-  getWordBlastBest,
-  recordWordBlastGame,
-} from "../../../utils/word-blast-scores";
-import {
   completeDailyWordBlast,
   takePendingDailyStage,
 } from "../../../utils/word-blast/daily";
@@ -59,6 +55,10 @@ import {
   type WordBlastRemoteState,
   type WordBlastVerdict,
 } from "../../../utils/word-blast/lan";
+import {
+  getWordBlastBest,
+  recordWordBlastGame,
+} from "../../../utils/word-blast/store";
 import { Button } from "../../common/Button";
 import { H2 } from "../../common/Headers";
 

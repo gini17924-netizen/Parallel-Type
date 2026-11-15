@@ -14,7 +14,7 @@ import {
 import {
   _resetWordBlastScoresForTests,
   WORD_BLAST_SCORES_KEY,
-} from "../../../../src/ts/utils/word-blast-scores";
+} from "../../../../src/ts/utils/word-blast/store";
 import { App, cleanupApp, renderApp } from "../../../__harness__/app-shell";
 
 const SCORES_KEY = WORD_BLAST_SCORES_KEY;

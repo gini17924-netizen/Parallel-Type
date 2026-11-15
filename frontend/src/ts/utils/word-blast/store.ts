@@ -1,7 +1,7 @@
 import { z } from "zod";
 
-import { LocalStorageWithSchema } from "./local-storage-with-schema";
-import { type Difficulty } from "./word-blast";
+import { LocalStorageWithSchema } from "../local-storage-with-schema";
+import { type Difficulty } from "../word-blast";
 
 /**
  * Word Blast highscores and recent-game history for the desktop offline

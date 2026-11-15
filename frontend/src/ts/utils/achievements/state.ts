@@ -5,7 +5,7 @@ import { LocalStorageWithSchema } from "../local-storage-with-schema";
 
 import { loadLocalResults } from "../local-persistence";
 import { getGauntletStats } from "../daily-gauntlet/store";
-import { getWordBlastBest } from "../word-blast-scores";
+import { getWordBlastBest } from "../word-blast/store";
 import { getCraneBestScore } from "../crane/store";
 import { getClimberBestScore, getRunnerBestDistanceM } from "../climber/store";
 import { getFirefightBestScore } from "../firefight/store";

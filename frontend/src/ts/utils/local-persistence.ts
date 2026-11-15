@@ -382,7 +382,7 @@ export function saveLocalSnapshotFields(fields: PersistedSnapshotFields): void {
 const DAILY_GOAL_KEY = "mtDesktopDailyGoalMinutes"; //owner: utils/daily-goal.ts
 //owner: components/pages/games/GamesPage.tsx (the difficulty picker writes it)
 const WORD_BLAST_DIFFICULTY_KEY = "mtDesktopWordBlastDifficulty";
-const WORD_BLAST_SCORES_KEY = "mtDesktopWordBlastScores"; //owner: utils/word-blast-scores.ts
+const WORD_BLAST_SCORES_KEY = "mtDesktopWordBlastScores"; //owner: utils/word-blast/store.ts
 const CUSTOM_TEXT_KEY = "customText"; //owner: test/custom-text.ts
 const CUSTOM_TEXT_LONG_KEY = "customTextLong"; //owner: test/custom-text.ts
 const CUSTOM_TEXT_SETTINGS_KEY = "customTextSettings"; //owner: test/custom-text.ts
@@ -813,7 +813,7 @@ export async function importBackup(backup: LocalBackup): Promise<number> {
     //audit L4: an out-of-schema payload would be wiped to the empty fallback
     //by the store's next read - coerce it into a valid shape instead
     const { sanitizeImportedWordBlastScores } =
-      await import("./word-blast-scores");
+      await import("./word-blast/store");
     window.localStorage.setItem(
       WORD_BLAST_SCORES_KEY,
       JSON.stringify(sanitizeImportedWordBlastScores(backup.wordBlastScores)),
