@@ -57,6 +57,7 @@ import { cn } from "../../../../utils/cn";
 import { latinCharFromEvent } from "../../../../utils/games/latin-input";
 import { Button } from "../../../common/Button";
 import { H2 } from "../../../common/Headers";
+import { LanSpectatorHud } from "../lan/SpectatorHud";
 
 const TICK_MS = 16;
 /** the hit line's vertical position (% of the arena height) */
@@ -582,6 +583,9 @@ export function BeatKeysPage(): JSXElement {
       <section class="grid gap-4 rounded bg-sub-alt p-4">
         <Show when={voided()}>
           <div class="text-error" data-testid="bk-voided">
+            <Show when={getLanMatch()?.role === "spectator"}>
+              <LanSpectatorHud gameId="beat-keys" />
+            </Show>{" "}
             the round was voided (tab switch) — nothing was recorded
           </div>
         </Show>

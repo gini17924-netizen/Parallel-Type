@@ -47,20 +47,21 @@ import {
   recordBalloonRun,
 } from "../../../../utils/balloon-pop/store";
 import { cn } from "../../../../utils/cn";
+import { createSeededRng } from "../../../../utils/daily-gauntlet/seeded-rng";
 import {
   ghostFinish,
   ghostSample,
   ghostStart,
   getGhostRun,
 } from "../../../../utils/ghost/ghost-store";
-import { GhostMeter } from "../ghost/GhostMeter";
-import { createSeededRng } from "../../../../utils/daily-gauntlet/seeded-rng";
 import { cachedFetchJson } from "../../../../utils/json-data";
 import { unlockedLetters } from "../../../../utils/learn-stats";
 import { buildCurrentWeakness } from "../../../../utils/smart-drill";
 import { speakWord } from "../../../../utils/tts-speech";
 import { Button } from "../../../common/Button";
 import { H2 } from "../../../common/Headers";
+import { GhostMeter } from "../ghost/GhostMeter";
+import { LanSpectatorHud } from "../lan/SpectatorHud";
 
 const TICK_MS = BALANCE.tickMs;
 const FALLBACK_WORDS = ["cat", "frog", "bird", "sun", "tree", "fish"];
@@ -485,6 +486,9 @@ export function BalloonPopPage(): JSXElement {
       <section class="grid gap-4 rounded bg-sub-alt p-4">
         <Show when={message() !== undefined}>
           <div class="text-error">{message()}</div>
+          <Show when={getLanMatch()?.role === "spectator"}>
+            <LanSpectatorHud gameId="balloon-pop" />
+          </Show>{" "}
         </Show>
         <div class="text-sub">language</div>
         <div class="grid grid-cols-2 gap-2">

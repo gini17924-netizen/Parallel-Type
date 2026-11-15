@@ -52,6 +52,7 @@ import { cn } from "../../../../utils/cn";
 import { cachedFetchJson } from "../../../../utils/json-data";
 import { Button } from "../../../common/Button";
 import { H2 } from "../../../common/Headers";
+import { LanSpectatorHud } from "../lan/SpectatorHud";
 
 const TICK_MS = 50;
 const COUNTDOWN_STEP_MS = 900;
@@ -489,6 +490,9 @@ export function BotDuelPage(): JSXElement {
       <section class="grid gap-4 rounded bg-sub-alt p-4">
         <Show when={voided()}>
           <div class="text-error">{voidText()}</div>
+          <Show when={getLanMatch()?.role === "spectator"}>
+            <LanSpectatorHud gameId="bot-duel" />
+          </Show>{" "}
         </Show>
         <div class="text-sub">bot speed (wpm)</div>
         <div class="grid grid-cols-6 gap-2">

@@ -49,6 +49,7 @@ import { latinCharFromEvent } from "../../../../utils/games/latin-input";
 import { cachedFetchJson } from "../../../../utils/json-data";
 import { Button } from "../../../common/Button";
 import { H2 } from "../../../common/Headers";
+import { LanSpectatorHud } from "../lan/SpectatorHud";
 
 const TICK_MS = 50;
 /** the engine's vh band (apex ~54, floor 105) mapped into the arena */
@@ -435,6 +436,9 @@ export function FruitSlashPage(): JSXElement {
       <section class="grid gap-4 rounded bg-sub-alt p-4">
         <Show when={message() !== undefined}>
           <div class="text-error">{message()}</div>
+          <Show when={getLanMatch()?.role === "spectator"}>
+            <LanSpectatorHud gameId="fruit-slash" />
+          </Show>{" "}
         </Show>
         <Show when={voidMessage() !== undefined}>
           <div class="text-error">{voidMessage()}</div>

@@ -50,6 +50,7 @@ import { latinCharFromEvent } from "../../../../utils/games/latin-input";
 import { unlockedLetters } from "../../../../utils/learn-stats";
 import { Button } from "../../../common/Button";
 import { H2 } from "../../../common/Headers";
+import { LanSpectatorHud } from "../lan/SpectatorHud";
 
 const TICK_MS = 30; //doc G17 §۱: tick 30ms
 const FALL_MS = 450; //the fall animation length
@@ -463,6 +464,9 @@ export function CranePage(): JSXElement {
       <section class="grid gap-4 rounded bg-sub-alt p-4">
         <Show when={message() !== undefined}>
           <div class="text-error">{message()}</div>
+          <Show when={getLanMatch()?.role === "spectator"}>
+            <LanSpectatorHud gameId="crane" />
+          </Show>{" "}
         </Show>
         <Show when={voidMessage() !== undefined}>
           <div class="text-error">{voidMessage()}</div>
