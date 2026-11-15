@@ -2,6 +2,10 @@ import { createSignal, For, JSXElement, onMount, Show } from "solid-js";
 
 import { cn } from "../../../utils/cn";
 import { buildStreakView, type StreakView } from "../../../utils/streaks/state";
+import {
+  buildWeeklyReport,
+  type WeeklyReport,
+} from "../../../utils/weekly-report";
 
 /**
  * phase 98: THE unified streak view — daily, weekly and per-game streaks
@@ -10,6 +14,7 @@ import { buildStreakView, type StreakView } from "../../../utils/streaks/state";
  */
 export function StreaksPage(): JSXElement {
   const [view, setView] = createSignal<StreakView | undefined>(undefined);
+  const [weekly, setWeekly] = createSignal<WeeklyReport | undefined>(undefined);
   const [failed, setFailed] = createSignal(false);
 
   onMount(() => {
@@ -20,6 +25,14 @@ export function StreaksPage(): JSXElement {
       .catch((error: unknown) => {
         console.error("streak view failed", error);
         setFailed(true);
+      });
+    //phase 108: the weekly report rides the same boot
+    void buildWeeklyReport()
+      .then((report) => {
+        setWeekly(report);
+      })
+      .catch((error: unknown) => {
+        console.error("weekly report failed", error);
       });
   });
 
@@ -87,6 +100,47 @@ export function StreaksPage(): JSXElement {
               testId="streak-weekly"
             />
           </section>
+          <Show when={weekly() !== undefined}>
+            <section class="grid gap-3" data-testid="weekly-report">
+              <div class="text-sub">weekly report</div>
+              <Show
+                when={(weekly()?.weeks.length ?? 0) > 0}
+                fallback={
+                  <div class="text-xs text-sub">
+                    complete tests to fill the weekly buckets
+                  </div>
+                }
+              >
+                <For each={weekly()?.weeks.slice(-6)}>
+                  {(week) => (
+                    <div class="flex items-center justify-between rounded bg-sub-alt p-3">
+                      <div class="text-xs text-sub">week {week.weekIndex}</div>
+                      <div class="text-sm text-main tabular-nums">
+                        {week.tests} tests · {week.avgWpm} wpm ·{" "}
+                        {Math.round(week.avgAcc * 100)}%
+                      </div>
+                    </div>
+                  )}
+                </For>
+                <div class="text-xs text-sub">
+                  latest week vs the one before:{" "}
+                  <span
+                    class={cn(
+                      "font-bold",
+                      (weekly()?.wpmTrend ?? 0) >= 0
+                        ? "text-main"
+                        : "text-error",
+                    )}
+                  >
+                    {(weekly()?.wpmTrend ?? 0) >= 0 ? "+" : ""}
+                    {weekly()?.wpmTrend} wpm
+                  </span>{" "}
+                  / {(weekly()?.accTrend ?? 0) >= 0 ? "+" : ""}
+                  {Math.round((weekly()?.accTrend ?? 0) * 100)}% acc
+                </div>
+              </Show>
+            </section>
+          </Show>
           <section class="grid gap-3" data-testid="streaks-per-game">
             <div class="text-sub">per game</div>
             <For each={view()?.perGame ?? []}>

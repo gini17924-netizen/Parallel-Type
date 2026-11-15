@@ -8,6 +8,11 @@ import { navigate } from "../../../router/navigate";
 import { setCustomTextIndicator } from "../../../states/core";
 import { showNoticeNotification } from "../../../states/notifications";
 import * as CustomText from "../../../test/custom-text";
+import { cn } from "../../../utils/cn";
+import {
+  buildSymbolDrillPlan,
+  loadCodeDrillState,
+} from "../../../utils/code-drill";
 import {
   isDrillSpeechEnabled,
   setDrillSpeechEnabled,
@@ -17,6 +22,12 @@ import {
   generateEnterDrillWords,
   type EnterDrillStyle,
 } from "../../../utils/enter-drill";
+import {
+  bucketSummary,
+  heatmapFromLearnState,
+  type HeatCell,
+} from "../../../utils/heatmap";
+import { loadKeybrLetterStats } from "../../../utils/keybr-letter-stats";
 import {
   fetchWordList,
   generateDrillWords,
@@ -31,15 +42,6 @@ import {
   weakLettersDetailed,
   type MasteryPathGroup,
 } from "../../../utils/learn-stats";
-import { loadKeybrLetterStats } from "../../../utils/keybr-letter-stats";
-import {
-  buildCurrentWeakness,
-  generateSmartDrillWords,
-} from "../../../utils/smart-drill";
-import {
-  buildSymbolDrillPlan,
-  loadCodeDrillState,
-} from "../../../utils/code-drill";
 import {
   buildPersianPunctuationDrillWords,
   buildZwnjDrillWords,
@@ -47,6 +49,10 @@ import {
   PERSIAN_PUNCTUATION_DRILL_NAME,
   ZWNJ_DRILL_NAME,
 } from "../../../utils/persian-drills";
+import {
+  buildCurrentWeakness,
+  generateSmartDrillWords,
+} from "../../../utils/smart-drill";
 import { Button } from "../../common/Button";
 import { H2 } from "../../common/Headers";
 
@@ -92,9 +98,16 @@ export function DrillsPage(): JSXElement {
     undefined,
   );
   //phase 67: code-symbol stats (own store — never mixes with letters)
-  const [codeStats, setCodeStats] = createSignal<{ total: number; weakest: string }>(
-    { total: 0, weakest: "" },
+  const [codeStats, setCodeStats] = createSignal<{
+    total: number;
+    weakest: string;
+  }>({ total: 0, weakest: "" });
+  const [heatmap, setHeatmap] = createSignal<HeatCell[]>(
+    heatmapFromLearnState(),
   );
+  const refreshHeatmap = (): void => {
+    setHeatmap(heatmapFromLearnState());
+  };
   //phase 70: the per-key mastery chain (mastered → current → locked)
   const [masteryPath, setMasteryPath] = createSignal<MasteryPathGroup[]>([]);
 
@@ -111,14 +124,22 @@ export function DrillsPage(): JSXElement {
   const refreshCodeStats = (): void => {
     const state = loadCodeDrillState();
     const entries = Object.entries(state.symbols);
-    const total = entries.reduce((sum, [, s]) => sum + s.correct + s.incorrect, 0);
+    const total = entries.reduce(
+      (sum, [, s]) => sum + s.correct + s.incorrect,
+      0,
+    );
     const weakest = entries
       .filter(([, s]) => s.correct + s.incorrect > 0)
-      .sort((a, b) => b[1].incorrect / (b[1].correct + b[1].incorrect) - a[1].incorrect / (a[1].correct + a[1].incorrect))
+      .sort(
+        (a, b) =>
+          b[1].incorrect / (b[1].correct + b[1].incorrect) -
+          a[1].incorrect / (a[1].correct + a[1].incorrect),
+      )
       .slice(0, 5)
       .map(([ch]) => ch)
       .join(" ");
     setCodeStats({ total, weakest });
+    refreshHeatmap();
   };
 
   onMount(async () => {
@@ -133,7 +154,11 @@ export function DrillsPage(): JSXElement {
     refreshEnterAccuracy();
     refreshCodeStats();
     setMasteryPath(
-      masteryPathForLanguage(getLearnState(), loadKeybrLetterStats(), language()),
+      masteryPathForLanguage(
+        getLearnState(),
+        loadKeybrLetterStats(),
+        language(),
+      ),
     );
   });
 
@@ -147,12 +172,15 @@ export function DrillsPage(): JSXElement {
         </p>
       </section>
 
-      <section class="grid gap-4 rounded bg-sub-alt p-4" data-testid="mastery-path-card">
+      <section
+        class="grid gap-4 rounded bg-sub-alt p-4"
+        data-testid="mastery-path-card"
+      >
         <div class="text-sub">mastery path (phase 70)</div>
         <div class="text-xs text-sub">
           a key masters at ≥20 correct chars with ≥95% accuracy — and
-          ≤800ms/char once the keybr engine holds timing for it; the next
-          group opens when the current one fully masters
+          ≤800ms/char once the keybr engine holds timing for it; the next group
+          opens when the current one fully masters
         </div>
         <div class="grid gap-2">
           <For each={masteryPath()}>
@@ -355,14 +383,55 @@ export function DrillsPage(): JSXElement {
         />
       </section>
 
-      <section class="grid gap-4 rounded bg-sub-alt p-4" data-testid="code-symbols-card">
+      <section
+        class="grid gap-4 rounded bg-sub-alt p-4"
+        data-testid="heatmap-card"
+      >
+        <div class="text-sub">keyboard heatmap (phase 108)</div>
+        <Show
+          when={heatmap().length > 0}
+          fallback={
+            <div class="text-xs text-sub">
+              graded keys land here after drills — five samples rate a key
+            </div>
+          }
+        >
+          <div class="text-xs text-sub">
+            weakest first — {bucketSummary(heatmap()).weak} weak,{" "}
+            {bucketSummary(heatmap()).mid} building,{" "}
+            {bucketSummary(heatmap()).strong} solid
+          </div>
+          <div class="grid grid-cols-[repeat(auto-fill,minmax(3.2rem,1fr))] gap-1">
+            <For each={heatmap()}>
+              {(cell) => (
+                <div
+                  class={cn(
+                    "grid place-items-center rounded p-2 text-sm font-bold",
+                    cell.bucket === "weak" && "bg-error text-bg",
+                    cell.bucket === "mid" && "bg-main text-bg",
+                    cell.bucket === "strong" && "bg-bg text-sub",
+                  )}
+                  title={`${cell.key}: ${cell.acc}% over ${cell.samples} samples`}
+                >
+                  {cell.key}
+                </div>
+              )}
+            </For>
+          </div>
+        </Show>
+      </section>
+
+      <section
+        class="grid gap-4 rounded bg-sub-alt p-4"
+        data-testid="code-symbols-card"
+      >
         <div class="text-sub">code symbols (phase 67)</div>
         <Show
           when={codeStats().total > 0}
           fallback={
             <div class="text-xs text-sub">
-              type a code snippet first — every code session feeds these
-              stats ({}[]();= and friends are what break code speed)
+              type a code snippet first — every code session feeds these stats (
+              {}[]();= and friends are what break code speed)
             </div>
           }
         >
@@ -415,8 +484,8 @@ export function DrillsPage(): JSXElement {
             />
           </div>
           <div class="text-xs text-sub">
-            the ZWNJ drill keeps half-spaces in the targets (shift+space
-            types them) — everything else stays plain-typed
+            the ZWNJ drill keeps half-spaces in the targets (shift+space types
+            them) — everything else stays plain-typed
           </div>
         </section>
       </Show>
