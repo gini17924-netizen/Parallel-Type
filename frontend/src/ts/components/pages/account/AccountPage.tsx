@@ -30,6 +30,7 @@ import {
 import { computeStreakFromResults } from "../../../utils/local-streak";
 import { exportResultsCsv } from "../../../utils/result-export";
 import { exportStatsHtmlFile } from "../../../utils/stats-export";
+import { importWebResults } from "../../../utils/web-results-import";
 import { Advertisement } from "../../common/Advertisement";
 import AsyncContent from "../../common/AsyncContent";
 import { Button } from "../../common/Button";
@@ -66,6 +67,8 @@ export function AccountPage(): JSXElement {
   const [restoreConfirming, setRestoreConfirming] = createSignal(false);
   // oxlint-disable-next-line eslint/no-unassigned-vars -- Solid ref binding assigns this in JSX
   let restoreInput: HTMLInputElement | undefined;
+  // oxlint-disable-next-line eslint/no-unassigned-vars -- Solid ref binding assigns this in JSX
+  let webResultsInput: HTMLInputElement | undefined;
 
   const resultsQuery = useResultsLiveQuery({
     queryState,
@@ -275,6 +278,40 @@ export function AccountPage(): JSXElement {
                   .finally(() => {
                     hideLoaderBar();
                     setIsExporting(false);
+                  });
+              }}
+            />
+            <Button
+              text="Import web results"
+              fa={{ icon: "fa-download" }}
+              class="col-start-2 w-full"
+              onClick={() => {
+                webResultsInput?.click();
+              }}
+            />
+            <input
+              ref={webResultsInput}
+              type="file"
+              accept="application/json,.json"
+              class="hidden"
+              onChange={(event) => {
+                const file = event.currentTarget.files?.[0];
+                event.currentTarget.value = "";
+                if (file === undefined) return;
+                void file
+                  .text()
+                  .then(async (text) => importWebResults(JSON.parse(text)))
+                  .then((outcome) => {
+                    showSuccessNotification(
+                      `web results: ${outcome.imported} imported, ${outcome.duplicates} duplicates, ${outcome.skipped} skipped`,
+                    );
+                  })
+                  .catch((error: unknown) => {
+                    console.error("Failed to import web results", error);
+                    showErrorNotification(
+                      "not a monkeytype web results export",
+                      { error },
+                    );
                   });
               }}
             />

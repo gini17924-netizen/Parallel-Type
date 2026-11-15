@@ -1,6 +1,10 @@
 import type { SnapshotResult } from "../constants/default-snapshot";
 import type { Mode } from "@monkeytype/schemas/shared";
-import { makeLocalResultId } from "./local-persistence";
+import {
+  appendLocalResult,
+  loadLocalResults,
+  makeLocalResultId,
+} from "./local-persistence";
 import { download } from "./misc";
 
 /**
@@ -130,6 +134,27 @@ th{background:#2c2e31}.big{font-size:1.6rem;color:#e2b714}</style></head>
 <table><tr><th>date</th><th>mode</th><th>mode2</th><th>wpm</th><th>acc</th></tr>${tableRows}</table>
 <p style="color:#646669">generated offline by ParallelType — no server involved</p>
 </body></html>`;
+}
+
+/** the orchestration the account page's button calls: parse the payload,
+ * de-duplicate against the STORE's timestamps, append every new row and
+ * return the outcome for the notification */
+export async function importWebResults(payload: unknown): Promise<{
+  imported: number;
+  skipped: number;
+  duplicates: number;
+}> {
+  const parsed = parseWebResults(payload);
+  const existing = (await loadLocalResults()).map((r) => r.timestamp);
+  const deduped = dedupeAgainst(parsed.rows, existing);
+  for (const row of deduped.rows) {
+    await appendLocalResult(row);
+  }
+  return {
+    imported: deduped.rows.length,
+    skipped: parsed.skipped,
+    duplicates: deduped.duplicates,
+  };
 }
 
 /** downloads the report file (the share flow) */
