@@ -40,7 +40,7 @@
     "update-oxc": "pnpm up -D -r oxlint@latest oxfmt@latest oxlint-tsgolint@latest"
   },
   "devDependencies": {
-    "@commitlint/cli": "20.5.2",
+    "@commitlint/cli": "21.2.4",
     "@commitlint/config-conventional": "19.2.2",
     "@types/node": "24.9.1",
     "@vitest/coverage-v8": "4.1.5",
